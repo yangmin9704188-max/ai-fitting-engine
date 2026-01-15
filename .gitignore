@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Data / Artifacts (do not version large outputs)
+data/
+artifacts/
+verification/debug_output/
+verification/reports/
+*.npy
+*.npz
+*.pt
+*.pth
+
+# Models (SMPL-X, checkpoints)
+models/
+
+# OS
+.DS_Store
+Thumbs.db
