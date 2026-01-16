@@ -38,8 +38,9 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path (4 levels up from verification/runners/shoulder_width/file.py)
+project_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from core.measurements.shoulder_width_v112 import measure_shoulder_width_v112, ShoulderWidthV112Config
 
