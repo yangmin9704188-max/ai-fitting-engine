@@ -38,9 +38,15 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-# Add project root to path (4 levels up from verification/runners/shoulder_width/file.py)
-project_root = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Bootstrap: Add project root to sys.path
+# Required: Script must be run from project root OR use python -m
+# This allows both:
+#   A) python -m verification.runners.shoulder_width.verify_shoulder_width_v113_sweep --npz ...
+#   B) py verification/runners/shoulder_width/verify_shoulder_width_v113_sweep.py --npz ...
+_script_path = Path(__file__).resolve()
+_project_root = _script_path.parent.parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from core.measurements.shoulder_width_v112 import measure_shoulder_width_v112, ShoulderWidthV112Config
 
@@ -114,6 +120,7 @@ def evaluate_candidate_config(
     lbs_weights_all: np.ndarray,
     joints_xyz_all: np.ndarray,
     output_base_dir: str,
+    debug_first_frame: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate a single candidate configuration across golden set."""
     
@@ -179,6 +186,27 @@ def evaluate_candidate_config(
             is_leakage, leakage_reason = detect_upper_arm_leakage(
                 landmark_L, landmark_R, shoulder_L, shoulder_R, width, joint_sw
             )
+            
+            # Debug output for first frame of candidate_001
+            if debug_first_frame and candidate_id == "candidate_001" and frame_idx == 0:
+                print()
+                print("=" * 80)
+                print("DEBUG: Frame 1 of candidate_001")
+                print("=" * 80)
+                print(f"Joint SW (L_shoulder-R_shoulder distance): {joint_sw:.6f}m")
+                print(f"Measured SW (landmark distance): {width:.6f}m")
+                print(f"Ratio (measured_sw / joint_sw): {ratio:.4f}" if ratio is not None else "Ratio: N/A")
+                print(f"Landmark L distance from shoulder: {dist_L:.6f}m")
+                print(f"Landmark R distance from shoulder: {dist_R:.6f}m")
+                print(f"L_shoulder joint: [{shoulder_L[0]:.6f}, {shoulder_L[1]:.6f}, {shoulder_L[2]:.6f}]")
+                print(f"R_shoulder joint: [{shoulder_R[0]:.6f}, {shoulder_R[1]:.6f}, {shoulder_R[2]:.6f}]")
+                print(f"Landmark L: [{landmark_L[0]:.6f}, {landmark_L[1]:.6f}, {landmark_L[2]:.6f}]")
+                print(f"Landmark R: [{landmark_R[0]:.6f}, {landmark_R[1]:.6f}, {landmark_R[2]:.6f}]")
+                print(f"Leakage detected: {is_leakage}")
+                if is_leakage:
+                    print(f"Leakage reason: {leakage_reason}")
+                print("=" * 80)
+                print()
             
             frame_result.update({
                 "measured_sw_m": float(width),
@@ -383,6 +411,11 @@ def main():
         default=None,
         help="JSON file with candidate configs (if not provided, uses default sweep)",
     )
+    parser.add_argument(
+        "--debug_first_frame",
+        action="store_true",
+        help="Print debug info for frame 1 of candidate_001 (joint_sw, measured_sw, landmark distances)",
+    )
     args = parser.parse_args()
     
     # Setup output directory
@@ -470,6 +503,7 @@ def main():
             lbs_weights_all=lbs_weights_all,
             joints_xyz_all=joints_xyz_all,
             output_base_dir=args.out_dir,
+            debug_first_frame=args.debug_first_frame,
         )
         
         all_results.append(result)
