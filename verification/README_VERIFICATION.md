@@ -17,7 +17,7 @@ Each verification script:
 ## (A) A-Pose Normalization v1.1
 
 ### Script
-`verification/verify_apose_v11.py`
+`verification/runners/verify_apose_v11.py`
 
 ### Verification Criteria
 - ✅ dtype float32 maintained
@@ -27,7 +27,7 @@ Each verification script:
 
 ### Usage
 ```bash
-py verification/verify_apose_v11.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/reports/apose_v11] [--n_cases 20]
+py verification/runners/verify_apose_v11.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/reports/apose_v11] [--n_cases 20]
 ```
 
 ### Output Files
@@ -37,7 +37,7 @@ py verification/verify_apose_v11.py [--model_path ./models] [--data_dir ./data/p
 
 ### Example
 ```bash
-py verification/verify_apose_v11.py --n_cases 20
+py verification/runners/verify_apose_v11.py --n_cases 20
 ```
 
 ### Summary JSON Structure
@@ -64,7 +64,7 @@ py verification/verify_apose_v11.py --n_cases 20
 ## (B) Shoulder Width v1.1.2
 
 ### Script
-`verification/verify_shoulder_width_v112.py`
+`verification/runners/verify_shoulder_width_v112.py`
 
 ### Verification Criteria
 - ✅ cfg_used == cfg_frozen (policy-to-run wiring proof)
@@ -75,7 +75,7 @@ py verification/verify_apose_v11.py --n_cases 20
 
 ### Usage
 ```bash
-py verification/verify_shoulder_width_v112.py --npz <path_to_npz> [--out_dir verification/reports/shoulder_width_v112]
+py verification/runners/verify_shoulder_width_v112.py --npz <path_to_npz> [--out_dir verification/reports/shoulder_width_v112]
 ```
 
 ### Input NPZ Format
@@ -91,7 +91,7 @@ NPZ file must contain:
 
 ### Example
 ```bash
-py verification/verify_shoulder_width_v112.py --npz verification/golden_shoulder_batched.npz
+py verification/runners/verify_shoulder_width_v112.py --npz verification/datasets/golden_shoulder_batched.npz
 ```
 
 ### Summary JSON Structure
@@ -121,27 +121,27 @@ py verification/verify_shoulder_width_v112.py --npz verification/golden_shoulder
 ## (C) Golden Set Export
 
 ### Script
-`verification/export_golden_shoulder_npz.py`
+`verification/datasets/export_golden_shoulder_npz.py`
 
 ### Purpose
 Generate NPZ files containing `verts`/`lbs_weights`/`joints_xyz`/`joint_ids` for shoulder width verification.
 
 ### Usage
 ```bash
-py verification/export_golden_shoulder_npz.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification] [--n_cases 10] [--format batched|individual]
+py verification/datasets/export_golden_shoulder_npz.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/datasets] [--n_cases 10] [--format batched|individual]
 ```
 
 ### Output Files
-- **Batched format**: `verification/golden_shoulder_batched.npz` (single file with all cases)
-- **Individual format**: `verification/golden_shoulder_001.npz`, `golden_shoulder_002.npz`, ... (one file per case)
+- **Batched format**: `verification/datasets/golden_shoulder_batched.npz` (single file with all cases)
+- **Individual format**: `verification/datasets/golden_shoulder_001.npz`, `golden_shoulder_002.npz`, ... (one file per case)
 
 ### Example
 ```bash
 # Generate batched NPZ with 10 cases
-py verification/export_golden_shoulder_npz.py --n_cases 10 --format batched
+py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format batched
 
 # Generate individual NPZ files
-py verification/export_golden_shoulder_npz.py --n_cases 10 --format individual
+py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format individual
 ```
 
 ### NPZ Contents
@@ -156,17 +156,17 @@ py verification/export_golden_shoulder_npz.py --n_cases 10 --format individual
 
 ### 1. Generate Golden Set
 ```bash
-py verification/export_golden_shoulder_npz.py --n_cases 10 --format batched
+py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format batched
 ```
 
 ### 2. Verify A-Pose
 ```bash
-py verification/verify_apose_v11.py --n_cases 20
+py verification/runners/verify_apose_v11.py --n_cases 20
 ```
 
 ### 3. Verify Shoulder Width
 ```bash
-py verification/verify_shoulder_width_v112.py --npz verification/golden_shoulder_batched.npz
+py verification/runners/verify_shoulder_width_v112.py --npz verification/datasets/golden_shoulder_batched.npz
 ```
 
 ---
@@ -175,10 +175,27 @@ py verification/verify_shoulder_width_v112.py --npz verification/golden_shoulder
 
 ```
 verification/
-├── verify_apose_v11.py                    # A-Pose v1.1 verification
-├── verify_shoulder_width_v112.py          # Shoulder Width v1.1.2 verification
-├── export_golden_shoulder_npz.py         # Golden set export
-├── golden_shoulder_batched.npz            # Generated golden set (batched)
+├── runners/
+│   ├── verify_apose_v11.py                    # A-Pose v1.1 verification
+│   ├── verify_shoulder_width_v112.py          # Shoulder Width v1.1.2 verification
+│   ├── verify_smart_mapper_v001.py            # Smart Mapper v0.1 verification
+│   ├── sweep_shoulder_width_v112.py           # Shoulder width parameter sweep
+│   ├── step2_verify_pose.py                   # Pose verification
+│   ├── verify_policy.py                       # Policy verification
+│   └── shoulder_width/
+│       └── verify_shoulder_width_v113_sweep.py # v1.1.3 candidate sweep
+├── datasets/
+│   ├── export_golden_shoulder_npz.py          # Golden set export
+│   ├── golden_shoulder_batched.npz            # Generated golden set (batched)
+│   └── dummy_data.npz                         # Dummy test data
+├── tools/
+│   ├── check_smplx_weights.py                 # SMPL-X weights checker
+│   ├── inspect_smplx_joints.py                # SMPL-X joints inspector
+│   ├── step0_make_dummy.py                    # Dummy data generator
+│   └── summarize_sanity_checks.py             # Sanity check summarizer
+├── debug/
+│   ├── debug_shoulder_width_case2.py          # Shoulder width debug script
+│   └── debug_output/                          # Debug output files
 ├── reports/
 │   ├── apose_v11/
 │   │   ├── verification_results.csv
@@ -188,7 +205,7 @@ verification/
 │       ├── verification_results.csv
 │       ├── verification_summary.json
 │       └── case_*_debug.json (if failures/worst-case)
-└── README_VERIFICATION.md                 # This file
+└── README_VERIFICATION.md                     # This file
 ```
 
 ---
