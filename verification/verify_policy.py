@@ -2,7 +2,7 @@ import torch
 import smplx
 import os
 import numpy as np
-from step2_utils import PoseNormalizer
+from core.pose_policy import PoseNormalizer
 
 # =========================
 # Config
