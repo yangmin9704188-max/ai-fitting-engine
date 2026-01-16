@@ -4,10 +4,35 @@ This directory contains verification scripts for the two frozen policies:
 1. **A-Pose Normalization v1.1**
 2. **Shoulder Width v1.1.2**
 
+## ⚠️ Important: Execution Requirements
+
+**All verification scripts MUST be run from the project root directory.**
+
+The project root is the directory containing `core/`, `verification/`, `pipelines/`, etc.
+
+### Windows PowerShell Example:
+```powershell
+# Navigate to project root first
+cd "C:\Users\caino\Desktop\ai model"
+
+# Then run verification scripts (either method works):
+# Method A: python -m (recommended)
+py -m verification.runners.verify_apose_v11 --n_cases 20
+
+# Method B: Direct script execution (also works)
+py verification/runners/verify_apose_v11.py --n_cases 20
+```
+
+### Why?
+- `core/` is a top-level package in the project root
+- Python needs the project root in `sys.path` to resolve `core.*` imports
+- Bootstrap code in scripts automatically adds the project root to `sys.path`
+- `python -m` mode automatically adds the project root to `sys.path`
+
 ## Overview
 
 Each verification script:
-- Runs with a single command
+- Runs with a single command (from project root)
 - Generates `results.csv` and `summary.json` in the output directory
 - Records `cfg_used` / policy tag / version in `summary.json` (Policy-to-Run wiring proof)
 - Saves `case_*_debug.json` for failed cases
@@ -36,7 +61,13 @@ py verification/runners/verify_apose_v11.py [--model_path ./models] [--data_dir 
 - `verification/reports/apose_v11/case_*_debug.json` (for failures)
 
 ### Example
-```bash
+
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.verify_apose_v11 --n_cases 20
+
+# Method B: Direct script
 py verification/runners/verify_apose_v11.py --n_cases 20
 ```
 
@@ -74,7 +105,13 @@ py verification/runners/verify_apose_v11.py --n_cases 20
 - ✅ worst-case 1 debug JSON saved
 
 ### Usage
-```bash
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m (recommended)
+py -m verification.runners.verify_shoulder_width_v112 --npz <path_to_npz> [--out_dir verification/reports/shoulder_width_v112]
+
+# Method B: Direct script execution
 py verification/runners/verify_shoulder_width_v112.py --npz <path_to_npz> [--out_dir verification/reports/shoulder_width_v112]
 ```
 
@@ -90,7 +127,13 @@ NPZ file must contain:
 - `verification/reports/shoulder_width_v112/case_*_debug.json` (for failures/worst-case)
 
 ### Example
-```bash
+
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.verify_shoulder_width_v112 --npz verification/datasets/golden_shoulder_batched.npz
+
+# Method B: Direct script
 py verification/runners/verify_shoulder_width_v112.py --npz verification/datasets/golden_shoulder_batched.npz
 ```
 
@@ -127,7 +170,13 @@ py verification/runners/verify_shoulder_width_v112.py --npz verification/dataset
 Generate NPZ files containing `verts`/`lbs_weights`/`joints_xyz`/`joint_ids` for shoulder width verification.
 
 ### Usage
-```bash
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m (recommended)
+py -m verification.datasets.export_golden_shoulder_npz [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/datasets] [--n_cases 10] [--format batched|individual]
+
+# Method B: Direct script execution
 py verification/datasets/export_golden_shoulder_npz.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/datasets] [--n_cases 10] [--format batched|individual]
 ```
 
@@ -136,11 +185,15 @@ py verification/datasets/export_golden_shoulder_npz.py [--model_path ./models] [
 - **Individual format**: `verification/datasets/golden_shoulder_001.npz`, `golden_shoulder_002.npz`, ... (one file per case)
 
 ### Example
-```bash
-# Generate batched NPZ with 10 cases
-py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format batched
 
-# Generate individual NPZ files
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.datasets.export_golden_shoulder_npz --n_cases 10 --format batched
+py -m verification.datasets.export_golden_shoulder_npz --n_cases 10 --format individual
+
+# Method B: Direct script
+py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format batched
 py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format individual
 ```
 
@@ -155,18 +208,207 @@ py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format ind
 ## Quick Start
 
 ### 1. Generate Golden Set
-```bash
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.datasets.export_golden_shoulder_npz --n_cases 10 --format batched
+
+# Method B: Direct script
 py verification/datasets/export_golden_shoulder_npz.py --n_cases 10 --format batched
 ```
 
 ### 2. Verify A-Pose
-```bash
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.verify_apose_v11 --n_cases 20
+
+# Method B: Direct script
 py verification/runners/verify_apose_v11.py --n_cases 20
 ```
 
 ### 3. Verify Shoulder Width
-```bash
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.verify_shoulder_width_v112 --npz verification/datasets/golden_shoulder_batched.npz
+
+# Method B: Direct script
 py verification/runners/verify_shoulder_width_v112.py --npz verification/datasets/golden_shoulder_batched.npz
+```
+
+---
+
+## (D) Shoulder Width v1.2 Extended Golden Set Export
+
+### Script
+`verification/tools/export_golden_shoulder_v12_npz.py`
+
+### Purpose
+Generate extended golden dataset (>= 200 frames) for v1.2 regression verification.
+Includes variation in body shapes to test measurement robustness.
+
+### Usage
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m (recommended)
+py -m verification.tools.export_golden_shoulder_v12_npz [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/datasets/golden/shoulder_width] [--n_frames 200]
+
+# Method B: Direct script execution
+py verification/tools/export_golden_shoulder_v12_npz.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--out_dir verification/datasets/golden/shoulder_width] [--n_frames 200]
+```
+
+### Output Files
+- **Extended dataset**: `verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz`
+
+### NPZ Contents
+- `verts`: (T, N, 3) - vertices in float32 (T >= 200 frames)
+- `lbs_weights`: (T, N, J) - LBS weights in float32
+- `joints_xyz`: (T, J, 3) - joint positions in float32 (first 55 joints)
+- `joint_ids`: dict with keys "L_shoulder", "R_shoulder", "L_elbow", "R_elbow", "L_wrist", "R_wrist"
+- `provenance`: JSON string with dataset generation metadata
+
+### Example
+
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.tools.export_golden_shoulder_v12_npz --n_frames 200
+
+# Method B: Direct script
+py verification/tools/export_golden_shoulder_v12_npz.py --n_frames 200
+```
+
+---
+
+## (E) Shoulder Width v1.2 Regression Verification (Frozen Gate)
+
+### Script
+`verification/runners/shoulder_width/verify_shoulder_width_v12_regression.py`
+
+### Purpose
+Verify v1.2 measurement on extended golden set using fixed default config.
+This is the Candidate -> Frozen verification gate.
+
+### Fixed Default Config
+- `plane_height_tolerance`: 0.08
+- `arm_distance_threshold`: 0.12
+- `arm_alignment_cosine_threshold`: 0.50
+- `lateral_quantile`: 0.90
+
+### Verification Criteria
+- ✅ fallback = 0
+- ✅ exception = 0
+- ✅ wiring proof hash stable and unique for the cfg
+- ✅ arm_excluded_count non-trivial across frames (not zeroing out)
+- ✅ no obvious "arm leakage" signatures (ratio spikes, delta spikes, cross_section_count anomalies)
+
+### Usage
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m (recommended)
+py -m verification.runners.shoulder_width.verify_shoulder_width_v12_regression [--npz verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz] [--out_dir artifacts/shoulder_width/v1.2/regression/YYYYMMDD_<STATUS>]
+
+# Method B: Direct script execution
+py verification/runners/shoulder_width/verify_shoulder_width_v12_regression.py [--npz verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz] [--out_dir artifacts/shoulder_width/v1.2/regression/YYYYMMDD_<STATUS>]
+```
+
+### Input NPZ Format
+NPZ file must contain:
+- `verts`: (T, N, 3) - vertices (T >= 200 frames)
+- `lbs_weights`: (T, N, J) - LBS weights
+- `joints_xyz`: (T, J, 3) - joint positions
+- `joint_ids`: dict with joint name mappings
+
+### Output Files
+All artifacts are saved under:
+`artifacts/shoulder_width/v1.2/regression/YYYYMMDD_<PASS|PARTIAL|FAIL>/`
+
+- `wiring_proof.json` - Single cfg + hash (includes git_head_sha if available)
+- `regression_results.csv` - Per-frame results (all frames)
+- `regression_summary.json` - Overall statistics and success criteria
+- `worst_cases.json` - Top N frames with largest deltas or suspicious counts
+
+### Example
+
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.shoulder_width.verify_shoulder_width_v12_regression --npz verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz
+
+# Method B: Direct script
+py verification/runners/shoulder_width/verify_shoulder_width_v12_regression.py --npz verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz
+```
+
+### Summary JSON Structure
+```json
+{
+  "timestamp": "2026-01-17T...",
+  "status": "PASS|PARTIAL|FAIL",
+  "git_head_sha": "abc12345",
+  "golden_set": "verification/datasets/golden/shoulder_width/golden_shoulder_v12_extended.npz",
+  "n_frames": 200,
+  "config": {
+    "plane_height_tolerance": 0.08,
+    "arm_direction_exclusion_threshold": 0.50,
+    "arm_distance_threshold": 0.12,
+    "lateral_quantile": 0.90
+  },
+  "cfg_hash": "...",
+  "overall_statistics": {...},
+  "statistics": {...},
+  "pose_perturbation": {...},
+  "worst_cases_count": N,
+  "success_criteria": {...}
+}
+```
+
+---
+
+## (F) Smart Mapper Sanity Check with Shoulder Width v1.2 (Optional)
+
+### Script
+`verification/runners/smart_mapper/verify_smart_mapper_with_sw_v12.py`
+
+### Purpose
+Minimal sanity check to ensure Smart Mapper works with v1.2 shoulder width.
+Tests a small batch (10-20 samples) to confirm:
+- Loss is finite
+- Gradients/optimization do not explode
+- v1.2 measurement integration works
+
+### Note
+This check is optional and can be skipped if Smart Mapper module is not available in the repository.
+
+### Usage
+
+**⚠️ Run from project root:**
+```powershell
+# Method A: python -m (recommended)
+py -m verification.runners.smart_mapper.verify_smart_mapper_with_sw_v12 [--model_path ./models] [--data_dir ./data/processed/step1_output] [--n_samples 10] [--out_dir artifacts/verification/smart_mapper_sw_v12]
+
+# Method B: Direct script execution
+py verification/runners/smart_mapper/verify_smart_mapper_with_sw_v12.py [--model_path ./models] [--data_dir ./data/processed/step1_output] [--n_samples 10] [--out_dir artifacts/verification/smart_mapper_sw_v12]
+```
+
+### Output Files
+- `artifacts/verification/smart_mapper_sw_v12/sanity_check_results.csv` - Per-case results
+- `artifacts/verification/smart_mapper_sw_v12/sanity_check_summary.json` - Summary statistics
+
+### Example
+
+**Run from project root:**
+```powershell
+# Method A: python -m
+py -m verification.runners.smart_mapper.verify_smart_mapper_with_sw_v12 --n_samples 10
+
+# Method B: Direct script
+py verification/runners/smart_mapper/verify_smart_mapper_with_sw_v12.py --n_samples 10
 ```
 
 ---
