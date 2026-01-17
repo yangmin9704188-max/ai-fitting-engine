@@ -1,0 +1,31 @@
+triggers:
+  FREEZE_REQUIRED:
+    severity: P0
+    description: "Freeze required"
+    runbook_url: ""
+    enabled: true
+  AUDIT_FAILED:
+    severity: P1
+    description: "Audit failed"
+    runbook_url: ""
+    enabled: true
+  SPEC_CHANGE:
+    severity: P1
+    description: "Specification change detected"
+    runbook_url: ""
+    enabled: true
+  UNEXPECTED_ERROR:
+    severity: P2
+    description: "Unexpected error occurred"
+    runbook_url: ""
+    enabled: true
+  INSUFFICIENT_EVIDENCE:
+    severity: P2
+    description: "Insufficient evidence"
+    runbook_url: ""
+    enabled: true
+  RISK_HIGH:
+    severity: P1
+    description: "High risk detected"
+    runbook_url: ""
+    enabled: true
