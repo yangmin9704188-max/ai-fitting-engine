@@ -23,6 +23,7 @@ import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
+import datetime as dt
 from typing import Dict, List, Any, Tuple
 import numpy as np
 import pandas as pd
@@ -55,6 +56,22 @@ DEFAULT_CFG = ShoulderWidthV12Config(
     arm_distance_threshold=0.12,
     lateral_quantile=0.90,
 )
+
+
+def resolve_run_id(cli_run_id=None) -> str:
+    """Resolve RUN_ID with priority: CLI arg > env var > auto-generate (KST timestamp)."""
+    if cli_run_id:
+        run_id = str(cli_run_id).strip()
+    else:
+        run_id = os.environ.get("RUN_ID", "").strip()
+
+    if not run_id:
+        now_kst = dt.datetime.utcnow() + dt.timedelta(hours=9)
+        run_id = now_kst.strftime("%Y%m%d_%H%M%S")
+
+    os.environ["RUN_ID"] = run_id
+    print(f"RUN_ID={run_id}")
+    return run_id
 
 
 def cfg_to_hash(cfg: ShoulderWidthV12Config, arm_distance_threshold: float) -> str:
@@ -214,14 +231,22 @@ def main():
         "--out_dir",
         type=str,
         default=None,
-        help="Output directory (default: artifacts/shoulder_width/v1.2/regression/YYYYMMDD_<STATUS>)",
+        help="Output directory (default: artifacts/shoulder_width/v1.2/regression/<RUN_ID>_<STATUS>)",
+    )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Run ID (default: from env RUN_ID or auto-generate KST timestamp)",
     )
     args = parser.parse_args()
     
+    # Resolve RUN_ID first (before any artifact path creation)
+    run_id = resolve_run_id(args.run_id)
+    
     # Setup output directory with status
     if args.out_dir is None:
-        date_str = datetime.now().strftime("%Y%m%d")
-        args.out_dir = f"artifacts/shoulder_width/v1.2/regression/{date_str}_TBD"
+        args.out_dir = f"artifacts/shoulder_width/v1.2/regression/{run_id}_TBD"
     os.makedirs(args.out_dir, exist_ok=True)
     
     print("=" * 80)
@@ -441,6 +466,10 @@ def main():
                 shutil.rmtree(args.out_dir)
             os.rename(old_out_dir, args.out_dir)
     
+    # Ensure RUN_ID is preserved in final output directory name if needed
+    # Extract RUN_ID prefix from output directory
+    final_run_id = run_id  # Use the resolved RUN_ID
+    
     # Compute wiring proof hash
     cfg_hash = cfg_to_hash(DEFAULT_CFG, DEFAULT_CFG.arm_distance_threshold)
     git_head_sha = get_git_head_sha()
@@ -448,6 +477,7 @@ def main():
     # Save wiring proof
     wiring_proof = {
         "timestamp": datetime.now().isoformat(),
+        "run_id": run_id,
         "status": status,
         "git_head_sha": git_head_sha,
         "runtime_cfg": {
@@ -482,6 +512,7 @@ def main():
     # Build summary
     summary = {
         "timestamp": datetime.now().isoformat(),
+        "run_id": run_id,
         "status": status,
         "git_head_sha": git_head_sha,
         "golden_set": args.npz,
@@ -517,6 +548,27 @@ def main():
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
     print(f"Summary JSON: {summary_path}")
+    
+    # Save manifest.json (for artifact tracking)
+    manifest = {
+        "run_id": run_id,
+        "timestamp": datetime.now().isoformat(),
+        "script": "verify_shoulder_width_v12_regression.py",
+        "status": status,
+        "output_dir": args.out_dir,
+        "git_head_sha": git_head_sha,
+        "cfg_hash": cfg_hash,
+        "artifacts": {
+            "wiring_proof": "wiring_proof.json",
+            "results_csv": "regression_results.csv",
+            "summary_json": "regression_summary.json",
+            "worst_cases": "worst_cases.json",
+        },
+    }
+    manifest_path = os.path.join(args.out_dir, "manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Manifest JSON: {manifest_path}")
     print()
     
     # Print console summary
