@@ -288,3 +288,103 @@ Rules:
 - Artifacts from different runs MUST NOT be merged.
 - Policy Reports MUST reference this exact path.
 
+## Automation Status (Factory Runtime)
+
+이 레포는 “Autonomous R&D Factory”를 목표로 하되, 비용(LLM API) 최소화를 위해 **오케스트레이션(LLM↔LLM↔Cursor 자동 전송)**은 아직 도입하지 않았습니다.  
+현재는 **거버넌스 자동화(검증/기록/알림/재발방지)**가 구축되어 있으며, 사용자는 계획/가설/프롬프트 전달은 수동(복붙)으로 수행합니다.
+
+### What is automated now (✅ 구축 완료)
+
+#### 1) STOP Trigger → Slack Notification (CI Event Guard)
+- 워크플로우: `.github/workflows/stop-trigger-slack.yml`
+- 로직: `tools/stop_trigger_notify.py`
+- 트리거:
+  - `pull_request` (opened/synchronize/reopened)
+  - `workflow_dispatch` (smoke test)
+- 출력:
+  - Slack에 `[STOP] <repo> <branch or PR#> - Active triggers: ...` 자동 알림
+  - `stop_report.md`를 Actions artifact(`stop-report`)로 업로드(항상 실행)
+- 목적:
+  - 사람이 Actions 탭을 계속 감시하지 않아도 “중요 사건”을 즉시 알림으로 수신
+
+#### 2) Evidence-check (Schema/Validation) Gate
+- 워크플로우: `.github/workflows/evidence.yml`
+- 동작:
+  - PR 변경 경로 기반 infra-only 판별 강화(`.github/`, `tools/`, `docs/`)
+  - infra-only PR에서는 evidence validation skip
+  - 그 외 PR에서 evidence validation 수행(PASS/FAIL 자동 판정)
+- 목적:
+  - “결과물(증거)”이 형식/규칙을 만족하는지 CI가 자동으로 판정하여 재현성/감사 가능성 확보
+
+#### 3) YAML 최소화 → 로직 Python 이관 (Workflow Stability)
+- 원칙:
+  - Workflow는 최소 YAML(트리거+러너)만 유지
+  - 복잡 로직은 Python 파일로 이동
+- 목적:
+  - heredoc/멀티라인/들여쓰기 문제로 인한 Invalid workflow file 재발 방지
+
+---
+
+## What is NOT automated yet (❌ 아직 수동)
+
+- 오늘 할 일 선정 / 우선순위 결정
+- 가설 수립 및 교차 검토(GPT↔Gemini)
+- Cursor로 프롬프트 전달(복붙)
+- 로컬 GPU 실험 실행
+- 결과 해석(요약/다음 실험 설계)은 사람 입력 + LLM 도움(수동)
+
+---
+
+## When to recommend automation (Auto-Advice Script)
+
+아래 상황이 발생하면, “자동화 붙일 타이밍”입니다.  
+이 레포 운영 원칙상, 자동화는 **비용 0원/저비용**부터 단계적으로 붙입니다.
+
+### A) 복붙이 고통스러울 때 (오케스트레이션 단계)
+**추천 멘트(운영 스크립트):**  
+> “복붙 횟수/길이가 임계치를 넘었습니다. API 기반 오케스트레이터가 비싸다면, 먼저 UI 자동화(AutoHotkey)로 ‘복붙/탭 전환’을 단축키로 묶어 비용 0원으로 개선합시다.”
+
+**자동화 방법(저비용/0원):**
+- AutoHotkey로 다음 동작을 단축키로 묶기
+  - GPT → Gemini 전송
+  - Gemini → GPT 회수
+  - GPT → Cursor 전송
+- 결과는 “로그 전체 복붙” 대신 “GitHub Actions Run 링크 / Artifact 링크”로 공유
+
+### B) 동일한 실험/검증을 반복할 때 (Runner/CLI 표준화)
+**추천 멘트:**  
+> “같은 유형의 실험이 3회 이상 반복됩니다. 실행 커맨드/출력 경로를 표준 CLI로 고정하고, 결과 패키징(packer)까지 ‘한 번에 끝나는 명령’으로 묶읍시다.”
+
+**자동화 방법:**
+- `verification/runners/...`에 “v1.2.0용 runner”를 추가/확장
+- 표준 출력(예: summary.json, results.csv)을 고정
+- packer 입력을 표준화(필수 metric 이름/단위/기준선 값)
+
+### C) 정책 승격(Frozen) 또는 큰 결정을 앞둘 때 (태그/보고서 자동화)
+**추천 멘트:**  
+> “정책 승격/FAIL 아카이브 같은 의사결정 시점입니다. 이 시점은 태그로 봉인하고, 보고서/정책 문서를 ‘증거(evidence) 링크 기반’으로 생성해 재현성을 확보합시다.”
+
+**자동화 방법:**
+- Merge 후 안정화 태그 권장(예: `SW-v120-R1`, `infra/stop-report-evidence-v1.0`)
+- 보고서는 “증거 링크(PR/Actions run/artifacts)”를 입력으로 받아 작성
+- 문서 위치를 `docs/policies/`, `verification/reports/` 등으로 고정
+
+---
+
+## Day-to-day operating routine (Manual+Auto Hybrid)
+
+1) (Manual) 오늘 목표 1줄 작성 (PR 본문 또는 docs/plan/today.md)
+2) (Manual) GPT/Gemini로 가설/실험 설계 확정 (필요시)
+3) (Manual) Cursor에 “번들 프롬프트” 1회 전달 → 커밋/푸시/PR 생성
+4) (Manual) 로컬에서 실험 실행(GPU) 후 결과 확보
+5) (Auto) Evidence-check/Stop-trigger가 CI 판정 및 Slack 알림
+6) (Manual) PASS면 merge + 필요 시 tag로 봉인
+
+---
+
+## Tagging policy (when to tag)
+- 인프라 안정화(워크플로우/알림/증거 포맷) 완료 시: `infra/...` 태그 권장
+- Candidate/Report 기준선 생성 시: `SW-vXXX-RY` 형태 권장
+- Frozen 승격 시: `SW-vXXX-FROZEN` 형태 권장
+
+
