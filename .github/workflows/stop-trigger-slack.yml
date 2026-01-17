@@ -40,29 +40,7 @@ jobs:
           # Priority 1: force_trigger (workflow_dispatch test mode)
           if [ -n "${{ github.event.inputs.force_trigger }}" ]; then
             echo "Force trigger mode: ${{ github.event.inputs.force_trigger }}"
-            python << 'PYEOF'
-            import json
-            import os
-            
-            force_trigger = os.environ.get('FORCE_TRIGGER', '')
-            standard_triggers = [
-                "FREEZE_REQUIRED",
-                "AUDIT_FAILED",
-                "SPEC_CHANGE",
-                "UNEXPECTED_ERROR",
-                "INSUFFICIENT_EVIDENCE",
-                "RISK_HIGH"
-            ]
-            
-            triggers = {key: False for key in standard_triggers}
-            if force_trigger in standard_triggers:
-                triggers[force_trigger] = True
-            
-            output = json.dumps(triggers, indent=2, sort_keys=True)
-            print(output)
-            with open('triggers.json', 'w') as f:
-                json.dump(triggers, f, indent=2, sort_keys=True)
-            PYEOF
+            python tools/generate_trigger_from_force.py
           # Priority 2: existing triggers.json (test/** push)
           elif [ -f triggers.json ]; then
             echo "Using existing triggers.json"
