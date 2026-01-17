@@ -3,9 +3,6 @@ name: stop-trigger-slack
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - 'test/**'
   workflow_dispatch:
     inputs:
       force_trigger:
@@ -41,7 +38,7 @@ jobs:
           if [ -n "${{ github.event.inputs.force_trigger }}" ]; then
             echo "Force trigger mode: ${{ github.event.inputs.force_trigger }}"
             python tools/generate_trigger_from_force.py
-          # Priority 2: existing triggers.json (test/** push)
+          # Priority 2: existing triggers.json
           elif [ -f triggers.json ]; then
             echo "Using existing triggers.json"
             cat triggers.json
