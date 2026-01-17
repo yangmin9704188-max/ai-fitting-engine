@@ -1,6 +1,6 @@
 import torch
 import smplx
-from step2_utils import PoseNormalizer
+from core.pose_policy import PoseNormalizer
 from bench_utils import BenchTimer, print_bench
 
 # ===== 설정 =====

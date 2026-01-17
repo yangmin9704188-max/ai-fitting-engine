@@ -1,178 +1,290 @@
-ai_models/
-│
-├── core/                      # 🔒 제품 핵심 (봉인 영역)
-│   ├── pose_policy.py         # (기존 step2_utils.py)
-│   └── __init__.py
-│
-├── pipelines/                 # 🔁 실행 파이프라인
-│   ├── step1_execute.py
-│   └── __init__.py
-│
-├── verification/              # 🧪 검증/회귀 테스트
-│   ├── verify_pose_policy.py  # (기존 step2_verify_pose.py)
-│   └── README.md
-│
-├── data/
-│   ├── raw/                   # 🔵 원본 데이터 (읽기 전용)
-│   │   ├── sizekorea_original/
-│   │   │   └── 7th_8th_excel/
-│   │   └── scans_3d/
-│   │       └── male_female_20s_50s_obj/
-│   │
-│   ├── processed/             # 🟢 전처리된 데이터
-│   │   ├── sizekorea_final/
-│   │   └── step1_outputs/
-│   │
-│   └── models/                # 🧠 외부 모델 파일
-│       └── smplx/
-│           └── *.pkl
-│
-├── artifacts/                 # ⚫ 실행 결과/디버그 산출물
-│   ├── pose_debug/
-│   │   ├── baseline/
-│   │   ├── policy_apose/
-│   │   └── candidates/
-│   └── logs/
-│
-├── experiments/               # 🧪 실험/임시 코드 (자유 구역)
-│   └── scratch_*.py
-│
-└── README.md
+AI Virtual Fitting Engine
+Internal Project Constitution & Operating Manual
 
-core/ – Product Core (Do Not Touch Lightly)
+Scope
+This document is an internal-only operating constitution.
+It is optimized for LLM comprehension, reproducibility, and governance —
+not for marketing or external communication.
 
-프로덕션에서 항상 호출되는 핵심 정책 코드가 위치합니다.
+1. Project Vision & Hard KPIs
 
-pose_policy.py
+본 프로젝트의 모든 기술적·정책적 판단은 아래 KPI 달성 여부를 최우선 기준으로 한다.
 
-모든 측정 전 A-Pose 강제 정책을 정의
+Hard KPIs
 
-정책 값(axis, angle, joint pair 등)은 상수로 봉인(FROZEN)
+Cost: 추론 건당 10원 미만
+(클라우드/GPU/렌더링 비용 포함)
 
-run_forward() 시 body_pose가 없으면 자동으로 정책 A-Pose 적용
+Latency: 입력 → 최종 결과까지 10–30초 이내
 
-⚠️ 이 디렉토리의 코드는
-변경 시 반드시 verification/의 회귀 테스트를 통과해야 합니다.
+Quality:
 
-🔁 pipelines/ – Execution Pipelines
+B2B 커머스 수준의 고퀄리티 이미지
 
-실제 데이터 처리 단계별 실행 스크립트입니다.
+설명 가능한(Explainable) 신체 치수 산출
 
-step1_execute.py
+KPI를 충족하지 못하는 기술적 선택은
+정확성·완성도와 무관하게 채택 대상이 아니다.
 
-SizeKorea 기반 데이터 → SMPL-X 파라미터 변환
+2. LLM-Orchestrated Governance (Single-Owner Model)
 
-이후 Step2(Smart Mapper)의 입력으로 사용될 중간 산출물 생성
+본 프로젝트는 1인 개발 환경이므로,
+역할 분리를 통해 시스템적 안정성을 확보한다.
 
-파이프라인 스크립트는 재실행 가능해야 하며,
-산출물은 data/processed/에 저장됩니다.
+Role	Agent	Responsibility	Authority
+Owner	Human (민영)	최종 의사결정, 문서 확정, Git Commit & Tag 실행	최종 승인
+Planner	GPT	정책(Policy) 설계, 보고서/명세서 작성, 커밋·태그 요청	설계 주도
+Advisor	Gemini	2차 검토, 논리적 반례 제시, 비구속적 피드백	조언
+Executor	Cursor	코드 작성, 실험 수행, 아티팩트 생성	구현/실행
+중요한 원칙
 
-🧪 verification/ – Policy & Regression Verification
+LLM은 결정하지 않는다
 
-정책이 깨지지 않았는지 확인하는 전용 코드입니다.
+Human은 추론하지 않는다
 
-verify_pose_policy.py
+Git은 **사실의 기준(Source of Truth)**이다
 
-봉인된 A-Pose 정책이 여전히:
+3. Core Design Philosophy
+Geometry-First
 
-좌우 대칭을 유지하는지
+치수 측정에 블랙박스 AI를 사용하지 않는다
 
-batch 환경에서도 동일하게 동작하는지
+모든 measurement는 기하학적으로 설명 가능해야 한다
 
-symmetry score 기준으로 PASS / FAIL 판단
+Deterministic & Explainable
 
-모델 버전 변경, 파라미터 수정, 환경 변경 시
-반드시 실행해야 하는 검증 스크립트입니다.
+같은 입력 → 같은 결과
 
-🗂 data/ – Data Assets
-data/raw/
+모든 수치에는 Policy Report라는 근거 문서가 존재해야 한다
 
-원본 데이터 (절대 수정 금지)
+Failure is a Feature
 
-SizeKorea 7·8차 엑셀 데이터
+FAIL은 오류가 아니다
 
-고해상도 3D 인체 스캔(obj)
+Semantic Gate에서 실패하는 것이 시스템의 정상 동작
 
-data/processed/
+4. Policy Lifecycle (Strict State Machine)
+정책 상태 정의
 
-전처리 및 중간 결과물
+Draft: 설계/가설 단계
 
-SizeKorea 정제 CSV
+Candidate: 구현 완료, 검증 대기
 
-Step1 실행 결과(npy, csv)
+Frozen: 모든 게이트 통과 + Git Tag 존재
 
-data/models/
+Archived: 실패 또는 더 이상 사용하지 않음
 
-외부 모델 파일
+Deprecated: Frozen이지만 대체 정책 존재
 
-SMPL-X .pkl 파일 등
+절대 규칙
 
-기준 원칙:
+No Tag, No Frozen
+Git Tag가 없는 정책은 어떤 경우에도 Frozen이 아니다.
 
-raw → 재생성 불가
+5. Verification Gates (모두 필수)
 
-processed → 재생성 가능
+Semantic Validity
 
-⚫ artifacts/ – Runtime Outputs & Debug
+측정값이 실제 의류 제작/피팅 의미와 일치하는가
 
-실행 결과 및 디버그 산출물 저장 공간입니다.
+Wiring Proof
 
-pose_debug/
+정책 cfg ↔ 런타임 cfg 일치(hash)
 
-T-Pose / Policy A-Pose OBJ 파일
+Golden Set Regression
 
-A-Pose 후보 탐색 결과(candidates)
+대표 데이터셋에서 성능 퇴행 없음
 
-검증용 시각화 결과
+Stability (보조 지표)
 
-언제든 삭제 가능하며,
-Git 관리 대상이 아닙니다.
+std / CV (단, 의미 게이트보다 우선하지 않음)
 
-🧪 experiments/ – Experiments / Scratch
+6. Single Policy Report Rule (Solo Development)
 
-실험용 코드
+본 프로젝트에서는 정책당 Policy Report 1개만 사용한다.
 
-임시 테스트
+작성/확정 규칙
 
-구조가 확정되지 않은 아이디어
+실행 전:
 
-자유롭게 사용하되,
-여기 있는 코드는 제품 로직이 아닙니다.
+Report는 초안(Draft) 상태
 
-🧭 Development Principles
+Git SHA / Tag를 값으로 기입하지 않는다
 
-Policy First
+실행 후:
 
-A-Pose, dtype, device 등 핵심 규칙은 정책으로 고정
+결과(PASS / FAIL) 확정
 
-Reproducibility
+이 시점에만 Git 필드를 채운다
 
-동일 입력 → 동일 출력
+이후 값은 절대 변경되지 않는다
 
-Separation of Concerns
+초안에 적힌 Git 값은 “확정값”이 아니라
+비권위적 메모로 간주한다.
 
-Core / Pipeline / Verification / Data 분리
+7. Notion ↔ Git Data Contract (Canonical)
+Policies DB (요약)
 
-Regression Safety
+Identity: Name, Version, Measurement, Owner, Created Date
 
-변경은 허용하되, 깨지면 즉시 탐지
+Status: Draft / Candidate / Frozen / Archived / Deprecated
 
-🚀 Typical Workflow
+Git Binding:
 
-Raw data 준비 (data/raw/)
+Frozen Git Tag
 
-Step1 실행 → 중간 산출물 생성 (pipelines/)
+Frozen Commit SHA
 
-Core 정책 적용 (core/pose_policy.py)
+Base Commit
 
-정책 검증 (verification/verify_pose_policy.py)
+Lineage:
 
-결과 확인 (artifacts/)
+Supersedes / Superseded By
 
-📝 Notes
+Reporting:
 
-본 저장소는 엔진화/패키징을 염두에 두고 설계됨
+Latest Report
 
-B2B PoC, 내부 API, 추후 서비스 연동을 고려한 구조
+Policy Reports DB (요약)
 
-정책 변경 시 반드시 문서 및 검증 스크립트 동반 업데이트
+Identity: Report ID, Related Policy, Report Type
+
+Result:
+
+PASS / FAIL / PARTIAL
+
+Gate Failed
+
+Git Context:
+
+Evaluated Policy Commit
+
+Verification Tool Commit
+
+Execution:
+
+Artifacts Path
+
+Dataset / Input
+
+8. Git Evidence Protocol (Mandatory)
+핵심 원칙
+
+문서에 Git 값을 서술로 적지 않는다
+
+항상 명령어 블록으로만 제공
+
+사람은 출력값을 복사해서 필드에 입력한다
+
+표준 명령어 템플릿
+정책 구현 기준 커밋(Base / Evaluated)
+git log -n 1 --format="%H" -- <POLICY_IMPL_FILE_PATH>
+
+검증 도구 커밋
+git log -n 1 --format="%H" -- <VERIFICATION_TOOL_FILE_PATH>
+
+Frozen Tag 기준 커밋
+git show -s --format="%H" <freeze_tag_name>
+
+금지 표현
+
+“확인 후 기입”
+
+“이전 커밋 사용”
+
+“HEAD 기준”
+
+9. Commit / Tag Request Protocol (LLM Rule)
+
+GPT는 다음과 같이 행동해야 한다.
+
+커밋이 필요한 시점:
+
+명확하게 요청
+
+포함할 경로 명시
+
+태그가 필요한 시점:
+
+모든 게이트 통과 확인 후
+
+태그명까지 제안
+
+Human은:
+
+명령어 실행 결과만 신뢰
+
+추정·기억 기반 SHA 사용 금지
+
+10. Failure as a First-Class Outcome
+
+FAIL 정책은 다음과 같이 처리된다.
+
+Archived 상태로 보존
+
+Policy Report에 실패 원인 명시
+
+후속 정책(vNext)의 설계 근거로 사용
+
+실패한 정책은 삭제되지 않는다
+실패는 설계 자산이다.
+
+11. Worked Example (Reference)
+
+Shoulder Width v1.1.3
+
+Result: FAIL
+
+원인: Semantic mismatch
+
+조치: v1.2로 계승
+
+이 사례는 본 프로젝트의 정상적인 작동 예시이다.
+
+Final Note
+
+이 문서는
+
+코드보다 우선한다
+
+실험보다 우선한다
+
+편의보다 우선한다
+
+이 문서와 충돌하는 구현은 잘못된 구현이다.
+
+### Result Semantics: PASS / PARTIAL / FAIL
+
+Policy Report results are interpreted as follows:
+
+- PASS:
+  - All mandatory gates pass.
+  - Policy is eligible for Frozen status.
+
+- PARTIAL:
+  - Semantic Validity MUST be PASS.
+  - Wiring Proof MUST be PASS.
+  - Stability or auxiliary metrics (e.g. CV, std) may be below target.
+  - PARTIAL results MAY be Frozen only if explicitly approved by the Owner
+    and documented in the Policy Report.
+
+- FAIL:
+  - Any failure in Semantic Validity or Wiring Proof.
+  - Policy MUST NOT be Frozen and is Archived.
+
+### Artifact Directory Naming Convention
+
+All verification artifacts MUST be stored under a deterministic path.
+
+Format:
+artifacts/<measurement>/<policy_name>/<version>/<YYYYMMDD>_<result>/
+
+Example:
+artifacts/shoulder_width/shoulder_width_v1.1.3/20260117_FAIL/
+
+Rules:
+- Date is the execution date.
+- Result is one of PASS / PARTIAL / FAIL.
+- Artifacts from different runs MUST NOT be merged.
+- Policy Reports MUST reference this exact path.
+
