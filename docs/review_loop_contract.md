@@ -177,8 +177,65 @@ v3 Execution Pack은 다음 형식으로 Human에게 전달됩니다:
 ```
 ```
 
+## Cursor Execution Rules
+
+### Input Requirements
+
+- Cursor는 v3 Execution Pack 외의 지시를 따르지 않습니다.
+- v3 Execution Pack은 반드시 `docs/prompts/gpt_v3_prompt.md` 규격을 준수해야 합니다.
+
+### Scope Lock Enforcement
+
+- v3 Execution Pack에 Scope Lock이 정의되어 있으면 반드시 준수해야 합니다.
+- Scope Lock 위반 시 즉시 실행을 중단합니다.
+- Scope Lock은 파일 경로 패턴으로 정의됩니다.
+
+### File Modification Rules
+
+- v3 Execution Pack의 "Exact Edits" 섹션 또는 각 Step의 파일/라인/액션만 수행합니다.
+- 명시되지 않은 파일은 절의로 수정하지 않습니다.
+- 임의 판단으로 추가 수정을 하지 않습니다.
+
+### Command Execution Rules
+
+- Commands 섹션의 명령어를 순서대로 실행합니다.
+- 명령어 실행 순서를 변경하지 않습니다.
+- 명령어 실행 실패 시 즉시 중단합니다.
+
+### Output Validation
+
+- Expected Outputs 섹션에 정의된 모든 산출물을 검증합니다.
+- 검증 실패 시 execution_report.md에 기록하고 계속 진행할지 결정합니다.
+- 검증은 deterministic해야 합니다 (pass/fail이 명확).
+
+### Execution Report
+
+- 자동 실행 결과는 반드시 `execution_report.md`로 출력합니다.
+- execution_report.md는 다음 정보를 포함합니다:
+  - RUN_ID
+  - Modified files
+  - Commands executed
+  - Evidence validation result (PASS/FAIL)
+  - Commit SHA
+  - PR URL (있을 경우)
+
+### Git Integration
+
+- 변경사항은 항상 새 브랜치에서 커밋합니다.
+- 브랜치명: `auto/exec-{RUN_ID}`
+- 커밋 메시지 규칙: `auto(exec): apply v3 execution pack [{RUN_ID}]`
+- PR이 이미 존재하면 업데이트, 없으면 새 PR 생성 (GitHub API 연동 필요)
+
+### Stop Trigger Handling
+
+- 실행 중 Stop Trigger가 true가 되면 즉시 중단합니다.
+- Stop Trigger는 execution_report.md에 기록합니다.
+- Human의 명시적 승인 없이는 재개하지 않습니다.
+
 ## Enforcement
 
 - 이 규격은 절대적입니다. 예외는 없습니다.
 - Evidence Pack 외의 입력을 사용하는 경우 즉시 거부됩니다.
 - v3에 Human Summary, Cursor Execution Prompt, Stop Triggers가 모두 포함되지 않으면 NON-COMPLIANT입니다.
+- Scope Lock 위반은 즉시 중단을 의미합니다.
+- 자동 실행은 v3 Execution Pack이 명확할 때만 수행합니다.
