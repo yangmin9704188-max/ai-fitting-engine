@@ -37,32 +37,28 @@ jobs:
       - name: Extract stop triggers
         id: extract_triggers
         run: |
-          # Priority 1: force_trigger (workflow_dispatch test mode)
           if [ -n "${{ github.event.inputs.force_trigger }}" ]; then
             echo "Force trigger mode: ${{ github.event.inputs.force_trigger }}"
             python tools/generate_trigger_from_force.py
-          # Priority 2: test/** push - force AUDIT_FAILED for smoke test
           elif [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref_name }}" == test/* ]]; then
             echo "Test branch push detected - forcing AUDIT_FAILED for smoke test"
             python << 'PYEOF'
-import json
-triggers = {
-    "FREEZE_REQUIRED": False,
-    "AUDIT_FAILED": True,
-    "SPEC_CHANGE": False,
-    "UNEXPECTED_ERROR": False,
-    "INSUFFICIENT_EVIDENCE": False,
-    "RISK_HIGH": False
-}
-with open('triggers.json', 'w') as f:
-    json.dump(triggers, f, indent=2, sort_keys=True)
-print(json.dumps(triggers, indent=2))
-PYEOF
-          # Priority 3: existing triggers.json (manual test file)
+          import json
+          triggers = {
+              "FREEZE_REQUIRED": False,
+              "AUDIT_FAILED": True,
+              "SPEC_CHANGE": False,
+              "UNEXPECTED_ERROR": False,
+              "INSUFFICIENT_EVIDENCE": False,
+              "RISK_HIGH": False
+          }
+          with open('triggers.json', 'w') as f:
+              json.dump(triggers, f, indent=2, sort_keys=True)
+          print(json.dumps(triggers, indent=2))
+          PYEOF
           elif [ -f triggers.json ]; then
             echo "Using existing triggers.json"
             cat triggers.json
-          # Priority 4: extract from evidence files (normal PR flow)
           else
             python tools/extract_stop_triggers.py > triggers.json
             cat triggers.json
