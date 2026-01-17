@@ -31,66 +31,39 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          # Infra-only paths (skip evidence check)
-          INFRA_PATTERNS=(
-            ".github/workflows/"
-            "docs/"
-            "tools/"  # Only infra tools, not ML pipelines
+          # Allowlist: only these paths are considered infra-only
+          # All changed files must match one of these patterns
+          ALLOWLIST_PATTERNS=(
+            "^\.github/workflows/"
+            "^docs/"
           )
           
-          # ML-related paths (require evidence check)
-          ML_PATTERNS=(
-            "artifacts/"
-            "core/pose_policy"
-            "core/measurements"
-            "core/policy"
-            "pipelines/"  # ML pipelines
-            "verification/"
-            "core/smart_mapper"
-          )
-          
-          # Check if any ML-related files changed
-          ML_CHANGED=false
-          for pattern in "${ML_PATTERNS[@]}"; do
-            if echo "$CHANGED_FILES" | grep -q "^${pattern}\|/${pattern}"; then
-              ML_CHANGED=true
-              echo "ML-related file changed: $pattern"
-              break
-            fi
-          done
-          
-          # Check if only infra files changed
+          # Check if ALL changed files are in allowlist
           INFRA_ONLY=true
-          if [ "$ML_CHANGED" = "true" ]; then
-            INFRA_ONLY=false
-          else
-            # Verify all changed files are infra-only
-            while IFS= read -r file; do
-              if [ -z "$file" ]; then
-                continue
-              fi
-              IS_INFRA=false
-              for pattern in "${INFRA_PATTERNS[@]}"; do
-                if echo "$file" | grep -q "^${pattern}\|/${pattern}"; then
-                  IS_INFRA=true
-                  break
-                fi
-              done
-              # If file is not infra and not in .gitignore/common files, require evidence
-              if [ "$IS_INFRA" = "false" ] && ! echo "$file" | grep -qE "^\.gitignore|^README|\.md$"; then
-                INFRA_ONLY=false
-                echo "Non-infra file changed: $file"
+          while IFS= read -r file; do
+            if [ -z "$file" ]; then
+              continue
+            fi
+            MATCHED=false
+            for pattern in "${ALLOWLIST_PATTERNS[@]}"; do
+              if echo "$file" | grep -qE "$pattern"; then
+                MATCHED=true
                 break
               fi
-            done <<< "$CHANGED_FILES"
-          fi
+            done
+            if [ "$MATCHED" = "false" ]; then
+              INFRA_ONLY=false
+              echo "Non-infra file changed (not in allowlist): $file"
+              break
+            fi
+          done <<< "$CHANGED_FILES"
           
           if [ "$INFRA_ONLY" = "true" ]; then
             echo "IS_INFRA_ONLY=true" >> $GITHUB_OUTPUT
-            echo "Skipping evidence validation for infra-only changes."
+            echo "Skipping evidence validation for infra-only changes (.github/workflows/ or docs/ only)."
           else
             echo "IS_INFRA_ONLY=false" >> $GITHUB_OUTPUT
-            echo "ML-related or mixed changes detected. Evidence validation required."
+            echo "Non-infra files changed. Evidence validation required."
           fi
 
       - name: Set up Python
