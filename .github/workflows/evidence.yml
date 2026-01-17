@@ -15,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if infra-only PR
+      - name: Check if infra-only PR and evidence runs changed
         id: check_infra
         run: |
           # Get changed files
@@ -37,6 +37,14 @@ jobs:
               echo "  - $file"
             fi
           done
+          
+          # Check for artifacts/**/runs/** changes
+          HAS_EVIDENCE_RUNS=false
+          if echo "$CHANGED_FILES" | grep -qE '^artifacts/[^/]+/[^/]+/runs/'; then
+            HAS_EVIDENCE_RUNS=true
+            echo "Evidence runs detected in changed files."
+          fi
+          echo "HAS_EVIDENCE_RUNS=$HAS_EVIDENCE_RUNS" >> "$GITHUB_OUTPUT"
           
           # Allowlist: only these paths are considered infra-only
           # All changed files must match one of these patterns
@@ -92,8 +100,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
+      - name: Validate evidence runs (schema v1.0)
+        if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true' && steps.check_infra.outputs.HAS_EVIDENCE_RUNS == 'true'
+        env:
+          IS_INFRA_ONLY: ${{ steps.check_infra.outputs.IS_INFRA_ONLY }}
+        run: |
+          # Guard: Skip if infra-only (double-check using env var)
+          echo "validate env IS_INFRA_ONLY=${IS_INFRA_ONLY}"
+          if [ "${IS_INFRA_ONLY}" = "true" ]; then
+            echo "Skipping evidence validation for infra-only changes."
+            exit 0
+          fi
+          
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            python tools/validate_evidence.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          else
+            python tools/validate_evidence.py --base HEAD~1 --head HEAD
+          fi
+
       - name: Validate observation & manifest (if present)
-        if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true'
+        if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true' && steps.check_infra.outputs.HAS_EVIDENCE_RUNS != 'true'
         env:
           IS_INFRA_ONLY: ${{ steps.check_infra.outputs.IS_INFRA_ONLY }}
         run: |
@@ -109,6 +137,11 @@ jobs:
           else
             echo "No observation.md found. Skipping evidence validation."
           fi
+
+      - name: Skip evidence validation (no runs changed)
+        if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true' && steps.check_infra.outputs.HAS_EVIDENCE_RUNS != 'true'
+        run: |
+          echo "No evidence runs changed; skipping validation."
 
       - name: Ensure pending_review exists (if required)
         if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true'
