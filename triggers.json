@@ -1,1 +1,8 @@
-{"FREEZE_REQUIRED": false, "AUDIT_FAILED": true, "SPEC_CHANGE": false, "UNEXPECTED_ERROR": false, "INSUFFICIENT_EVIDENCE": false, "RISK_HIGH": false}
+{
+  "FREEZE_REQUIRED": false,
+  "AUDIT_FAILED": true,
+  "SPEC_CHANGE": false,
+  "UNEXPECTED_ERROR": false,
+  "INSUFFICIENT_EVIDENCE": false,
+  "RISK_HIGH": false
+}
