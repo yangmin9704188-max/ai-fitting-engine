@@ -3,6 +3,10 @@ name: stop-trigger-slack
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - 'test/**'
+      - 'infra/**'
   workflow_dispatch:
 
 jobs:
@@ -21,8 +25,13 @@ jobs:
       - name: Extract stop triggers
         id: extract_triggers
         run: |
-          python tools/extract_stop_triggers.py > triggers.json
-          cat triggers.json
+          if [ -f triggers.json ]; then
+            echo "Using existing triggers.json"
+            cat triggers.json
+          else
+            python tools/extract_stop_triggers.py > triggers.json
+            cat triggers.json
+          fi
       
       - name: Check for active triggers
         id: check_triggers
