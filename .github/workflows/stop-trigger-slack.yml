@@ -40,4 +40,14 @@ jobs:
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: python tools/stop_trigger_notify.py
+
+      - name: Upload stop_report.md as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stop-report
+          path: stop_report.md
+          retention-days: 30
+          if-no-files-found: warn
