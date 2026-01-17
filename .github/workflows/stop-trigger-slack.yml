@@ -104,6 +104,174 @@ jobs:
             echo "webhook_available=true" >> $GITHUB_OUTPUT
           fi
       
+      - name: Generate stop_report.md (for summary)
+        if: steps.check_triggers.outputs.HAS_TRIGGERS == 'true' && steps.check_webhook.outputs.webhook_available == 'true'
+        run: |
+          python << 'PYEOF'
+          import os
+          import json
+          
+          event_name = os.environ.get('GITHUB_EVENT_NAME', 'unknown')
+          event_path = os.environ.get('GITHUB_EVENT_PATH', '')
+          repo = os.environ.get('GITHUB_REPOSITORY', 'N/A')
+          server_url = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          
+          is_pr_event = False
+          pr_number = None
+          pr_url = None
+          
+          if event_path:
+              try:
+                  with open(event_path, 'r') as f:
+                      event_payload = json.load(f)
+                  if 'pull_request' in event_payload:
+                      is_pr_event = True
+                      pr_number = event_payload.get('pull_request', {}).get('number')
+              except:
+                  if event_name == 'pull_request':
+                      is_pr_event = True
+                      pr_number = os.environ.get('GITHUB_EVENT_NUMBER') or None
+          elif event_name == 'pull_request':
+              is_pr_event = True
+              pr_number = os.environ.get('GITHUB_EVENT_NUMBER') or None
+          
+          if is_pr_event and pr_number:
+              pr_url = f"{server_url}/{repo}/pull/{pr_number}"
+          
+          branch = os.environ.get('GITHUB_HEAD_REF', '') or os.environ.get('GITHUB_REF_NAME', 'N/A')
+          run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else None
+          
+          report_lines = [
+              "# Stop Trigger Report",
+              "",
+              "## Trigger Context",
+              f"- Event Type: {event_name}",
+          ]
+          
+          if pr_number:
+              report_lines.append(f"- PR Number: {pr_number}")
+          
+          report_lines.append(f"- Branch: {branch}")
+          if run_url:
+              report_lines.append(f"- Workflow Run: {run_url}")
+          else:
+              report_lines.append("- Workflow Run: N/A")
+          
+          report_lines.extend([
+              "",
+              "## Infra Classification",
+              "- Infra Only PR: N/A (see evidence-check workflow run)",
+              "",
+              "## Evidence Execution",
+              "- Evidence Check Executed: N/A (evidence-check workflow runs separately)",
+              "- Validation Mode: N/A (see evidence-check workflow run)",
+              "",
+              "## Result",
+              "- Final Status: success",
+              "",
+              "## References",
+          ])
+          
+          if pr_url:
+              report_lines.append(f"- PR URL: {pr_url}")
+          if run_url:
+              report_lines.append(f"- Workflow URL: {run_url}")
+          
+          with open('stop_report.md', 'w', encoding='utf-8') as f:
+              f.write('\n'.join(report_lines) + '\n')
+          
+          print("Generated stop_report.md for summary")
+          PYEOF
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+      
+      - name: Generate summary with OpenAI
+        id: generate_summary
+        if: steps.check_triggers.outputs.HAS_TRIGGERS == 'true' && steps.check_webhook.outputs.webhook_available == 'true'
+        run: |
+          # Read stop_report.md
+          REPORT_CONTENT=""
+          if [ -f stop_report.md ]; then
+            REPORT_CONTENT=$(cat stop_report.md)
+          fi
+          
+          # Prepare prompt for 3-line Korean summary
+          PROMPT="다음 Stop Trigger 리포트를 정확히 3줄로 한국어 요약하세요. 각 줄은 90자 이내로 간결하게 작성하세요.
+
+요약 규칙:
+1줄: 무엇이 발생했는지 (이벤트 타입, 브랜치, PR번호 포함)
+2줄: 무엇이 실행/스킵됐는지 (infra-only/evidence는 '별도 워크플로우' 명시)
+3줄: 결과와 다음 행동 (success/failure + 링크 안내)
+
+이모지나 불필요한 수식 없이 순수 텍스트만 출력하세요.
+
+--- 리포트 ---
+${REPORT_CONTENT}
+--- 리포트 끝 ---"
+          
+          # Call OpenAI API
+          OPENAI_KEY="${{ secrets.OPENAI_API_KEY }}"
+          OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
+          
+          if [ -z "$OPENAI_KEY" ]; then
+            echo "OPENAI_API_KEY secret not set. Using fallback summary."
+            echo "SLACK_SUMMARY=Stop Trigger 확인됨 - 요약 생성 실패 (링크 참조)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Use curl to call OpenAI API
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://api.openai.com/v1/chat/completions" \
+            -H "Authorization: Bearer $OPENAI_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"$OPENAI_MODEL\",
+              \"messages\": [
+                {\"role\": \"system\", \"content\": \"You are a concise technical summarizer. Output exactly 3 lines in Korean.\"},
+                {\"role\": \"user\", \"content\": \"$PROMPT\"}
+              ],
+              \"temperature\": 0.3,
+              \"max_tokens\": 200
+            }" 2>&1)
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            # Extract summary from JSON response
+            SUMMARY=$(echo "$BODY" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data['choices'][0]['message']['content'].strip())" 2>/dev/null || echo "")
+            
+            if [ -n "$SUMMARY" ]; then
+              # Ensure exactly 3 lines
+              LINE_COUNT=$(echo "$SUMMARY" | grep -c "^" || echo "0")
+              if [ "$LINE_COUNT" -eq 3 ]; then
+                echo "SLACK_SUMMARY<<EOF" >> "$GITHUB_OUTPUT"
+                echo "$SUMMARY" >> "$GITHUB_OUTPUT"
+                echo "EOF" >> "$GITHUB_OUTPUT"
+                echo "Summary generated successfully (3 lines)"
+              else
+                echo "Summary has $LINE_COUNT lines (expected 3). Using fallback."
+                echo "SLACK_SUMMARY=Stop Trigger 확인됨 - 요약 생성 실패 (링크 참조)" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "Failed to extract summary from API response. Using fallback."
+              echo "SLACK_SUMMARY=Stop Trigger 확인됨 - 요약 생성 실패 (링크 참조)" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "OpenAI API call failed (HTTP $HTTP_CODE). Using fallback."
+            echo "SLACK_SUMMARY=Stop Trigger 확인됨 - 요약 생성 실패 (링크 참조)" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4o-mini' }}
+      
       - name: Send Slack notification
         if: steps.check_triggers.outputs.HAS_TRIGGERS == 'true' && steps.check_webhook.outputs.webhook_available == 'true'
         run: |
@@ -173,89 +341,46 @@ jobs:
               if run_id and run_id != '':
                   run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
           
-          # Get suggestion from output file
-          suggestion = 'Manual review required'
-          try:
-              with open('trigger_output.txt', 'r') as f:
-                  for line in f:
-                      if line.startswith('SUGGESTION='):
-                          suggestion = line.split('=', 1)[1].strip()
-                          break
-          except:
-              pass
+          # Get OpenAI summary from step output
+          slack_summary = os.environ.get('SLACK_SUMMARY', '')
           
-          # Build Slack message blocks (PR vs Non-PR format)
+          # Fallback if summary not available
+          if not slack_summary or slack_summary == '':
+              slack_summary = "Stop Trigger 확인됨 - 요약 생성 실패 (링크 참조)"
+          
+          # Build simplified Slack message (3-line summary + links)
           blocks = []
           
-          # Header block (PR format vs Non-PR format)
-          if is_pr_event and pr_number:
-              header_text = f"[STOP] {repo} PR#{pr_number}"
-              message_text = f"[STOP] {repo} PR#{pr_number}"
-              if pr_title:
-                  message_text += f" {pr_title}"
-          else:
-              # Non-PR format: no PR# prefix
-              header_text = f"[STOP] {repo}"
-              message_text = f"[STOP] {repo}"
-              if branch and branch != 'N/A':
-                  message_text += f" {branch}"
-          
-          blocks.append({
-              "type": "header",
-              "text": {
-                  "type": "plain_text",
-                  "text": header_text
-              }
-          })
-          
-          # Fields section (triggers, branch, actor, suggestion)
-          fields = [
-              {
-                  "type": "mrkdwn",
-                  "text": f"*Triggers:*\n{trigger_list_str}"
-              }
-          ]
-          
-          # Branch field (only if not empty) - guard: no empty values
-          if branch and branch != '' and branch != 'N/A':
-              fields.append({
-                  "type": "mrkdwn",
-                  "text": f"*Branch:*\n{branch}"
-              })
-          
-          # Actor and suggestion fields (always present)
-          fields.append({
-              "type": "mrkdwn",
-              "text": f"*Actor:*\n{actor}"
-          })
-          fields.append({
-              "type": "mrkdwn",
-              "text": f"*Suggested Action:*\n{suggestion}"
-          })
+          # Summary section (3 lines from OpenAI)
+          summary_lines = slack_summary.split('\n')[:3]  # Ensure max 3 lines
+          summary_text = '\n'.join(summary_lines)
           
           blocks.append({
               "type": "section",
-              "fields": fields
+              "text": {
+                  "type": "mrkdwn",
+                  "text": summary_text
+              }
           })
           
-          # URL section (PR URL for PR events only, Run URL for non-PR only)
-          # Guard: only add if URL exists
+          # Links section
+          link_texts = []
           if is_pr_event and pr_url:
+              link_texts.append(f"<{pr_url}|View PR>")
+          if run_url:
+              link_texts.append(f"<{run_url}|View Run>")
+          
+          if link_texts:
               blocks.append({
                   "type": "section",
                   "text": {
                       "type": "mrkdwn",
-                      "text": f"*PR URL:*\n<{pr_url}|View PR>"
+                      "text": " | ".join(link_texts)
                   }
               })
-          elif not is_pr_event and run_url:
-              blocks.append({
-                  "type": "section",
-                  "text": {
-                      "type": "mrkdwn",
-                      "text": f"*Workflow Run:*\n<{run_url}|View Run>"
-                  }
-              })
+          
+          # Simple message text (for notifications)
+          message_text = "[STOP] " + summary_text.split('\n')[0][:50] if summary_text else "[STOP] Stop Trigger Alert"
           
           message = {
               "text": message_text,
@@ -279,6 +404,7 @@ jobs:
           PYEOF
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_SUMMARY: ${{ steps.generate_summary.outputs.SLACK_SUMMARY }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
