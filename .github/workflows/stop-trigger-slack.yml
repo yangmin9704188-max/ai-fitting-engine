@@ -44,13 +44,7 @@ jobs:
           fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           BRANCH="${{ github.ref_name }}"
-          PAYLOAD=$(python3 - << 'PY'
-import json, os
-run_url = os.environ["RUN_URL"]
-branch = os.environ["BRANCH"]
-print(json.dumps({"text": f"[SMOKE] stop-trigger-slack alive | {branch} | {run_url}"}))
-PY
-)
+          PAYLOAD=$(BRANCH="$BRANCH" RUN_URL="$RUN_URL" python3 -c 'import os, json; print(json.dumps({"text": f"[SMOKE] stop-trigger-slack alive | {os.environ.get(\"BRANCH\")} | {os.environ.get(\"RUN_URL\")}"}))')
           echo "Payload: $PAYLOAD"
           http_code=$(curl -sS -o slack_resp.txt -w "%{http_code}" \
             -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
@@ -59,9 +53,6 @@ PY
           echo "Slack HTTP: $http_code"
           echo "--- Slack body ---"
           cat slack_resp.txt || true
-        env:
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          BRANCH: ${{ github.ref_name }}
       
       - name: Extract stop triggers
         id: extract_triggers
