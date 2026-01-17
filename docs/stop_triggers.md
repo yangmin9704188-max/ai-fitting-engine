@@ -183,12 +183,52 @@ Stop Trigger가 true일 때만 Slack 알림이 전송됩니다.
 
 **워크플로우:**
 - PR 이벤트 (opened, synchronize, reopened) 및 workflow_dispatch에서 실행
+- test/** 브랜치 push 이벤트에서도 실행 (테스트용)
 - `tools/extract_stop_triggers.py`로 트리거 추출
 - GitHub Actions에서 Slack webhook으로 POST
 
 **안전장치:**
 - SLACK_WEBHOOK_URL secret이 비어있으면 경고만 출력하고 종료 (실패하지 않음)
 - 증거 부족(파일 미존재 등) 시 INSUFFICIENT_EVIDENCE=true로 설정하여 알림
+- push 트리거는 test/** 브랜치에만 한정하여 노이즈 방지
+
+## How to Test Slack Notifications
+
+**방법 1: workflow_dispatch with force_trigger (권장)**
+
+1. GitHub Actions 탭에서 "stop-trigger-slack" 워크플로우 선택
+2. "Run workflow" 클릭
+3. "force_trigger" 드롭다운에서 테스트할 트리거 선택 (예: AUDIT_FAILED)
+4. "Run workflow" 클릭
+5. 워크플로우 로그에서 다음 확인:
+   - "Force trigger mode: AUDIT_FAILED" 메시지
+   - "Active triggers: AUDIT_FAILED" 출력
+   - "Send Slack notification" step 실행 여부
+6. Slack 채널에서 `[STOP]` 메시지 수신 확인
+
+**방법 2: test/** 브랜치 push (테스트 주입)**
+
+1. test/** 브랜치에서 `triggers.json` 생성:
+   ```json
+   {"FREEZE_REQUIRED": false, "AUDIT_FAILED": true, "SPEC_CHANGE": false, "UNEXPECTED_ERROR": false, "INSUFFICIENT_EVIDENCE": false, "RISK_HIGH": false}
+   ```
+2. 커밋 및 푸시 (test/** 브랜치)
+3. 워크플로우가 자동 실행됨
+4. Slack 알림 확인
+
+**예상 로그 증거:**
+```
+Force trigger mode: AUDIT_FAILED
+Active triggers: AUDIT_FAILED
+HAS_TRIGGERS=true
+SUGGESTION=Architect intervention required
+Slack notification sent successfully: 200
+```
+
+**주의:**
+- force_trigger는 테스트 목적으로만 사용
+- 운영 환경에서는 실제 evidence 파일에서 트리거를 추출
+- test/** 브랜치 외의 push 이벤트는 워크플로우를 트리거하지 않음
 
 ## Enforcement
 
