@@ -3,7 +3,23 @@ name: stop-trigger-slack
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - 'test/**'
   workflow_dispatch:
+    inputs:
+      force_trigger:
+        description: 'Force a specific stop trigger for testing (e.g., AUDIT_FAILED)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - 'FREEZE_REQUIRED'
+          - 'AUDIT_FAILED'
+          - 'SPEC_CHANGE'
+          - 'UNEXPECTED_ERROR'
+          - 'INSUFFICIENT_EVIDENCE'
+          - 'RISK_HIGH'
 
 jobs:
   notify:
@@ -21,8 +37,47 @@ jobs:
       - name: Extract stop triggers
         id: extract_triggers
         run: |
-          python tools/extract_stop_triggers.py > triggers.json
-          cat triggers.json
+          # Check if force_trigger is provided (for testing)
+          if [ -n "${{ github.event.inputs.force_trigger }}" ] && [ "${{ github.event.inputs.force_trigger }}" != "" ]; then
+            echo "Force trigger mode: ${{ github.event.inputs.force_trigger }}"
+            python << 'PYEOF'
+            import json
+            import os
+            
+            force_trigger = os.environ.get('FORCE_TRIGGER', '')
+            
+            # Standard trigger keys
+            standard_triggers = [
+                "FREEZE_REQUIRED",
+                "AUDIT_FAILED",
+                "SPEC_CHANGE",
+                "UNEXPECTED_ERROR",
+                "INSUFFICIENT_EVIDENCE",
+                "RISK_HIGH"
+            ]
+            
+            # Create triggers.json with force_trigger set to true
+            triggers = {key: False for key in standard_triggers}
+            if force_trigger in standard_triggers:
+                triggers[force_trigger] = True
+            
+            output = json.dumps(triggers, indent=2, sort_keys=True)
+            print(output)
+            with open('triggers.json', 'w') as f:
+                json.dump(triggers, f, indent=2, sort_keys=True)
+            PYEOF
+          else
+            # Normal mode: extract from evidence files
+            if [ -f triggers.json ]; then
+              echo "Using existing triggers.json"
+              cat triggers.json
+            else
+              python tools/extract_stop_triggers.py > triggers.json
+              cat triggers.json
+            fi
+          fi
+        env:
+          FORCE_TRIGGER: ${{ github.event.inputs.force_trigger }}
       
       - name: Check for active triggers
         id: check_triggers
