@@ -209,12 +209,12 @@ jobs:
 
 요약 규칙:
 1줄: 무엇이 발생했는지 (이벤트 타입, 브랜치, PR번호 포함)
-2줄: 무엇이 실행/스킵됐는지 (infra-only/evidence는 '별도 워크플로우' 명시)
+2줄: 무엇이 실행/스킵됐는지 (infra-only/evidence는 별도 워크플로우 명시)
 3줄: 결과와 다음 행동 (success/failure + 링크 안내)
 
 이모지나 불필요한 수식 없이 순수 텍스트만 출력하세요.
 
---- 리포트 ---
+--- 리포트 시작 ---
 PROMPTEOF
 )
           PROMPT="${PROMPT}${REPORT_CONTENT}
