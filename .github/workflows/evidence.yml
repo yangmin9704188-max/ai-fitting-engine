@@ -59,12 +59,18 @@ jobs:
           done <<< "$CHANGED_FILES"
           
           if [ "$INFRA_ONLY" = "true" ]; then
-            echo "IS_INFRA_ONLY=true" >> $GITHUB_OUTPUT
+            echo "IS_INFRA_ONLY=true" >> "$GITHUB_OUTPUT"
+            echo "check_infra computed IS_INFRA_ONLY=true"
             echo "Skipping evidence validation for infra-only changes (.github/workflows/ or docs/ only)."
           else
-            echo "IS_INFRA_ONLY=false" >> $GITHUB_OUTPUT
+            echo "IS_INFRA_ONLY=false" >> "$GITHUB_OUTPUT"
+            echo "check_infra computed IS_INFRA_ONLY=false"
             echo "Non-infra files changed. Evidence validation required."
           fi
+          
+          # Debug: show output file content
+          echo "GITHUB_OUTPUT content:"
+          cat "$GITHUB_OUTPUT" || echo "Could not read GITHUB_OUTPUT"
 
       - name: Set up Python
         if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true'
@@ -84,7 +90,7 @@ jobs:
           IS_INFRA_ONLY: ${{ steps.check_infra.outputs.IS_INFRA_ONLY }}
         run: |
           # Guard: Skip if infra-only (double-check using env var)
-          echo "IS_INFRA_ONLY=${IS_INFRA_ONLY}"
+          echo "validate env IS_INFRA_ONLY=${IS_INFRA_ONLY}"
           if [ "${IS_INFRA_ONLY}" = "true" ]; then
             echo "Skipping evidence validation for infra-only changes."
             exit 0
