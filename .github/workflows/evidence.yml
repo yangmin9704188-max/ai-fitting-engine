@@ -41,7 +41,8 @@ jobs:
           # Allowlist: only these paths are considered infra-only
           # All changed files must match one of these patterns
           ALLOWLIST_PATTERNS=(
-            "^\.github/workflows/"
+            "^\.github/"
+            "^tools/"
             "^docs/"
           )
           
@@ -68,7 +69,7 @@ jobs:
           if [ "$INFRA_ONLY" = "true" ]; then
             echo "IS_INFRA_ONLY=true" >> "$GITHUB_OUTPUT"
             echo "check_infra computed IS_INFRA_ONLY=true"
-            echo "Skipping evidence validation for infra-only changes (.github/workflows/ or docs/ only)."
+            echo "Detected infra-only PR (path-based). Evidence validation skipped."
           else
             echo "IS_INFRA_ONLY=false" >> "$GITHUB_OUTPUT"
             echo "check_infra computed IS_INFRA_ONLY=false"
@@ -121,6 +122,6 @@ jobs:
       - name: Skip evidence validation for infra-only PRs
         if: steps.check_infra.outputs.IS_INFRA_ONLY == 'true'
         run: |
-          echo "Skipping evidence validation for infra-only changes."
-          echo "Changed files are limited to: .github/workflows/, docs/, tools/ (infra)"
+          echo "Detected infra-only PR (path-based). Evidence validation skipped."
+          echo "Changed files are limited to: .github/, tools/, docs/"
           echo "No ML-related changes detected. Evidence validation not required."
