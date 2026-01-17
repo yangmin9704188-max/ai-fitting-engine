@@ -118,21 +118,32 @@ jobs:
           active_triggers = [key for key, value in triggers.items() if value is True]
           trigger_list_str = ", ".join(active_triggers)
           
-          # Get PR info (for PR events)
-          pr_number = os.environ.get('GITHUB_EVENT_NUMBER', 'N/A')
-          pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', 'N/A')
-          if not pr_title or pr_title == 'None':
-              pr_title = 'N/A'
-          branch = os.environ.get('GITHUB_HEAD_REF', os.environ.get('GITHUB_REF_NAME', 'N/A'))
+          # Determine event type
+          event_name = os.environ.get('GITHUB_EVENT_NAME', '')
           actor = os.environ.get('GITHUB_ACTOR', 'unknown')
           repo = os.environ.get('GITHUB_REPOSITORY', 'N/A')
+          server_url = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
           
-          # Build PR URL
-          if pr_number and pr_number != 'N/A' and pr_number != 'None':
-              pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+          # Branch name logic
+          branch = os.environ.get('GITHUB_HEAD_REF', '')
+          if not branch:
+              branch = os.environ.get('GITHUB_REF_NAME', 'N/A')
+          
+          # PR-specific fields (only for pull_request events)
+          if event_name == 'pull_request':
+              pr_number = os.environ.get('GITHUB_EVENT_NUMBER', 'N/A')
+              pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', 'N/A')
+              if not pr_title or pr_title == 'None':
+                  pr_title = 'N/A'
+              pr_url = f"{server_url}/{repo}/pull/{pr_number}" if pr_number != 'N/A' and pr_number != 'None' else f"{server_url}/{repo}"
           else:
-              # For workflow_dispatch, use repo URL
-              pr_url = f"https://github.com/{repo}"
+              # For push/workflow_dispatch: no PR fields
+              pr_number = None
+              pr_title = None
+              pr_url = None
+              # Use workflow run URL instead
+              run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else f"{server_url}/{repo}"
           
           # Get suggestion from output file
           suggestion = 'Manual review required'
@@ -145,15 +156,37 @@ jobs:
           except:
               pass
           
-          # Build Slack message
+          # Build Slack message (event-specific format)
+          if event_name == 'pull_request':
+              header_text = f"[STOP] {repo} PR#{pr_number}"
+              message_text = f"[STOP] {repo} PR#{pr_number} {pr_title}"
+              url_section = {
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": f"*PR URL:*\n<{pr_url}|View PR>"
+                  }
+              }
+          else:
+              # push/workflow_dispatch: no PR prefix
+              header_text = f"[STOP] {repo}"
+              message_text = f"[STOP] {repo} {branch}"
+              url_section = {
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": f"*Workflow Run:*\n<{run_url}|View Run>"
+                  }
+              }
+          
           message = {
-              "text": f"[STOP] {repo} PR#{pr_number} {pr_title}",
+              "text": message_text,
               "blocks": [
                   {
                       "type": "header",
                       "text": {
                           "type": "plain_text",
-                          "text": f"[STOP] {repo} PR#{pr_number}"
+                          "text": header_text
                       }
                   },
                   {
@@ -177,13 +210,7 @@ jobs:
                           }
                       ]
                   },
-                  {
-                      "type": "section",
-                      "text": {
-                          "type": "mrkdwn",
-                          "text": f"*PR URL:*\n<{pr_url}|View PR>"
-                      }
-                  }
+                  url_section
               ]
           }
           
@@ -204,10 +231,15 @@ jobs:
           PYEOF
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_EVENT_PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
       
       - name: Log no triggers
         if: steps.check_triggers.outputs.HAS_TRIGGERS != 'true'
