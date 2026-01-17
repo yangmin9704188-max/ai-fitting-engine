@@ -34,6 +34,35 @@ jobs:
         with:
           python-version: '3.10'
       
+      - name: SMOKE - Send minimal Slack message (test/** only)
+        if: github.event_name == 'push' && startsWith(github.ref_name, 'test/')
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            echo "SLACK_WEBHOOK_URL secret is empty"
+            exit 1
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BRANCH="${{ github.ref_name }}"
+          PAYLOAD=$(python3 - << 'PY'
+import json, os
+run_url = os.environ["RUN_URL"]
+branch = os.environ["BRANCH"]
+print(json.dumps({"text": f"[SMOKE] stop-trigger-slack alive | {branch} | {run_url}"}))
+PY
+)
+          echo "Payload: $PAYLOAD"
+          http_code=$(curl -sS -o slack_resp.txt -w "%{http_code}" \
+            -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          echo "Slack HTTP: $http_code"
+          echo "--- Slack body ---"
+          cat slack_resp.txt || true
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+      
       - name: Extract stop triggers
         id: extract_triggers
         run: |
