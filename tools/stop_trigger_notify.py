@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # Constants
@@ -69,71 +70,32 @@ def get_active_triggers(triggers):
     return [key for key, value in triggers.items() if value is True]
 
 
-def generate_stop_report(event_name, ref_name, event_path, server_url, repo, run_id, head_ref, ref_name_env):
-    """Generate stop_report.md."""
-    is_pr_event = False
-    pr_number = None
-    pr_url = None
-    
-    if event_path and Path(event_path).exists():
-        try:
-            with open(event_path, 'r') as f:
-                event_payload = json.load(f)
-            if 'pull_request' in event_payload:
-                is_pr_event = True
-                pr_number = event_payload.get('pull_request', {}).get('number')
-        except Exception:
-            if event_name == 'pull_request':
-                is_pr_event = True
-    elif event_name == 'pull_request':
-        is_pr_event = True
-    
+def generate_stop_report(event_name, ref_name, event_path, server_url, repo, run_id, head_ref, ref_name_env, actor, triggers_detected, force_trigger, slack_status):
+    """Generate stop_report.md as minimal evidence log (no artifact dependencies)."""
     branch = head_ref or ref_name_env or ref_name or 'N/A'
-    run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else None
+    run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else 'N/A'
+    timestamp = datetime.utcnow().isoformat() + 'Z'
     
-    if is_pr_event and pr_number:
-        pr_url = f"{server_url}/{repo}/pull/{pr_number}"
+    triggers_list = ', '.join(triggers_detected) if triggers_detected else 'none'
     
     report_lines = [
-        "# Stop Trigger Report",
+        "# Stop Trigger Evidence Log",
         "",
-        "## Trigger Context",
-        f"- Event Type: {event_name}",
+        f"- Timestamp: {timestamp}",
+        f"- Event: {event_name}",
+        f"- Branch: {branch}",
+        f"- Actor: {actor}",
+        f"- Run URL: {run_url}",
+        f"- Triggers Detected: {triggers_list}",
+        f"- Force Trigger: {force_trigger}",
+        f"- Slack Status: {slack_status}",
+        ""
     ]
     
-    if pr_number:
-        report_lines.append(f"- PR Number: {pr_number}")
-    
-    report_lines.append(f"- Branch: {branch}")
-    if run_url:
-        report_lines.append(f"- Workflow Run: {run_url}")
-    else:
-        report_lines.append("- Workflow Run: N/A")
-    
-    report_lines.extend([
-        "",
-        "## Infra Classification",
-        "- Infra Only PR: N/A (see evidence-check workflow run)",
-        "",
-        "## Evidence Execution",
-        "- Evidence Check Executed: N/A (evidence-check workflow runs separately)",
-        "- Validation Mode: N/A (see evidence-check workflow run)",
-        "",
-        "## Result",
-        "- Final Status: success",
-        "",
-        "## References",
-    ])
-    
-    if pr_url:
-        report_lines.append(f"- PR URL: {pr_url}")
-    if run_url:
-        report_lines.append(f"- Workflow URL: {run_url}")
-    
     with open('stop_report.md', 'w', encoding='utf-8') as f:
-        f.write('\n'.join(report_lines) + '\n')
+        f.write('\n'.join(report_lines))
     
-    return is_pr_event, pr_number, pr_url, branch, run_url
+    return branch, run_url
 
 
 def send_slack_notification(webhook_url, triggers, is_pr_event, pr_number, pr_url, branch, run_url, repo):
@@ -200,18 +162,23 @@ def main():
     server_url = get_env('GITHUB_SERVER_URL', 'https://github.com')
     repo = get_env('GITHUB_REPOSITORY', 'N/A')
     head_ref = get_env('GITHUB_HEAD_REF', '')
+    actor = get_env('GITHUB_ACTOR', 'unknown')
     webhook_url = get_env('SLACK_WEBHOOK_URL', '')
-    force_trigger = get_env('FORCE_TRIGGER', '')
+    force_trigger_str = get_env('FORCE_TRIGGER', 'false').lower()
+    audit_failed_str = get_env('AUDIT_FAILED', 'false').lower()
+    
+    force_trigger = force_trigger_str in ('true', '1', 'yes')
+    audit_failed = audit_failed_str in ('true', '1', 'yes')
     
     # Determine triggers based on priority:
-    # Priority 1: force_trigger (workflow_dispatch test mode)
-    if force_trigger and force_trigger in STANDARD_TRIGGERS:
+    # Priority 1: FORCE_TRIGGER=true + AUDIT_FAILED=true (workflow_dispatch smoke test)
+    if force_trigger and audit_failed:
         triggers = {key: False for key in STANDARD_TRIGGERS}
-        triggers[force_trigger] = True
-        print(f"Event: {event_name} | Action: Force trigger mode: {force_trigger}")
+        triggers["AUDIT_FAILED"] = True
+        print(f"Event: {event_name} | Force mode: FORCE_TRIGGER=true, AUDIT_FAILED=true")
     # Priority 2: existing triggers.json (manual test file)
     elif Path('triggers.json').exists():
-        print(f"Event: {event_name} | Action: Using existing triggers.json")
+        print(f"Event: {event_name} | Using existing triggers.json")
         with open('triggers.json', 'r') as f:
             triggers = json.load(f)
         # Normalize to standard schema
@@ -231,26 +198,68 @@ def main():
     active_triggers = get_active_triggers(triggers)
     has_triggers = len(active_triggers) > 0
     
-    # Generate stop_report.md
-    is_pr_event, pr_number, pr_url, branch, run_url = generate_stop_report(
-        event_name, ref_name, event_path, server_url, repo, run_id, head_ref, ref_name
-    )
+    # Determine PR context for Slack notification
+    is_pr_event = False
+    pr_number = None
+    pr_url = None
     
-    # Send Slack notification if triggers are active
+    if event_path and Path(event_path).exists():
+        try:
+            with open(event_path, 'r') as f:
+                event_payload = json.load(f)
+            if 'pull_request' in event_payload:
+                is_pr_event = True
+                pr_number = event_payload.get('pull_request', {}).get('number')
+                if pr_number:
+                    pr_url = f"{server_url}/{repo}/pull/{pr_number}"
+        except Exception:
+            if event_name == 'pull_request':
+                is_pr_event = True
+    elif event_name == 'pull_request':
+        is_pr_event = True
+    
+    # Send Slack notification logic:
+    # - If FORCE_TRIGGER=true: always send (even if no triggers detected)
+    # - Otherwise: only send if has_triggers=true
+    should_send = force_trigger or has_triggers
+    
     webhook_result = "not_checked"
-    if has_triggers and webhook_url:
-        webhook_result = send_slack_notification(
-            webhook_url, triggers, is_pr_event, pr_number, pr_url, branch, run_url, repo
-        )
-    elif has_triggers and not webhook_url:
-        webhook_result = "webhook_not_set"
+    if should_send:
+        if not webhook_url:
+            webhook_result = "webhook_not_set"
+            if force_trigger:
+                print("WARNING: FORCE_TRIGGER=true but SLACK_WEBHOOK_URL is not set")
+        else:
+            branch = head_ref or ref_name or 'N/A'
+            run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else None
+            webhook_result = send_slack_notification(
+                webhook_url, triggers, is_pr_event, pr_number, pr_url, branch, run_url, repo
+            )
+            if webhook_result.startswith("failed") and force_trigger:
+                print(f"WARNING: FORCE_TRIGGER=true but Slack notification {webhook_result}")
     
-    # Core log output (5 lines)
+    # Generate stop_report.md (minimal evidence log, no artifact dependencies)
+    try:
+        branch, run_url = generate_stop_report(
+            event_name, ref_name, event_path, server_url, repo, run_id, head_ref, ref_name,
+            actor, active_triggers, str(force_trigger), webhook_result
+        )
+        print(f"stop_report: minimal evidence log written | run_url={run_url} | triggers_detected={', '.join(active_triggers) if active_triggers else 'none'}")
+    except Exception as e:
+        print(f"WARNING: Failed to generate stop_report.md: {e}")
+        branch = head_ref or ref_name or 'N/A'
+        run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else 'N/A'
+    
+    # Core log output (5-7 lines)
     print(f"Event: {event_name}")
     print(f"Branch: {branch}")
     print(f"Run URL: {run_url or 'N/A'}")
+    print(f"Force Trigger: {force_trigger}")
     print(f"Has Triggers: {has_triggers}")
     print(f"Webhook Result: {webhook_result}")
+    
+    # Exit with success code (operational stability)
+    # Slack failures are logged but do not fail the job
 
 
 if __name__ == '__main__':
