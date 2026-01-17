@@ -5,18 +5,16 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
-      force_trigger:
-        description: 'Force a specific stop trigger for testing (e.g., AUDIT_FAILED)'
+      FORCE_TRIGGER:
+        description: 'Force Slack notification (smoke test)'
         required: false
-        type: choice
-        options:
-          - ''
-          - 'FREEZE_REQUIRED'
-          - 'AUDIT_FAILED'
-          - 'SPEC_CHANGE'
-          - 'UNEXPECTED_ERROR'
-          - 'INSUFFICIENT_EVIDENCE'
-          - 'RISK_HIGH'
+        type: boolean
+        default: false
+      AUDIT_FAILED:
+        description: 'Set AUDIT_FAILED trigger to true (requires FORCE_TRIGGER=true)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   notify:
@@ -33,7 +31,8 @@ jobs:
       - name: Stop Trigger Notification
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          FORCE_TRIGGER: ${{ github.event.inputs.force_trigger }}
+          FORCE_TRIGGER: ${{ inputs.FORCE_TRIGGER }}
+          AUDIT_FAILED: ${{ inputs.AUDIT_FAILED }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}

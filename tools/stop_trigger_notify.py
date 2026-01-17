@@ -201,17 +201,21 @@ def main():
     repo = get_env('GITHUB_REPOSITORY', 'N/A')
     head_ref = get_env('GITHUB_HEAD_REF', '')
     webhook_url = get_env('SLACK_WEBHOOK_URL', '')
-    force_trigger = get_env('FORCE_TRIGGER', '')
+    force_trigger_str = get_env('FORCE_TRIGGER', 'false').lower()
+    audit_failed_str = get_env('AUDIT_FAILED', 'false').lower()
+    
+    force_trigger = force_trigger_str in ('true', '1', 'yes')
+    audit_failed = audit_failed_str in ('true', '1', 'yes')
     
     # Determine triggers based on priority:
-    # Priority 1: force_trigger (workflow_dispatch test mode)
-    if force_trigger and force_trigger in STANDARD_TRIGGERS:
+    # Priority 1: FORCE_TRIGGER=true + AUDIT_FAILED=true (workflow_dispatch smoke test)
+    if force_trigger and audit_failed:
         triggers = {key: False for key in STANDARD_TRIGGERS}
-        triggers[force_trigger] = True
-        print(f"Event: {event_name} | Action: Force trigger mode: {force_trigger}")
+        triggers["AUDIT_FAILED"] = True
+        print(f"Event: {event_name} | Force mode: FORCE_TRIGGER=true, AUDIT_FAILED=true")
     # Priority 2: existing triggers.json (manual test file)
     elif Path('triggers.json').exists():
-        print(f"Event: {event_name} | Action: Using existing triggers.json")
+        print(f"Event: {event_name} | Using existing triggers.json")
         with open('triggers.json', 'r') as f:
             triggers = json.load(f)
         # Normalize to standard schema
@@ -236,21 +240,34 @@ def main():
         event_name, ref_name, event_path, server_url, repo, run_id, head_ref, ref_name
     )
     
-    # Send Slack notification if triggers are active
-    webhook_result = "not_checked"
-    if has_triggers and webhook_url:
-        webhook_result = send_slack_notification(
-            webhook_url, triggers, is_pr_event, pr_number, pr_url, branch, run_url, repo
-        )
-    elif has_triggers and not webhook_url:
-        webhook_result = "webhook_not_set"
+    # Send Slack notification logic:
+    # - If FORCE_TRIGGER=true: always send (even if no triggers detected)
+    # - Otherwise: only send if has_triggers=true
+    should_send = force_trigger or has_triggers
     
-    # Core log output (5 lines)
+    webhook_result = "not_checked"
+    if should_send:
+        if not webhook_url:
+            webhook_result = "webhook_not_set"
+            if force_trigger:
+                print("WARNING: FORCE_TRIGGER=true but SLACK_WEBHOOK_URL is not set")
+        else:
+            webhook_result = send_slack_notification(
+                webhook_url, triggers, is_pr_event, pr_number, pr_url, branch, run_url, repo
+            )
+            if webhook_result.startswith("failed") and force_trigger:
+                print(f"WARNING: FORCE_TRIGGER=true but Slack notification {webhook_result}")
+    
+    # Core log output (5-7 lines)
     print(f"Event: {event_name}")
     print(f"Branch: {branch}")
     print(f"Run URL: {run_url or 'N/A'}")
+    print(f"Force Trigger: {force_trigger}")
     print(f"Has Triggers: {has_triggers}")
     print(f"Webhook Result: {webhook_result}")
+    
+    # Exit with success code (operational stability)
+    # Slack failures are logged but do not fail the job
 
 
 if __name__ == '__main__':
