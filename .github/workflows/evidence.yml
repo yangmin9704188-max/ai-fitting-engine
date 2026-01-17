@@ -107,10 +107,12 @@ jobs:
 
       - name: Validate observation & manifest (if present)
         if: steps.check_infra.outputs.IS_INFRA_ONLY != 'true'
+        env:
+          IS_INFRA_ONLY: ${{ steps.check_infra.outputs.IS_INFRA_ONLY }}
         run: |
-          # Guard: Skip if infra-only (double-check)
-          IS_INFRA_ONLY="${{ steps.check_infra.outputs.IS_INFRA_ONLY }}"
-          if [ "$IS_INFRA_ONLY" = "true" ]; then
+          # Guard: Skip if infra-only (double-check using env var)
+          echo "IS_INFRA_ONLY=${IS_INFRA_ONLY}"
+          if [ "${IS_INFRA_ONLY}" = "true" ]; then
             echo "Skipping evidence validation for infra-only changes."
             exit 0
           fi
