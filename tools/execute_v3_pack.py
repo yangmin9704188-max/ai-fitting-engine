@@ -19,7 +19,7 @@ import json
 import subprocess
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 
 # Bootstrap: Add project root to sys.path
@@ -94,7 +94,16 @@ def parse_v3_pack(md_path: Path) -> Dict[str, Any]:
     
     # Extract Final Verification
     final_verification_match = re.search(r'## Final Verification\n(.*?)(?=\n# Stop Triggers|$)', execution_section, re.DOTALL)
-    final_verification = final_verification_match.group(1).strip() if final_verification_match else ""
+    final_verification_raw = final_verification_match.group(1).strip() if final_verification_match else ""
+    # Extract command from code block if present
+    final_verification = ""
+    if final_verification_raw:
+        cmd_match = re.search(r'```bash\n(.*?)\n```', final_verification_raw, re.DOTALL)
+        if cmd_match:
+            final_verification = cmd_match.group(1).strip()
+        else:
+            # If no code block, use raw content as command
+            final_verification = final_verification_raw
     
     # Extract Prerequisites
     prerequisites_match = re.search(r'## Prerequisites\n(.*?)(?=\n## Step |$)', execution_section, re.DOTALL)
@@ -128,30 +137,53 @@ def check_scope_lock(pack: Dict[str, Any], modified_files: List[str]) -> Tuple[b
     scope_lock = pack["scope_lock"]
     
     # Parse scope lock rules (simple pattern matching for now)
-    # Example: "Only modify files in core/policy/, docs/policies/"
+    # Example: "Only allow editing files in core/policy/, docs/policies/"
     allowed_patterns = []
     disallowed_patterns = []
     
     for line in scope_lock.split("\n"):
         line = line.strip()
-        if "only" in line.lower() or "allow" in line.lower():
-            # Extract paths
+        if not line:
+            continue
+        
+        # Look for "Only allow" or "Allowed files" patterns
+        if "only allow" in line.lower() or ("allow" in line.lower() and ("edit" in line.lower() or "file" in line.lower())):
+            # Extract paths from backticks
             path_matches = re.findall(r'`([^`]+)`', line)
             allowed_patterns.extend(path_matches)
-        elif "not" in line.lower() or "forbid" in line.lower() or "prohibit" in line.lower():
-            path_matches = re.findall(r'`([^`]+)`', line)
-            disallowed_patterns.extend(path_matches)
+        # Look for "Forbidden" patterns - but only if it says "outside" or "not in"
+        elif "forbidden" in line.lower():
+            # Check if it says "outside" - then the path in backticks is the ALLOWED path, not disallowed
+            if "outside" in line.lower() or "not in" in line.lower():
+                # This means "forbidden outside X" = "only allow X"
+                path_matches = re.findall(r'`([^`]+)`', line)
+                allowed_patterns.extend(path_matches)
+            else:
+                # Direct forbidden pattern
+                path_matches = re.findall(r'`([^`]+)`', line)
+                disallowed_patterns.extend(path_matches)
     
     # Check each modified file
     for file_path in modified_files:
-        # Check disallowed patterns
+        # Normalize path separators
+        normalized_path = file_path.replace("\\", "/")
+        
+        # Check disallowed patterns first
         for pattern in disallowed_patterns:
-            if pattern in file_path or file_path.startswith(pattern):
+            normalized_pattern = pattern.replace("\\", "/")
+            # Check if file path contains or starts with disallowed pattern
+            if normalized_pattern in normalized_path or normalized_path.startswith(normalized_pattern):
                 return False, f"File {file_path} violates scope lock (disallowed: {pattern})"
         
         # Check allowed patterns (if any specified)
         if allowed_patterns:
-            allowed = any(pattern in file_path or file_path.startswith(pattern) for pattern in allowed_patterns)
+            allowed = False
+            for pattern in allowed_patterns:
+                normalized_pattern = pattern.replace("\\", "/")
+                # Check if file path starts with allowed pattern or is within allowed directory
+                if normalized_path.startswith(normalized_pattern) or normalized_pattern in normalized_path:
+                    allowed = True
+                    break
             if not allowed:
                 return False, f"File {file_path} violates scope lock (not in allowed patterns: {allowed_patterns})"
     
@@ -162,6 +194,17 @@ def apply_file_edit(file_path: str, lines: Optional[str], action: Optional[str],
     """Apply file edit based on step instructions."""
     
     full_path = Path(_project_root) / file_path
+    
+    # If action is "Create new file" or file doesn't exist and action suggests creation
+    if action and ("Create" in action or "create" in action):
+        # Create parent directory if needed
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        # Create empty file or with basic content
+        if not full_path.exists():
+            full_path.write_text("", encoding="utf-8")
+            print(f"[OK] Created new file: {file_path}")
+            return True
+    
     if not full_path.exists():
         print(f"[ERROR] File not found: {file_path}")
         return False
@@ -224,8 +267,8 @@ def run_command(command: str, cwd: Optional[Path] = None) -> Tuple[int, str, str
                 encoding="utf-8",
             )
             exit_code = result.returncode
-            stdout_parts.append(result.stdout)
-            stderr_parts.append(result.stderr)
+            stdout_parts.append(result.stdout if result.stdout else "")
+            stderr_parts.append(result.stderr if result.stderr else "")
             
             if exit_code != 0:
                 print(f"[ERROR] Command failed: {cmd}")
@@ -280,7 +323,7 @@ def get_run_id() -> str:
     """Get current RUN_ID from environment or generate one."""
     run_id = os.environ.get("RUN_ID", "")
     if not run_id:
-        now_kst = datetime.utcnow().replace(tzinfo=None) + datetime.timedelta(hours=9)
+        now_kst = datetime.utcnow().replace(tzinfo=None) + timedelta(hours=9)
         run_id = now_kst.strftime("%Y%m%d_%H%M%S")
     return run_id
 

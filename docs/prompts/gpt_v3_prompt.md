@@ -24,7 +24,23 @@ Generate v3 Final Execution Pack that:
 
 ## Output Format
 
-Your output MUST be a markdown document with the following structure:
+Your output MUST be a markdown document with the following **EXACT** structure.
+The parser uses strict regex patterns - any deviation will cause parsing failure.
+
+### Required Section Headers (MUST match exactly)
+
+1. **Human Summary**: MUST use `# Human Summary` (single `#`, no variations like `## 1) Human Summary`)
+2. **Cursor Execution Prompt**: MUST use `# Cursor Execution Prompt` (single `#`)
+3. **Stop Triggers**: MUST use `# Stop Triggers` (single `#`)
+
+### Subsection Headers (within Cursor Execution Prompt)
+
+- `## Prerequisites` (double `##`)
+- `## Scope Lock` (double `##`)
+- `## Step N: [name]` (double `##`, where N is a number)
+- `## Final Verification` (double `##`)
+
+### Complete Structure Template
 
 ```markdown
 # Human Summary
@@ -34,6 +50,9 @@ Your output MUST be a markdown document with the following structure:
 
 ## Prerequisites
 [Any setup required before execution]
+
+## Scope Lock
+[Optional: file path restrictions]
 
 ## Step 1: [Step name]
 **File**: `path/to/file.py` (relative to project root)
@@ -75,6 +94,23 @@ Your output MUST be a markdown document with the following structure:
 }
 ```
 ```
+
+### Parser Regex Patterns (for reference)
+
+The parser uses these exact patterns - your output MUST match:
+
+- Human Summary: `r'# Human Summary\n(.*?)(?=\n# |$)'`
+- Cursor Execution Prompt: `r'# Cursor Execution Prompt\n(.*?)(?=\n# Stop Triggers|$)'`
+- Steps: `r'## Step \d+: ([^\n]+)\n(.*?)(?=\n## Step |\n## Final Verification|$)'`
+- Stop Triggers JSON: `r'```json\n(.*?)\n```'`
+
+**CRITICAL**: Do NOT use variations like:
+- ❌ `## 1) Human Summary`
+- ❌ `## Human Summary`
+- ❌ `# Cursor Execution Instructions`
+- ❌ `## Stop Triggers`
+
+Use ONLY the exact headers specified above.
 
 ## Quality Requirements
 
