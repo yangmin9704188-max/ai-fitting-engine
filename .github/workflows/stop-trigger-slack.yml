@@ -125,25 +125,26 @@ jobs:
           server_url = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
           run_id = os.environ.get('GITHUB_RUN_ID', '')
           
-          # Branch name logic
-          branch = os.environ.get('GITHUB_HEAD_REF', '')
-          if not branch:
-              branch = os.environ.get('GITHUB_REF_NAME', 'N/A')
+          # Branch name logic (head_ref for PR, ref_name for push/dispatch)
+          branch = os.environ.get('GITHUB_HEAD_REF', '') or os.environ.get('GITHUB_REF_NAME', 'N/A')
           
           # PR-specific fields (only for pull_request events)
+          pr_number = None
+          pr_title = None
+          pr_url = None
+          run_url = None
+          
           if event_name == 'pull_request':
-              pr_number = os.environ.get('GITHUB_EVENT_NUMBER', 'N/A')
-              pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', 'N/A')
-              if not pr_title or pr_title == 'None':
-                  pr_title = 'N/A'
-              pr_url = f"{server_url}/{repo}/pull/{pr_number}" if pr_number != 'N/A' and pr_number != 'None' else f"{server_url}/{repo}"
+              pr_number = os.environ.get('GITHUB_EVENT_NUMBER', '') or None
+              pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', '') or None
+              if pr_title == 'None':
+                  pr_title = None
+              if pr_number and pr_number != 'N/A' and pr_number != 'None':
+                  pr_url = f"{server_url}/{repo}/pull/{pr_number}"
           else:
-              # For push/workflow_dispatch: no PR fields
-              pr_number = None
-              pr_title = None
-              pr_url = None
-              # Use workflow run URL instead
-              run_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else f"{server_url}/{repo}"
+              # For push/workflow_dispatch: use workflow run URL
+              if run_id and run_id != '':
+                  run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
           
           # Get suggestion from output file
           suggestion = 'Manual review required'
@@ -156,62 +157,76 @@ jobs:
           except:
               pass
           
-          # Build Slack message (event-specific format)
-          if event_name == 'pull_request':
+          # Build Slack message blocks (conditionally include PR fields)
+          blocks = []
+          
+          # Header block
+          if event_name == 'pull_request' and pr_number:
               header_text = f"[STOP] {repo} PR#{pr_number}"
-              message_text = f"[STOP] {repo} PR#{pr_number} {pr_title}"
-              url_section = {
+              message_text = f"[STOP] {repo} PR#{pr_number} {pr_title or ''}"
+          else:
+              header_text = f"[STOP] {repo}"
+              message_text = f"[STOP] {repo} {branch}"
+          
+          blocks.append({
+              "type": "header",
+              "text": {
+                  "type": "plain_text",
+                  "text": header_text
+              }
+          })
+          
+          # Fields section (triggers, branch, actor, suggestion)
+          fields = [
+              {
+                  "type": "mrkdwn",
+                  "text": f"*Triggers:*\n{trigger_list_str}"
+              }
+          ]
+          
+          # Branch field (only if not empty)
+          if branch and branch != 'N/A':
+              fields.append({
+                  "type": "mrkdwn",
+                  "text": f"*Branch:*\n{branch}"
+              })
+          
+          # Actor and suggestion fields
+          fields.append({
+              "type": "mrkdwn",
+              "text": f"*Actor:*\n{actor}"
+          })
+          fields.append({
+              "type": "mrkdwn",
+              "text": f"*Suggested Action:*\n{suggestion}"
+          })
+          
+          blocks.append({
+              "type": "section",
+              "fields": fields
+          })
+          
+          # URL section (PR URL for PR events, Run URL for others)
+          if event_name == 'pull_request' and pr_url:
+              blocks.append({
                   "type": "section",
                   "text": {
                       "type": "mrkdwn",
                       "text": f"*PR URL:*\n<{pr_url}|View PR>"
                   }
-              }
-          else:
-              # push/workflow_dispatch: no PR prefix
-              header_text = f"[STOP] {repo}"
-              message_text = f"[STOP] {repo} {branch}"
-              url_section = {
+              })
+          elif run_url:
+              blocks.append({
                   "type": "section",
                   "text": {
                       "type": "mrkdwn",
                       "text": f"*Workflow Run:*\n<{run_url}|View Run>"
                   }
-              }
+              })
           
           message = {
               "text": message_text,
-              "blocks": [
-                  {
-                      "type": "header",
-                      "text": {
-                          "type": "plain_text",
-                          "text": header_text
-                      }
-                  },
-                  {
-                      "type": "section",
-                      "fields": [
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Triggers:*\n{trigger_list_str}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Branch:*\n{branch}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Actor:*\n{actor}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Suggested Action:*\n{suggestion}"
-                          }
-                      ]
-                  },
-                  url_section
-              ]
+              "blocks": blocks
           }
           
           webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
