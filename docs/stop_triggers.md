@@ -166,6 +166,30 @@ v3 Execution Pack의 Stop Triggers는 다음 형식입니다:
 1. ERROR > WARNING
 2. FREEZE_REQUIRED > SPEC_CHANGE > RISK_HIGH > 기타
 
+## Slack Notification
+
+Stop Trigger가 true일 때만 Slack 알림이 전송됩니다.
+정상(PASS) 상황에서는 절대 알림하지 않습니다.
+
+**알림 조건:**
+- 하나 이상의 Stop Trigger가 true인 경우에만 Slack 알림
+- 모든 트리거가 false면 알림 없음 (정상 동작)
+
+**알림 내용:**
+- 활성화된 트리거 목록 (comma-separated)
+- PR 번호, 브랜치, 실행자(actor) 정보
+- PR URL 링크
+- 트리거별 권장 조치사항 (Suggested Action)
+
+**워크플로우:**
+- PR 이벤트 (opened, synchronize, reopened) 및 workflow_dispatch에서 실행
+- `tools/extract_stop_triggers.py`로 트리거 추출
+- GitHub Actions에서 Slack webhook으로 POST
+
+**안전장치:**
+- SLACK_WEBHOOK_URL secret이 비어있으면 경고만 출력하고 종료 (실패하지 않음)
+- 증거 부족(파일 미존재 등) 시 INSUFFICIENT_EVIDENCE=true로 설정하여 알림
+
 ## Enforcement
 
 - 트리거가 true가 되면 즉시 실행을 중단합니다.
