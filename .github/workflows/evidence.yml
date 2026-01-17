@@ -22,14 +22,21 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
+            echo "BASE_SHA=$BASE_SHA"
+            echo "HEAD_SHA=$HEAD_SHA"
+            # Use triple-dot (merge-base) for accurate diff
+            CHANGED_FILES=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
           else
             # For push events, compare with previous commit
             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           fi
           
           echo "Changed files:"
-          echo "$CHANGED_FILES"
+          echo "$CHANGED_FILES" | while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "  - $file"
+            fi
+          done
           
           # Allowlist: only these paths are considered infra-only
           # All changed files must match one of these patterns
