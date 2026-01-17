@@ -118,21 +118,60 @@ jobs:
           active_triggers = [key for key, value in triggers.items() if value is True]
           trigger_list_str = ", ".join(active_triggers)
           
-          # Get PR info (for PR events)
-          pr_number = os.environ.get('GITHUB_EVENT_NUMBER', 'N/A')
-          pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', 'N/A')
-          if not pr_title or pr_title == 'None':
-              pr_title = 'N/A'
-          branch = os.environ.get('GITHUB_HEAD_REF', os.environ.get('GITHUB_REF_NAME', 'N/A'))
+          # Determine event type from event payload (GITHUB_EVENT_PATH)
+          event_path = os.environ.get('GITHUB_EVENT_PATH', '')
+          is_pr_event = False
+          
+          # Check event payload for pull_request key
+          if event_path:
+              try:
+                  with open(event_path, 'r') as f:
+                      event_payload = json.load(f)
+                  if 'pull_request' in event_payload:
+                      is_pr_event = True
+              except:
+                  # Fallback to event_name if event_path read fails
+                  event_name = os.environ.get('GITHUB_EVENT_NAME', '')
+                  is_pr_event = (event_name == 'pull_request')
+          else:
+              # Fallback to event_name if event_path not available
+              event_name = os.environ.get('GITHUB_EVENT_NAME', '')
+              is_pr_event = (event_name == 'pull_request')
+          
           actor = os.environ.get('GITHUB_ACTOR', 'unknown')
           repo = os.environ.get('GITHUB_REPOSITORY', 'N/A')
+          server_url = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          commit_sha = os.environ.get('GITHUB_SHA', '')
           
-          # Build PR URL
-          if pr_number and pr_number != 'N/A' and pr_number != 'None':
-              pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+          # Branch name logic (head_ref for PR, ref_name for push/dispatch)
+          branch = os.environ.get('GITHUB_HEAD_REF', '')
+          if not branch:
+              branch = os.environ.get('GITHUB_REF_NAME', '')
+          if not branch:
+              branch = os.environ.get('GITHUB_REF', '').replace('refs/heads/', '')
+          
+          # PR-specific fields (only for pull_request events)
+          pr_number = None
+          pr_title = None
+          pr_url = None
+          run_url = None
+          
+          if is_pr_event:
+              pr_number = os.environ.get('GITHUB_EVENT_NUMBER', '') or None
+              pr_title = os.environ.get('GITHUB_EVENT_PULL_REQUEST_TITLE', '') or None
+              if pr_title and pr_title != 'None' and pr_title != 'N/A':
+                  pass  # Keep pr_title
+              else:
+                  pr_title = None
+              if pr_number and pr_number != 'N/A' and pr_number != 'None' and pr_number != '':
+                  pr_url = f"{server_url}/{repo}/pull/{pr_number}"
+              else:
+                  pr_number = None  # Guard: empty pr_number -> None
           else:
-              # For workflow_dispatch, use repo URL
-              pr_url = f"https://github.com/{repo}"
+              # For push/workflow_dispatch: use workflow run URL
+              if run_id and run_id != '':
+                  run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
           
           # Get suggestion from output file
           suggestion = 'Manual review required'
@@ -145,46 +184,82 @@ jobs:
           except:
               pass
           
-          # Build Slack message
-          message = {
-              "text": f"[STOP] {repo} PR#{pr_number} {pr_title}",
-              "blocks": [
-                  {
-                      "type": "header",
-                      "text": {
-                          "type": "plain_text",
-                          "text": f"[STOP] {repo} PR#{pr_number}"
-                      }
-                  },
-                  {
-                      "type": "section",
-                      "fields": [
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Triggers:*\n{trigger_list_str}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Branch:*\n{branch}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Actor:*\n{actor}"
-                          },
-                          {
-                              "type": "mrkdwn",
-                              "text": f"*Suggested Action:*\n{suggestion}"
-                          }
-                      ]
-                  },
-                  {
-                      "type": "section",
-                      "text": {
-                          "type": "mrkdwn",
-                          "text": f"*PR URL:*\n<{pr_url}|View PR>"
-                      }
+          # Build Slack message blocks (PR vs Non-PR format)
+          blocks = []
+          
+          # Header block (PR format vs Non-PR format)
+          if is_pr_event and pr_number:
+              header_text = f"[STOP] {repo} PR#{pr_number}"
+              message_text = f"[STOP] {repo} PR#{pr_number}"
+              if pr_title:
+                  message_text += f" {pr_title}"
+          else:
+              # Non-PR format: no PR# prefix
+              header_text = f"[STOP] {repo}"
+              message_text = f"[STOP] {repo}"
+              if branch and branch != 'N/A':
+                  message_text += f" {branch}"
+          
+          blocks.append({
+              "type": "header",
+              "text": {
+                  "type": "plain_text",
+                  "text": header_text
+              }
+          })
+          
+          # Fields section (triggers, branch, actor, suggestion)
+          fields = [
+              {
+                  "type": "mrkdwn",
+                  "text": f"*Triggers:*\n{trigger_list_str}"
+              }
+          ]
+          
+          # Branch field (only if not empty) - guard: no empty values
+          if branch and branch != '' and branch != 'N/A':
+              fields.append({
+                  "type": "mrkdwn",
+                  "text": f"*Branch:*\n{branch}"
+              })
+          
+          # Actor and suggestion fields (always present)
+          fields.append({
+              "type": "mrkdwn",
+              "text": f"*Actor:*\n{actor}"
+          })
+          fields.append({
+              "type": "mrkdwn",
+              "text": f"*Suggested Action:*\n{suggestion}"
+          })
+          
+          blocks.append({
+              "type": "section",
+              "fields": fields
+          })
+          
+          # URL section (PR URL for PR events only, Run URL for non-PR only)
+          # Guard: only add if URL exists
+          if is_pr_event and pr_url:
+              blocks.append({
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": f"*PR URL:*\n<{pr_url}|View PR>"
                   }
-              ]
+              })
+          elif not is_pr_event and run_url:
+              blocks.append({
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": f"*Workflow Run:*\n<{run_url}|View Run>"
+                  }
+              })
+          
+          message = {
+              "text": message_text,
+              "blocks": blocks
           }
           
           webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
@@ -204,10 +279,17 @@ jobs:
           PYEOF
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_EVENT_PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
       
       - name: Log no triggers
         if: steps.check_triggers.outputs.HAS_TRIGGERS != 'true'
