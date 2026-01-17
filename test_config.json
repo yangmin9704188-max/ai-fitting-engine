@@ -1,0 +1,9 @@
+{
+  "sex": "male",
+  "age": 30,
+  "height_m": 1.75,
+  "weight_kg": 70.0,
+  "shoulder_width_m": null,
+  "model_path": "./models",
+  "data_dir": "./data/processed/step1_output"
+}

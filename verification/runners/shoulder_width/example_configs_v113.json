@@ -1,0 +1,41 @@
+{
+  "description": "Example candidate configurations for Shoulder Width v1.1.3 sweep",
+  "candidates": [
+    {
+      "id": "candidate_strict",
+      "config": {
+        "r0_ratio": 0.20,
+        "r1_ratio": 0.14,
+        "cap_quantile": 0.96,
+        "distal_w_threshold": 0.55,
+        "s_min_ratio": 0.02,
+        "s_max_ratio": 0.95,
+        "min_cap_points": 60
+      }
+    },
+    {
+      "id": "candidate_moderate",
+      "config": {
+        "r0_ratio": 0.22,
+        "r1_ratio": 0.16,
+        "cap_quantile": 0.94,
+        "distal_w_threshold": 0.55,
+        "s_min_ratio": 0.02,
+        "s_max_ratio": 0.95,
+        "min_cap_points": 60
+      }
+    },
+    {
+      "id": "candidate_relaxed",
+      "config": {
+        "r0_ratio": 0.24,
+        "r1_ratio": 0.18,
+        "cap_quantile": 0.92,
+        "distal_w_threshold": 0.55,
+        "s_min_ratio": 0.02,
+        "s_max_ratio": 0.95,
+        "min_cap_points": 60
+      }
+    }
+  ]
+}
