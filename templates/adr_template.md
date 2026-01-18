@@ -1,0 +1,5 @@
+---
+Template: ADR
+---
+
+# ADR Template
