@@ -76,7 +76,9 @@ class InferencePersister:
                     code_git_sha,
                     schema_version,
                     model_version,
-                    dataset_version
+                    weights_hash,
+                    weights_quick_hash,
+                    runtime_env
                 FROM snapshot
                 WHERE snapshot_id = %s
                 """,
@@ -138,7 +140,7 @@ class InferencePersister:
         snapshot_id: str,
         inference_input: Dict[str, Any],
         inference_result: Dict[str, Any],
-        gate_results: List[Dict[str, Any]],  # 각 Gate별 결과 (PROC, GEO, QUAL)
+        gate_result: Dict[str, Any],  # GateResult (1:1 관계, 단일 dict)
         telemetry_data: Dict[str, Any],
         delivery_artifacts: Optional[List[Dict[str, Any]]] = None
     ) -> str:
@@ -149,7 +151,7 @@ class InferencePersister:
             snapshot_id: Snapshot ID (UUID 문자열)
             inference_input: 추론 입력 파라미터 (JSON 직렬화 가능)
             inference_result: 추론 결과 (JSON 직렬화 가능)
-            gate_results: GateResult 리스트. 각 dict는:
+            gate_result: GateResult (1:1 관계, 단일 dict):
                 - gate_type: 'PROC' | 'GEO' | 'QUAL'
                 - passed: bool
                 - failure_code: Optional[str] (예: 'GEO_FAIL', 'PROC_FAIL')
@@ -175,10 +177,10 @@ class InferencePersister:
         # 2. Telemetry 필수 필드 검증
         self._validate_telemetry_fields(telemetry_data)
         
-        # 3. GateResult 검증 (최소 1개 필수)
-        if not gate_results:
+        # 3. GateResult 검증 (필수)
+        if not gate_result:
             raise ConstitutionViolationError(
-                "GateResult is mandatory. At least one gate result required."
+                "GateResult is mandatory (1:1 relationship with InferenceRun)."
             )
         
         # 4. 단일 트랜잭션으로 INSERT
@@ -219,38 +221,37 @@ class InferencePersister:
                 inference_run_row = cur.fetchone()
                 run_id = str(inference_run_row['run_id'])
                 
-                # 4.2. GateResult INSERT (1:1 관계, 각 Gate마다 단일 INSERT)
+                # 4.2. GateResult INSERT (1:1 관계, 단일 row)
                 # 🔒 모든 Row에 4종 버전 키 필수 포함
-                for gate in gate_results:
-                    cur.execute(
-                        """
-                        INSERT INTO gate_result (
-                            run_id,
-                            snapshot_id,
-                            code_git_sha,
-                            schema_version,
-                            model_version,
-                            gate_type,
-                            passed,
-                            failure_code,
-                            details
-                        )
-                        VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        """,
-                        (
-                            run_id,
-                            snapshot_id,
-                            snapshot['code_git_sha'],
-                            snapshot['schema_version'],
-                            snapshot['model_version'],
-                            gate['gate_type'],
-                            gate['passed'],
-                            gate.get('failure_code'),
-                            json.dumps(gate.get('details')) if gate.get('details') else None
-                        )
+                cur.execute(
+                    """
+                    INSERT INTO gate_result (
+                        run_id,
+                        snapshot_id,
+                        code_git_sha,
+                        schema_version,
+                        model_version,
+                        gate_type,
+                        passed,
+                        failure_code,
+                        details
                     )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    """,
+                    (
+                        run_id,
+                        snapshot_id,
+                        snapshot['code_git_sha'],
+                        snapshot['schema_version'],
+                        snapshot['model_version'],
+                        gate_result['gate_type'],
+                        gate_result['passed'],
+                        gate_result.get('failure_code'),
+                        json.dumps(gate_result.get('details')) if gate_result.get('details') else None
+                    )
+                )
                 
                 # 4.3. Telemetry INSERT (최소 1 row, Gate FAIL이어도 반드시 저장)
                 # 🔒 정산/운영 관점에서 실패도 비용 집계에 포함
