@@ -45,4 +45,4 @@ forbidden_actions:
 
 last_update:
   date: 2026-01-19
-  trigger: render_ai_prompt
+  trigger: devtools_entrypoints

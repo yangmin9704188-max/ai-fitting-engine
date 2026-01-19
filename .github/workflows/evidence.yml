@@ -52,6 +52,7 @@ jobs:
             "^\.github/"
             "^tools/"
             "^docs/"
+            "^Makefile$"
           )
           
           # Check if ALL changed files are in allowlist
