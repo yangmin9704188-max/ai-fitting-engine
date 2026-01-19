@@ -42,6 +42,9 @@ jobs:
           NEED_SYNC=0
           HAS_SYNC_UPDATE=0
 
+          BASE_SHA="${BASE_SHA//\"/}"
+          HEAD_SHA="${HEAD_SHA//\"/}"
+
           CHANGED_FILES="$(git diff --name-only \"$BASE_SHA\" \"$HEAD_SHA\")"
 
           while IFS= read -r FILE; do
