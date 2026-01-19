@@ -45,4 +45,4 @@ forbidden_actions:
 
 last_update:
   date: 2026-01-19
-  trigger: sync_state_cli
+  trigger: render_ai_prompt
