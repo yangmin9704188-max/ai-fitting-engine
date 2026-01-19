@@ -44,5 +44,5 @@ forbidden_actions:
   -
 
 last_update:
-  date: 2026-01-20
+  date: 2026-01-19
   trigger: conflict_resolved_and_deleted
