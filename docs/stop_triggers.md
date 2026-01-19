@@ -235,3 +235,24 @@ Slack notification sent successfully: 200
 - 트리거가 true가 되면 즉시 실행을 중단합니다.
 - Human의 명시적 승인 없이는 진행하지 않습니다.
 - 트리거 해결 후 재시작은 새로운 Evidence Pack 기반으로 진행됩니다.
+
+## Adding New Triggers (Policy-as-Data)
+
+트리거 정의는 `tools/stop_triggers.yaml`에서 관리됩니다 (Policy-as-Data).
+
+**추가 절차:**
+1. `tools/stop_triggers.yaml` 파일 열기
+2. `triggers:` 섹션에 새 트리거 항목 추가 (severity: P0/P1/P2/P3, description, runbook_url, enabled)
+3. `tools/stop_trigger_notify.py`의 `STANDARD_TRIGGERS` 리스트에 트리거 ID 추가
+4. 커밋/푸시 후 워크플로우에서 자동으로 새 트리거 인식
+5. Slack 메시지에 severity 순으로 정렬되어 표시됨 (P0 > P1 > P2 > P3)
+
+**예시:**
+```yaml
+triggers:
+  NEW_TRIGGER:
+    severity: P1
+    description: "New trigger description"
+    runbook_url: "https://example.com/runbook/new_trigger"
+    enabled: true
+```

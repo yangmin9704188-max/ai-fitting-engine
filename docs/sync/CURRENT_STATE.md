@@ -45,4 +45,4 @@ forbidden_actions:
 
 last_update:
   date: 2026-01-20
-  trigger: ci_guard_refactoring
+  trigger: conflict_resolved_and_deleted
