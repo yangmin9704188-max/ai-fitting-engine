@@ -1,0 +1,65 @@
+name: CI Guard Sync State
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  guard-sync-state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard sync hub update
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SYNC_FILE="docs/sync/CURRENT_STATE.md"
+          WATCH_PREFIXES=(
+            ".github/workflows/"
+            "core/"
+            "pipelines/"
+            "verification/"
+            "tools/"
+            "configs/"
+            "config/"
+            "models/"
+            "weights/"
+            "data/"
+            "runbooks/"
+            "ops/"
+          )
+
+          NEED_SYNC=0
+          HAS_SYNC_UPDATE=0
+
+          CHANGED_FILES="$(git diff --name-only \"$BASE_SHA\" \"$HEAD_SHA\")"
+
+          while IFS= read -r FILE; do
+            [[ -z "$FILE" ]] && continue
+            if [[ "$FILE" == "$SYNC_FILE" ]]; then
+              HAS_SYNC_UPDATE=1
+              continue
+            fi
+            for PREFIX in "${WATCH_PREFIXES[@]}"; do
+              if [[ "$FILE" == "$PREFIX"* ]]; then
+                NEED_SYNC=1
+                break
+              fi
+            done
+          done <<< "$CHANGED_FILES"
+
+          if [[ "$NEED_SYNC" -eq 1 && "$HAS_SYNC_UPDATE" -ne 1 ]]; then
+            echo "CI Guard FAILED:"
+            echo "docs/sync/CURRENT_STATE.md must be updated when code/pipeline paths change."
+            exit 1
+          fi
