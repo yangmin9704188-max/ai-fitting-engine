@@ -44,5 +44,5 @@ forbidden_actions:
   -
 
 last_update:
-  date: 2025-01-20
-  trigger: ci_guard_update
+  date: 2026-01-20
+  trigger: ci_guard_refactoring
