@@ -1,12 +1,9 @@
 name: CI Guard Sync State
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+  push:
+    branches:
+      - main
 
 jobs:
   guard-sync-state:
@@ -16,9 +13,6 @@ jobs:
         with:
           fetch-depth: 0
       - name: Guard sync hub update
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -42,8 +36,8 @@ jobs:
           NEED_SYNC=0
           HAS_SYNC_UPDATE=0
 
-          BASE_SHA="${BASE_SHA//\"/}"
-          HEAD_SHA="${HEAD_SHA//\"/}"
+          BASE_SHA="${{ github.event.before }}"
+          HEAD_SHA="${{ github.sha }}"
 
           CHANGED_FILES="$(git diff --name-only $BASE_SHA $HEAD_SHA)"
 
