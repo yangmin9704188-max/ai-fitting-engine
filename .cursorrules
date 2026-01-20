@@ -8,12 +8,16 @@
 - `verification/`: Verification runners and tools - DO NOT MOVE YET
 - `tests/`: Test suites - DO NOT MOVE YET
 
-## Allowed Modification Scope
+## Allowed Modification Scope (This PR)
 
 The following files can be modified without restrictions:
 - `README.md`
-- `SYNC_HUB.md` (if exists)
-- `DB_GUIDE.md` (if exists)
+- `SYNC_HUB.md`
+- `DB_GUIDE.md`
+- `.cursorrules`
+- `db/schema.sql`
+- `tools/db_upsert.py`
+- `engine/README.md`
 
 ## Strict Rules
 
@@ -21,6 +25,12 @@ The following files can be modified without restrictions:
 2. **NO LARGE-SCALE FILE MOVES**: Do not move `core/`, `pipelines/`, `verification/`, `tests/` folders
 3. **NO CODE LOGIC CHANGES**: Do not modify existing code logic
 4. **NO REFACTORING**: Large-scale refactoring is prohibited
+
+## Prohibited Modifications
+
+- `data/`, `models/`, `artifacts/`, `experiments/`, `verification/` content modifications
+- Legacy docs content rewriting
+- Large-scale moves/deletions
 
 ## Purpose
 
