@@ -8,12 +8,14 @@ Called by Antigravity after each experiment completion.
 Usage:
     python tools/db_upsert.py --artifacts artifacts/runs/smart_mapper/20260120_120000
     python tools/db_upsert.py --report verification/reports/shoulder_width_v112/summary.json
+    python tools/db_upsert.py --policy-md docs/policies/apose_normalization/v1.1.md
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -127,6 +129,101 @@ def upsert_from_artifacts(artifacts_path: str, db_path: str) -> None:
         conn.close()
 
 
+def parse_frontmatter(content: str) -> Dict[str, Any]:
+    """Parse YAML frontmatter from markdown content."""
+    match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+    if not match:
+        raise ValueError(
+            "No YAML frontmatter found in markdown file.\n"
+            "File must start with '---' delimited frontmatter."
+        )
+    
+    frontmatter: Dict[str, Any] = {}
+    for line in match.group(1).strip().split('\n'):
+        if ':' in line:
+            key, value = line.split(':', 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            frontmatter[key] = value
+    
+    return frontmatter
+
+
+def upsert_policy(policy_md_path: str, db_path: str) -> None:
+    """Upsert policy metadata from markdown frontmatter."""
+    policy_file = Path(policy_md_path)
+    if not policy_file.exists():
+        raise FileNotFoundError(
+            f"Policy file not found: {policy_md_path}\n"
+            "Please check the path and try again."
+        )
+    
+    try:
+        with open(policy_file, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        raise RuntimeError(f"Failed to read policy file: {e}") from e
+    
+    frontmatter = parse_frontmatter(content)
+    
+    # Extract required fields
+    name = frontmatter.get("title")
+    version = frontmatter.get("version")
+    status = frontmatter.get("status", "").lower()
+    created_date = frontmatter.get("created_date")
+    frozen_commit_sha = frontmatter.get("frozen_commit_sha")
+    frozen_git_tag = frontmatter.get("frozen_git_tag")
+    
+    if not name:
+        raise ValueError("'title' field is required in frontmatter.")
+    if not version:
+        raise ValueError("'version' field is required in frontmatter.")
+    if not status:
+        raise ValueError("'status' field is required in frontmatter.")
+    
+    # Validate status
+    valid_statuses = {'draft', 'candidate', 'frozen', 'archived', 'deprecated'}
+    if status not in valid_statuses:
+        raise ValueError(
+            f"Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    # Upsert to database
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        
+        # Check if policy exists
+        cursor.execute("SELECT id FROM policies WHERE name = ? AND version = ?", (name, version))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing policy
+            cursor.execute("""
+                UPDATE policies
+                SET status = ?, created_at = ?, frozen_commit_sha = ?, frozen_git_tag = ?
+                WHERE name = ? AND version = ?
+            """, (status, created_date, frozen_commit_sha, frozen_git_tag, name, version))
+        else:
+            # Insert new policy
+            cursor.execute("""
+                INSERT INTO policies (name, version, status, created_at, frozen_commit_sha, frozen_git_tag)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (name, version, status, created_date, frozen_commit_sha, frozen_git_tag))
+        
+        conn.commit()
+        print(f"Upserted policy: {name} {version} (status={status}, commit={frozen_commit_sha})")
+        
+    except sqlite3.Error as e:
+        conn.rollback()
+        raise RuntimeError(
+            f"Database error during policy upsert: {e}\n"
+            "Please check database connection and schema."
+        ) from e
+    finally:
+        conn.close()
+
+
 def upsert_from_report(report_path: str, db_path: str) -> None:
     """Upsert metadata from report JSON file."""
     report_file = Path(report_path)
@@ -219,6 +316,11 @@ def main():
         help="Path to report JSON file"
     )
     parser.add_argument(
+        "--policy-md",
+        type=str,
+        help="Path to policy markdown file (with frontmatter)"
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=DB_PATH,
@@ -227,12 +329,15 @@ def main():
     
     args = parser.parse_args()
     
-    if not args.artifacts and not args.report:
-        print("Error: Either --artifacts or --report must be specified", file=sys.stderr)
+    # Count specified options
+    option_count = sum([bool(args.artifacts), bool(args.report), bool(args.policy_md)])
+    
+    if option_count == 0:
+        print("Error: One of --artifacts, --report, or --policy-md must be specified", file=sys.stderr)
         sys.exit(1)
     
-    if args.artifacts and args.report:
-        print("Error: Cannot specify both --artifacts and --report", file=sys.stderr)
+    if option_count > 1:
+        print("Error: Cannot specify multiple options at once", file=sys.stderr)
         sys.exit(1)
     
     # Ensure database directory exists
@@ -250,8 +355,10 @@ def main():
     try:
         if args.artifacts:
             upsert_from_artifacts(args.artifacts, str(db_path))
-        else:
+        elif args.report:
             upsert_from_report(args.report, str(db_path))
+        else:
+            upsert_policy(args.policy_md, str(db_path))
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
