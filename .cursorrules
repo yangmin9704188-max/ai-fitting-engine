@@ -1,0 +1,38 @@
+# Cursor Rules - AI Fitting Engine
+
+## Repository Structure
+
+- `engine/`: Future center for product logic (incremental migration planned)
+- `core/`: Reusable pure logic (measurements, filters, utilities) - DO NOT MOVE YET
+- `pipelines/`: Execution pipelines - DO NOT MOVE YET
+- `verification/`: Verification runners and tools - DO NOT MOVE YET
+- `tests/`: Test suites - DO NOT MOVE YET
+
+## Allowed Modification Scope (This PR)
+
+The following files can be modified without restrictions:
+- `README.md`
+- `SYNC_HUB.md`
+- `DB_GUIDE.md`
+- `.cursorrules`
+- `db/schema.sql`
+- `tools/db_upsert.py`
+- `engine/README.md`
+
+## Strict Rules
+
+1. **NO DELETIONS**: `git rm` is prohibited
+2. **NO LARGE-SCALE FILE MOVES**: Do not move `core/`, `pipelines/`, `verification/`, `tests/` folders
+3. **NO CODE LOGIC CHANGES**: Do not modify existing code logic
+4. **NO REFACTORING**: Large-scale refactoring is prohibited
+
+## Prohibited Modifications
+
+- `data/`, `models/`, `artifacts/`, `experiments/`, `verification/` content modifications
+- Legacy docs content rewriting
+- Large-scale moves/deletions
+
+## Purpose
+
+This PR is for structure declaration, operational rules, and DB minimization only.
+No code migration or refactoring should be performed.
