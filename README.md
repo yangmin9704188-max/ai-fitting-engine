@@ -25,6 +25,11 @@
   - `render_ai_prompt.py`: AI 협업 프롬프트 생성
   - `db_upsert.py`: DB 쓰기 단일 진입점
 
+### 데이터베이스
+- **`db/metadata.db`**: 공식 메타데이터 데이터베이스 (SQLite)
+  - 모든 DB 쓰기 작업은 `tools/db_upsert.py`를 통해 이 파일에 기록됩니다
+  - 스키마는 `db/schema.sql`에 정의되어 있습니다
+
 ### 실험 산출물
 - **`artifacts/`**: 실험 실행 결과물
 - **`experiments/`**: 실험 관련 파일
