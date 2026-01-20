@@ -9,6 +9,7 @@ Usage:
     python tools/db_upsert.py --artifacts artifacts/runs/smart_mapper/20260120_120000
     python tools/db_upsert.py --report verification/reports/shoulder_width_v112/summary.json
     python tools/db_upsert.py --policy-md docs/policies/apose_normalization/v1.1.md
+    python tools/db_upsert.py --report-md docs/reports/AN-v11-R1.md
 """
 
 from __future__ import annotations
@@ -224,6 +225,87 @@ def upsert_policy(policy_md_path: str, db_path: str) -> None:
         conn.close()
 
 
+def upsert_report_from_md(report_md_path: str, db_path: str) -> None:
+    """Upsert report metadata from markdown frontmatter."""
+    report_file = Path(report_md_path)
+    if not report_file.exists():
+        raise FileNotFoundError(
+            f"Report file not found: {report_md_path}\n"
+            "Please check the path and try again."
+        )
+    
+    try:
+        with open(report_file, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        raise RuntimeError(f"Failed to read report file: {e}") from e
+    
+    frontmatter = parse_frontmatter(content)
+    
+    # Extract required fields
+    report_id = frontmatter.get("report_id")
+    policy_name = frontmatter.get("policy_name")
+    policy_version = frontmatter.get("policy_version")
+    result = frontmatter.get("result", "").lower()
+    created_date = frontmatter.get("created_date")
+    artifacts_path = frontmatter.get("artifacts_path")
+    inputs = frontmatter.get("inputs")
+    
+    if not report_id:
+        raise ValueError("'report_id' field is required in frontmatter.")
+    if not policy_name:
+        raise ValueError("'policy_name' field is required in frontmatter.")
+    if not policy_version:
+        raise ValueError("'policy_version' field is required in frontmatter.")
+    if not result:
+        raise ValueError("'result' field is required in frontmatter.")
+    if not created_date:
+        raise ValueError("'created_date' field is required in frontmatter.")
+    
+    # Validate result
+    valid_results = {'pass', 'fail', 'hold'}
+    if result not in valid_results:
+        raise ValueError(
+            f"Invalid result '{result}'. Must be one of: {', '.join(valid_results)}"
+        )
+    
+    # Upsert to database
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        
+        # Check if report exists
+        cursor.execute("SELECT id FROM reports WHERE report_id = ?", (report_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing report
+            cursor.execute("""
+                UPDATE reports
+                SET policy_name = ?, policy_version = ?, result = ?, created_at = ?,
+                    artifacts_path = ?, inputs = ?
+                WHERE report_id = ?
+            """, (policy_name, policy_version, result, created_date, artifacts_path, inputs, report_id))
+        else:
+            # Insert new report
+            cursor.execute("""
+                INSERT INTO reports (report_id, policy_name, policy_version, result, created_at, artifacts_path, inputs)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (report_id, policy_name, policy_version, result, created_date, artifacts_path, inputs))
+        
+        conn.commit()
+        print(f"Upserted report: {report_id} (result={result}, policy={policy_name} {policy_version})")
+        
+    except sqlite3.Error as e:
+        conn.rollback()
+        raise RuntimeError(
+            f"Database error during report upsert: {e}\n"
+            "Please check database connection and schema."
+        ) from e
+    finally:
+        conn.close()
+
+
 def upsert_from_report(report_path: str, db_path: str) -> None:
     """Upsert metadata from report JSON file."""
     report_file = Path(report_path)
@@ -321,6 +403,11 @@ def main():
         help="Path to policy markdown file (with frontmatter)"
     )
     parser.add_argument(
+        "--report-md",
+        type=str,
+        help="Path to report markdown file (with frontmatter)"
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=DB_PATH,
@@ -330,10 +417,10 @@ def main():
     args = parser.parse_args()
     
     # Count specified options
-    option_count = sum([bool(args.artifacts), bool(args.report), bool(args.policy_md)])
+    option_count = sum([bool(args.artifacts), bool(args.report), bool(args.policy_md), bool(args.report_md)])
     
     if option_count == 0:
-        print("Error: One of --artifacts, --report, or --policy-md must be specified", file=sys.stderr)
+        print("Error: One of --artifacts, --report, --policy-md, or --report-md must be specified", file=sys.stderr)
         sys.exit(1)
     
     if option_count > 1:
@@ -357,8 +444,10 @@ def main():
             upsert_from_artifacts(args.artifacts, str(db_path))
         elif args.report:
             upsert_from_report(args.report, str(db_path))
-        else:
+        elif args.policy_md:
             upsert_policy(args.policy_md, str(db_path))
+        else:
+            upsert_report_from_md(args.report_md, str(db_path))
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

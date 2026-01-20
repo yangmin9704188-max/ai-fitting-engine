@@ -29,19 +29,16 @@ CREATE TABLE IF NOT EXISTS experiments (
 );
 
 -- 3. reports: Report metadata
-CREATE TABLE IF NOT EXISTS reports (
+DROP TABLE IF EXISTS reports;
+CREATE TABLE reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id INTEGER NOT NULL,
-    report_type TEXT,
-    result TEXT CHECK(result IN ('PASS', 'FAIL', 'PARTIAL')),
-    gate_failed TEXT,
-    evaluated_policy_commit TEXT,
-    verification_tool_commit TEXT,
+    report_id TEXT UNIQUE NOT NULL,
+    policy_name TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    result TEXT NOT NULL CHECK(result IN ('pass', 'fail', 'hold')),
+    created_at TEXT NOT NULL,
     artifacts_path TEXT,
-    dataset TEXT,
-    metrics_json TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+    inputs TEXT
 );
 
 -- 4. policy_changes: Policy change history
@@ -71,7 +68,8 @@ CREATE TABLE IF NOT EXISTS specs (
 CREATE INDEX IF NOT EXISTS idx_policies_status ON policies(status);
 CREATE INDEX IF NOT EXISTS idx_experiments_policy_id ON experiments(policy_id);
 CREATE INDEX IF NOT EXISTS idx_experiments_experiment_id ON experiments(experiment_id);
-CREATE INDEX IF NOT EXISTS idx_reports_experiment_id ON reports(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_reports_report_id ON reports(report_id);
 CREATE INDEX IF NOT EXISTS idx_reports_result ON reports(result);
+CREATE INDEX IF NOT EXISTS idx_reports_policy ON reports(policy_name, policy_version);
 CREATE INDEX IF NOT EXISTS idx_policy_changes_policy_id ON policy_changes(policy_id);
 CREATE INDEX IF NOT EXISTS idx_specs_policy_id ON specs(related_policy_id);
