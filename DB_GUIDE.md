@@ -158,6 +158,12 @@ Artifact 인덱스 (5-Layer 분류)
 - 내부 표준 키: `UNDERBUST_CIRC_M` / `BUST_CIRC_M`
 - DB에는 "UNDERBUST" 또는 "BUST"로만 기록
 
+### related_measurement_key ENUM Rule
+
+related_measurement_key ENUM: UNDERBUST | BUST | WAIST | HIP | THIGH | CIRCUMFERENCE | CHEST_LEGACY
+
+**Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
+
 ## section_id / method_tag 저장 규칙
 
 ### 저장 위치

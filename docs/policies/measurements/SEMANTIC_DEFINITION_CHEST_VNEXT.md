@@ -2,6 +2,10 @@
 
 **⚠️ Deprecated**: CHEST 단일 정의는 Deprecated이며, 표준 가슴 계열 측정은 UNDERBUST/BUST 이원화로 전환되었습니다. 신규 구현은 SEMANTIC_DEFINITION_UNDERBUST_VNEXT.md 및 SEMANTIC_DEFINITION_BUST_VNEXT.md를 참조하세요.
 
+**CHEST v0 meaning**: CHEST v0 was defined as "Upper Torso Circumference, Non-bust" (흉곽 기반 둘레, 유방 볼륨 배제). The semantic intent was closer to UNDERBUST (structural) than BUST (volume), but the distinction was not explicitly codified.
+
+**Relation to new standard**: No direct inheritance. CHEST v0 meaning is ambiguous in legacy context; treat as reference-only. New implementations must use UNDERBUST/BUST binary system.
+
 SEMANTIC_DEFINITION_CHEST_VNEXT.md
 
 Semantic Layer — Final Draft (vNext)

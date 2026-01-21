@@ -1,5 +1,7 @@
 # SYNC\_STATE
 
+**Guard ref**: [.github/workflows/ci-guard-sync-state.yml](../../.github/workflows/ci-guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
+
 snapshot:
 id:
 status: candidate

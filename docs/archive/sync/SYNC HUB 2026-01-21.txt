@@ -1,0 +1,5 @@
+SYNC HUB (Archive - 2026-01-21)
+
+**⚠️ DEPRECATED / MOVED**: This archived file is for historical reference only. The canonical SYNC HUB is located at: `SYNC_HUB.md` (project root).
+
+Do not use this file as the source of truth.
