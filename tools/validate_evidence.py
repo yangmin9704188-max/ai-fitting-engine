@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate Evidence Package schema v1.0."""
+print("__VALIDATE_EVIDENCE_VERSION__=scope-only-runs-2026-01-21")
 import json
 import os
 import re
