@@ -23,6 +23,7 @@
 │       └── smart_mapper_sw_v12/
 ├── core/
 │   ├── measurements/
+│   │   ├── circumference_v0.py
 │   │   ├── read_me.txt
 │   │   ├── shoulder_width_v112.py
 │   │   └── shoulder_width_v12.py
@@ -65,15 +66,37 @@
 │   │   ├── ReadMe1.txt
 │   │   ├── review_loop_contract.md
 │   │   └── stop_triggers.md
+│   ├── judgments/
+│   │   └── measurements/
+│   │       ├── CHEST_V0_JUDGMENT_20260121_R1.md
+│   │       ├── CIRCUMFERENCE_V0_JUDGMENT.md
+│   │       ├── HIP_V0_JUDGMENT_20260121_R1.md.txt
+│   │       ├── SYNC HUB 2026-01-21.txt
+│   │       └── THIGH_V0_JUDGMENT_20260121_R1.md.txt
 │   ├── policies/
 │   │   ├── apose_normalization/
 │   │   │   └── v1.1.md
 │   │   ├── measurements/
 │   │   │   ├── bust.md
+│   │   │   ├── CONTRACT_INTERFACE_CHEST_V0.md
+│   │   │   ├── CONTRACT_INTERFACE_CIRCUMFERENCE_V0.md
+│   │   │   ├── CONTRACT_INTERFACE_HIP_V0.md.txt
+│   │   │   ├── CONTRACT_INTERFACE_THIGH_V0.md.txt
 │   │   │   ├── contract_template.md
 │   │   │   ├── FREEZE_DECLARATION.md
+│   │   │   ├── GEOMETRIC_DESIGN_CHEST_V0.md
+│   │   │   ├── GEOMETRIC_DESIGN_HIP_V0.md.txt
+│   │   │   ├── GEOMETRIC_DESIGN_THIGH_V0.md.txt
 │   │   │   ├── hip.md
 │   │   │   ├── README.md
+│   │   │   ├── SEMANTIC_DEFINITION_CHEST_VNEXT.md
+│   │   │   ├── SEMANTIC_DEFINITION_CIRCUMFERENCE_VNEXT.md
+│   │   │   ├── SEMANTIC_DEFINITION_HIP_VNEXT.md.txt
+│   │   │   ├── SEMANTIC_DEFINITION_THIGH_VNEXT.md.txt
+│   │   │   ├── VALIDATION_FRAME_CHEST_V0.md
+│   │   │   ├── VALIDATION_FRAME_CIRCUMFERENCE_V0.md
+│   │   │   ├── VALIDATION_FRAME_HIP_V0.md
+│   │   │   ├── VALIDATION_FRAME_THIGH_V0.md
 │   │   │   ├── waist.md
 │   │   │   └── 구현방법규칙.md
 │   │   └── INDEX.md
@@ -104,6 +127,11 @@
 │   ├── step1_execute.py
 │   └── verify_policy.py
 ├── tests/
+│   ├── test_chest_v0_validation_contract.py
+│   ├── test_circumference_v0_smoke.py
+│   ├── test_circumference_v0_validation_contract.py
+│   ├── test_hip_v0_validation_contract.py
+│   └── test_thigh_v0_validation_contract.py
 ├── tools/
 │   ├── capture_session.py
 │   ├── check_db_status.py
@@ -124,8 +152,20 @@
 │   │   ├── dummy_data.npz
 │   │   ├── export_golden_shoulder_npz.py
 │   │   ├── golden/
-│   │   │   └── shoulder_width/
-│   │   │       └── golden_shoulder_v12_extended.npz
+│   │   │   ├── chest_v0/
+│   │   │   │   ├── create_s0_dataset.py
+│   │   │   │   └── s0_synthetic_cases.npz
+│   │   │   ├── circumference_v0/
+│   │   │   │   ├── create_s0_dataset.py
+│   │   │   │   └── s0_synthetic_cases.npz
+│   │   │   ├── hip_v0/
+│   │   │   │   ├── create_s0_dataset.py
+│   │   │   │   └── s0_synthetic_cases.npz
+│   │   │   ├── shoulder_width/
+│   │   │   │   └── golden_shoulder_v12_extended.npz
+│   │   │   └── thigh_v0/
+│   │   │       ├── create_s0_dataset.py
+│   │   │       └── s0_synthetic_cases.npz
 │   │   └── golden_shoulder_batched.npz
 │   ├── debug/
 │   │   ├── debug_output/
@@ -155,9 +195,13 @@
 │   │   ├── step2_verify_pose.py
 │   │   ├── sweep_shoulder_width_v112.py
 │   │   ├── verify_apose_v11.py
+│   │   ├── verify_chest_v0.py
+│   │   ├── verify_circumference_v0.py
+│   │   ├── verify_hip_v0.py
 │   │   ├── verify_policy.py
 │   │   ├── verify_shoulder_width_v112.py
-│   │   └── verify_smart_mapper_v001.py
+│   │   ├── verify_smart_mapper_v001.py
+│   │   └── verify_thigh_v0.py
 │   ├── tools/
 │   │   ├── check_smplx_weights.py
 │   │   ├── export_golden_shoulder_v12_npz.py
@@ -225,10 +269,25 @@
 
 #### docs/policies/measurements/
 - `docs/policies/measurements/bust.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_CHEST_V0.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_CIRCUMFERENCE_V0.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_HIP_V0.md.txt`
+- `docs/policies/measurements/CONTRACT_INTERFACE_THIGH_V0.md.txt`
 - `docs/policies/measurements/contract_template.md`
 - `docs/policies/measurements/FREEZE_DECLARATION.md`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_CHEST_V0.md`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_HIP_V0.md.txt`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_THIGH_V0.md.txt`
 - `docs/policies/measurements/hip.md`
 - `docs/policies/measurements/README.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_CHEST_VNEXT.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_CIRCUMFERENCE_VNEXT.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_HIP_VNEXT.md.txt`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_THIGH_VNEXT.md.txt`
+- `docs/policies/measurements/VALIDATION_FRAME_CHEST_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_CIRCUMFERENCE_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_HIP_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_THIGH_V0.md`
 - `docs/policies/measurements/waist.md`
 - `docs/policies/measurements/구현방법규칙.md`
 
@@ -240,6 +299,13 @@
 
 ### docs/samples/
 - `docs/samples/v3_execution_pack_sample.md`
+
+### docs/judgments/
+- `docs/judgments/measurements/CHEST_V0_JUDGMENT_20260121_R1.md`
+- `docs/judgments/measurements/CIRCUMFERENCE_V0_JUDGMENT.md`
+- `docs/judgments/measurements/HIP_V0_JUDGMENT_20260121_R1.md.txt`
+- `docs/judgments/measurements/SYNC HUB 2026-01-21.txt`
+- `docs/judgments/measurements/THIGH_V0_JUDGMENT_20260121_R1.md.txt`
 
 ### docs/sync/
 - `docs/sync/CURRENT_STATE.md`
@@ -254,10 +320,25 @@
 
 ### Measurements Documents
 - `docs/policies/measurements/bust.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_CHEST_V0.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_CIRCUMFERENCE_V0.md`
+- `docs/policies/measurements/CONTRACT_INTERFACE_HIP_V0.md.txt`
+- `docs/policies/measurements/CONTRACT_INTERFACE_THIGH_V0.md.txt`
 - `docs/policies/measurements/contract_template.md`
 - `docs/policies/measurements/FREEZE_DECLARATION.md`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_CHEST_V0.md`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_HIP_V0.md.txt`
+- `docs/policies/measurements/GEOMETRIC_DESIGN_THIGH_V0.md.txt`
 - `docs/policies/measurements/hip.md`
 - `docs/policies/measurements/README.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_CHEST_VNEXT.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_CIRCUMFERENCE_VNEXT.md`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_HIP_VNEXT.md.txt`
+- `docs/policies/measurements/SEMANTIC_DEFINITION_THIGH_VNEXT.md.txt`
+- `docs/policies/measurements/VALIDATION_FRAME_CHEST_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_CIRCUMFERENCE_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_HIP_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_THIGH_V0.md`
 - `docs/policies/measurements/waist.md`
 - `docs/policies/measurements/구현방법규칙.md`
 
@@ -272,6 +353,10 @@
 - `docs/policies/measurements/FREEZE_DECLARATION.md`
 - `docs/policies/measurements/hip.md`
 - `docs/policies/measurements/README.md`
+- `docs/policies/measurements/VALIDATION_FRAME_CHEST_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_CIRCUMFERENCE_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_HIP_V0.md`
+- `docs/policies/measurements/VALIDATION_FRAME_THIGH_V0.md`
 - `docs/policies/measurements/waist.md`
 
 ---
@@ -298,6 +383,7 @@
 ## Core Implementation Files
 
 ### core/measurements/
+- `core/measurements/circumference_v0.py`
 - `core/measurements/read_me.txt`
 - `core/measurements/shoulder_width_v112.py`
 - `core/measurements/shoulder_width_v12.py`
@@ -347,9 +433,13 @@
 
 ### Verification Runners
 - `verification/runners/verify_apose_v11.py`
+- `verification/runners/verify_chest_v0.py`
+- `verification/runners/verify_circumference_v0.py`
+- `verification/runners/verify_hip_v0.py`
 - `verification/runners/verify_policy.py`
 - `verification/runners/verify_shoulder_width_v112.py`
 - `verification/runners/verify_smart_mapper_v001.py`
+- `verification/runners/verify_thigh_v0.py`
 - `verification/runners/step2_verify_pose.py`
 - `verification/runners/sweep_shoulder_width_v112.py`
 
@@ -382,4 +472,4 @@
 
 ---
 
-*Generated: 2026-01-22*
+*Generated: 2026-01-21*
