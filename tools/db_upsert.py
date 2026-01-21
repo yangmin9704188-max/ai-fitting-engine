@@ -26,6 +26,155 @@ from typing import Any, Dict, Optional
 DB_PATH = "db/metadata.db"
 
 
+def infer_layer_from_path(file_path: Optional[str]) -> Optional[str]:
+    """Infer layer from file path/name patterns."""
+    if not file_path:
+        return None
+    
+    path_lower = file_path.lower()
+    
+    # L1 Semantic
+    if "semantic" in path_lower or "definition" in path_lower:
+        return "L1"
+    
+    # L2 Contract
+    if "contract" in path_lower or "interface" in path_lower:
+        return "L2"
+    
+    # L3 Geometric
+    if "geometric" in path_lower or "design" in path_lower:
+        return "L3"
+    
+    # L4 Validation
+    if "validation" in path_lower or "verify" in path_lower:
+        return "L4"
+    
+    # L5 Judgment
+    if "judgment" in path_lower:
+        return "L5"
+    
+    return None
+
+
+def infer_measurement_key_from_path(file_path: Optional[str]) -> Optional[str]:
+    """Infer measurement key from file path (UNDERBUST/BUST distinction)."""
+    if not file_path:
+        return None
+    
+    path_lower = file_path.lower()
+    
+    # Check for UNDERBUST
+    if "underbust" in path_lower:
+        return "UNDERBUST"
+    
+    # Check for BUST
+    if "bust" in path_lower and "underbust" not in path_lower:
+        return "BUST"
+    
+    # Legacy CHEST
+    if "chest" in path_lower:
+        return "CHEST_LEGACY"
+    
+    # Other measurements
+    for key in ["hip", "waist", "thigh", "circumference", "shoulder"]:
+        if key in path_lower:
+            return key.upper()
+    
+    return None
+
+
+def upsert_artifact(
+    conn: sqlite3.Connection,
+    artifact_type: str,
+    layer: Optional[str],
+    policy_id: Optional[int] = None,
+    experiment_id: Optional[int] = None,
+    related_measurement_key: Optional[str] = None,
+    git_commit: Optional[str] = None,
+    file_path: Optional[str] = None,
+    artifacts_path: Optional[str] = None,
+    status: Optional[str] = None,
+    section_id: Optional[str] = None,
+    method_tag: Optional[str] = None,
+) -> bool:
+    """
+    Upsert artifact to artifacts table.
+    
+    Returns:
+        True if upserted successfully, False if layer could not be determined (skipped)
+    """
+    # If layer not provided, try to infer
+    if not layer:
+        layer = infer_layer_from_path(file_path)
+        if not layer:
+            layer = infer_layer_from_path(artifacts_path)
+    
+    # If still no layer, skip (log warning but don't fail)
+    if not layer:
+        print(f"  [WARN] Skipped artifact upsert: cannot determine layer (type={artifact_type}, path={file_path or artifacts_path})")
+        return False
+    
+    # If measurement_key not provided, try to infer
+    if not related_measurement_key:
+        related_measurement_key = infer_measurement_key_from_path(file_path)
+        if not related_measurement_key:
+            related_measurement_key = infer_measurement_key_from_path(artifacts_path)
+    
+    # Build extra_json
+    extra_json_dict: Dict[str, Any] = {}
+    if section_id:
+        extra_json_dict["section_id"] = section_id
+    if method_tag:
+        extra_json_dict["method_tag"] = method_tag
+    
+    extra_json_str = json.dumps(extra_json_dict) if extra_json_dict else None
+    
+    cursor = conn.cursor()
+    
+    # Try to find existing artifact (by file_path or artifacts_path)
+    existing_id = None
+    if file_path:
+        cursor.execute("SELECT id FROM artifacts WHERE file_path = ?", (file_path,))
+        row = cursor.fetchone()
+        if row:
+            existing_id = row[0]
+    elif artifacts_path:
+        cursor.execute("SELECT id FROM artifacts WHERE artifacts_path = ?", (artifacts_path,))
+        row = cursor.fetchone()
+        if row:
+            existing_id = row[0]
+    
+    if existing_id:
+        # Update existing
+        cursor.execute("""
+            UPDATE artifacts
+            SET artifact_type = ?, layer = ?, policy_id = ?, experiment_id = ?,
+                related_measurement_key = ?, git_commit = ?, file_path = ?,
+                artifacts_path = ?, status = ?, extra_json = ?
+            WHERE id = ?
+        """, (
+            artifact_type, layer, policy_id, experiment_id,
+            related_measurement_key, git_commit, file_path,
+            artifacts_path, status, extra_json_str, existing_id
+        ))
+    else:
+        # Insert new
+        cursor.execute("""
+            INSERT INTO artifacts (
+                artifact_type, layer, policy_id, experiment_id,
+                related_measurement_key, git_commit, file_path,
+                artifacts_path, status, extra_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            artifact_type, layer, policy_id, experiment_id,
+            related_measurement_key, git_commit, file_path,
+            artifacts_path, status, extra_json_str
+        ))
+    
+    return True
+
+
 def ensure_db_schema(db_path: str) -> None:
     """Ensure database schema exists."""
     schema_path = Path("db/schema.sql")
@@ -116,6 +265,23 @@ def upsert_from_artifacts(artifacts_path: str, db_path: str) -> None:
             metadata.get("status", "completed"),
             json.dumps(metadata.get("extra", {}))
         ))
+        
+        # Get experiment internal ID for artifact upsert
+        cursor.execute("SELECT id FROM experiments WHERE experiment_id = ?", (run_id,))
+        exp_row = cursor.fetchone()
+        exp_internal_id = exp_row[0] if exp_row else None
+        
+        # Upsert artifact (L4 Validation for run artifacts)
+        upsert_artifact(
+            conn,
+            artifact_type="run",
+            layer="L4",  # Run artifacts are typically L4 Validation
+            experiment_id=exp_internal_id,
+            artifacts_path=artifacts_path,
+            status=metadata.get("status", "completed"),
+            section_id=metadata.get("section_id"),
+            method_tag=metadata.get("method_tag"),
+        )
         
         conn.commit()
         print(f"Upserted experiment: {run_id}")
@@ -212,6 +378,22 @@ def upsert_policy(policy_md_path: str, db_path: str) -> None:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (name, version, status, created_date, frozen_commit_sha, frozen_git_tag))
         
+        # Get policy internal ID for artifact upsert
+        cursor.execute("SELECT id FROM policies WHERE name = ? AND version = ?", (name, version))
+        policy_row = cursor.fetchone()
+        policy_internal_id = policy_row[0] if policy_row else None
+        
+        # Upsert artifact (L1 Semantic for policy documents)
+        policy_file_path = str(policy_file)
+        upsert_artifact(
+            conn,
+            artifact_type="policy",
+            layer="L1",  # Policy documents are typically L1 Semantic
+            policy_id=policy_internal_id,
+            git_commit=frozen_commit_sha,
+            file_path=policy_file_path,
+        )
+        
         conn.commit()
         print(f"Upserted policy: {name} {version} (status={status}, commit={frozen_commit_sha})")
         
@@ -293,6 +475,19 @@ def upsert_report_from_md(report_md_path: str, db_path: str) -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (report_id, policy_name, policy_version, result, created_date, artifacts_path, inputs))
         
+        # Upsert artifact (infer layer from artifacts_path)
+        artifact_type = "report"
+        if artifacts_path and "judgment" in artifacts_path.lower():
+            artifact_type = "judgment_memo"
+        
+        upsert_artifact(
+            conn,
+            artifact_type=artifact_type,
+            layer=None,  # Will be inferred from artifacts_path
+            file_path=str(report_file),
+            artifacts_path=artifacts_path,
+        )
+        
         conn.commit()
         print(f"Upserted report: {report_id} (result={result}, policy={policy_name} {policy_version})")
         
@@ -369,6 +564,27 @@ def upsert_from_report(report_path: str, db_path: str) -> None:
             report_data.get("dataset"),
             json.dumps(report_data.get("metrics", {}))
         ))
+        
+        # Upsert artifact (L4 Validation for verification reports)
+        artifacts_path = report_data.get("artifacts_path")
+        artifact_type = report_data.get("report_type", "report")
+        if "judgment" in str(artifacts_path).lower() if artifacts_path else False:
+            artifact_type = "judgment_memo"
+        
+        # Extract section_id and method_tag from report data if available
+        metrics = report_data.get("metrics", {})
+        section_id = metrics.get("section_id")
+        method_tag = metrics.get("method_tag")
+        
+        upsert_artifact(
+            conn,
+            artifact_type=artifact_type,
+            layer="L4",  # Verification reports are typically L4
+            experiment_id=exp_internal_id,
+            artifacts_path=artifacts_path,
+            section_id=section_id,
+            method_tag=method_tag,
+        )
         
         conn.commit()
         print(f"Upserted report for experiment: {experiment_id}")

@@ -64,6 +64,24 @@ CREATE TABLE IF NOT EXISTS specs (
     FOREIGN KEY (related_policy_id) REFERENCES policies(id)
 );
 
+-- 6. artifacts: Artifact index with 5-Layer classification
+CREATE TABLE IF NOT EXISTS artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_type TEXT NOT NULL,
+    layer TEXT NOT NULL CHECK(layer IN ('L1', 'L2', 'L3', 'L4', 'L5')),
+    policy_id INTEGER,
+    experiment_id INTEGER,
+    related_measurement_key TEXT,
+    git_commit TEXT,
+    file_path TEXT,
+    artifacts_path TEXT,
+    status TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    extra_json TEXT,
+    FOREIGN KEY (policy_id) REFERENCES policies(id),
+    FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_policies_status ON policies(status);
 CREATE INDEX IF NOT EXISTS idx_experiments_policy_id ON experiments(policy_id);
@@ -73,3 +91,8 @@ CREATE INDEX IF NOT EXISTS idx_reports_result ON reports(result);
 CREATE INDEX IF NOT EXISTS idx_reports_policy ON reports(policy_name, policy_version);
 CREATE INDEX IF NOT EXISTS idx_policy_changes_policy_id ON policy_changes(policy_id);
 CREATE INDEX IF NOT EXISTS idx_specs_policy_id ON specs(related_policy_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_layer ON artifacts(layer);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_measurement_key ON artifacts(related_measurement_key);
+CREATE INDEX IF NOT EXISTS idx_artifacts_policy_id ON artifacts(policy_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_experiment_id ON artifacts(experiment_id);
