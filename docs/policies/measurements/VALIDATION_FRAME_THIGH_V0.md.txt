@@ -1,0 +1,202 @@
+VALIDATION_FRAME_THIGH_V0.md
+
+Validation Layer v0 — Contract / Protocol
+
+0. Scope & Non-Goals
+
+Layer: Validation (Sensing Risk)
+
+Measurement: THIGH
+
+Target Implementation: thigh_v0 (Geometric Layer v0)
+
+Anchors:
+
+SEMANTIC_DEFINITION_THIGH_VNEXT.md
+
+CONTRACT_INTERFACE_THIGH_V0.md
+
+GEOMETRIC_DESIGN_THIGH_V0.md
+
+Non-Goals (금지)
+
+PASS/FAIL, 품질 게이트, 임계값 기반 판정 ❌
+
+성능/비용 논의 ❌
+
+시스템 재설계 ❌
+
+본 문서는 “정확한지”가 아니라 어떻게 검증을 기록/재현할지만 정의한다.
+
+1. Inputs (검증 입력 데이터 계약)
+1.1 Dataset Tiers (v0 최소)
+Tier S0 — Synthetic Shapes (필수)
+
+목적: 단위/퇴화/결정성/사지 영역 모호성 신호 기록
+
+포맷: NPZ
+
+verts: float32, shape (K, N, 3); meters
+
+case_id: (K,) 문자열 배열
+
+notes: optional
+
+Tier R0 — Regression Captures (선택)
+
+목적: 동일 입력에서 결과 변화 추적(판정 아님)
+
+포맷 동일 + optional 메타
+
+source_run_id, git_sha
+
+1.2 Invariants
+
+정상 케이스는 meters 전제
+
+스케일 오류 의심 케이스는 의도적으로 포함 가능(UNIT_FAIL 신호용)
+
+케이스별 N이 달라도 됨
+
+2. Execution Protocol (실행 프로토콜)
+2.1 Per-case Procedure
+
+각 케이스마다 아래를 수행한다.
+
+measurement_key = THIGH로 1회 호출
+
+동일 입력에 대해 2회 반복 호출하여 결정성 체크
+
+예외 발생 시 케이스 단위로 기록 후 다음 진행 (러너 중단 금지)
+
+2.2 Determinism Check (기록만)
+
+비교 항목:
+
+section_id
+
+method_tag
+
+circumference_m (NaN 포함 비교 규칙)
+
+불일치 시:
+
+failure_type = NONDETERMINISTIC로 기록
+
+3. Output Metrics (출력 메트릭 계약, 단위 포함)
+3.1 Row-level Record (case 단위 레코드)
+
+필수 컬럼:
+
+case_id
+
+measurement_key (항상 THIGH)
+
+circumference_m (float; NaN 가능; meters)
+
+section_id (string; 재현 가능 식별자)
+
+method_tag (string)
+
+warnings_json (warnings list 직렬화)
+
+failure_type (optional)
+
+3.2 Aggregate Summary (집계; 판정 아님)
+
+필수 필드:
+
+dataset_id
+
+git_sha
+
+nan_rate
+
+warning_histogram
+
+determinism_mismatch_count
+
+nonfinite_count (NaN 제외 inf 등)
+
+leg_region_uncertain_count (사지 영역 불확실 신호 빈도)
+
+4. Failure Taxonomy (실패 유형/예외 규약)
+
+“실패”는 품질 판정이 아니라 기록 분류다.
+
+4.1 Types
+
+INPUT_CONTRACT_FAIL
+
+EXEC_FAIL
+
+UNIT_FAIL
+
+DEGEN_FAIL
+
+NONDETERMINISTIC
+
+4.2 Exception Handling Rule
+
+Exception 발생 시:
+
+row에 failure_type=EXEC_FAIL
+
+warnings_json에 stacktrace 요약 포함
+
+러너는 계속 진행
+
+5. Validation Artifacts (산출물 정의)
+
+Validation Layer의 결과물은 아래로 제한한다.
+
+5.1 Required Artifacts
+
+verification/datasets/golden/thigh_v0/s0_synthetic_cases.npz
+
+verification/reports/thigh_v0/validation_results.csv
+
+verification/reports/thigh_v0/validation_summary.json
+
+5.2 Optional
+
+verification/datasets/golden/thigh_v0/r0_regression_cases.npz
+
+6. Minimal S0 Synthetic Cases (권장 구성)
+
+v0 최소 8개 케이스를 권장한다.
+(사지 영역은 퇴화/모호성 패턴이 다양하므로 1개 추가)
+
+normal_1 (상부 다리 유사 형상)
+
+normal_2
+
+degenerate_y_range (upper leg 범위 퇴화)
+
+minimal_vertices (극소 N)
+
+scale_error_suspected (cm 스케일 유사)
+
+random_noise_seed123 (seed 고정)
+
+hip_bleed_risk (상부 다리 후보가 HIP 영역과 혼동되는 케이스)
+
+knee_proximity_risk (무릎 근접 단면이 후보로 유입되는 케이스)
+
+목적은 정확도가 아니라
+Undefined/Warning/Determinism/Region-risk 신호의 기록이다.
+
+7. Boundary Statement
+
+본 Validation 프레임은 다음을 포함하지 않는다.
+
+PASS/FAIL
+
+임계값
+
+품질 등급
+
+비용/성능
+
+Validation은 “센싱(Sensing Risk)”이며,
+판단은 Judgment Layer에서만 수행한다.

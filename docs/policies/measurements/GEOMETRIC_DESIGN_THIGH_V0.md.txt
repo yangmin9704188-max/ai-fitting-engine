@@ -1,0 +1,206 @@
+GEOMETRIC_DESIGN_THIGH_V0.md
+
+Geometric Layer — Design Specification
+
+0. Scope & Authority
+
+Layer: Geometric (Implementation Design)
+
+Measurement: THIGH (Upper Leg Circumference)
+
+Semantic Anchor: SEMANTIC_DEFINITION_THIGH_VNEXT.md
+
+Contract Anchor: CONTRACT_INTERFACE_THIGH_V0.md
+
+Non-Goals:
+
+hip/knee landmark 추론 ❌
+
+skeleton/pose 활용 ❌
+
+정확도 최적화 ❌
+
+PASS/FAIL 판정 ❌
+
+본 문서는 THIGH를 “어떻게 계산할지”에 대한 최소 설계다.
+의미 해석과 판단은 절대 포함하지 않는다.
+
+1. Design Principles (핵심 원칙)
+
+THIGH Geometric v0는 다음 원칙을 따른다.
+
+Circumference / CHEST / HIP v0 패턴 재사용
+
+사지(leg) 특성으로 인한 퇴화 가능성에 보수적으로 대응
+
+기하학적 극값(max/min) 직접 강제 금지
+
+정의 불성립 시 NaN 반환 허용
+
+즉,
+
+“THIGH를 가장 크게/작게 재는 것”이 아니라
+“THIGH의 의미론을 침범하지 않는 가장 단순한 계산”
+
+을 목표로 한다.
+
+2. Input / Output (계약 재확인)
+
+입력:
+
+verts: float32[N,3] (meters)
+
+measurement_key = THIGH
+
+출력:
+
+circumference_m: float | NaN
+
+section_id: string
+
+method_tag: string
+
+warnings: list[string]
+
+출력 필드는 Contract Layer와 1:1 대응해야 한다.
+
+3. Geometric Strategy v0 (개념)
+3.1 Candidate Section Generation
+
+기준 축: y-axis
+
+방식:
+
+y축을 균일 간격으로 슬라이싱
+
+각 slice에서 단면 후보 생성
+
+폐곡선 성립 여부 검사
+
+의미
+
+구현 안정성
+
+재현성
+
+Validation 프레임 재사용 가능
+
+3.2 THIGH-specific Region Gating (사지 상부)
+
+THIGH v0는 의미 보호용 최소 gating만 적용한다.
+
+허용 영역
+
+사지(leg) 영역 중 **상부 다리(upper leg)**로 추정되는 구간
+
+명시적 배제
+
+골반/둔부(HIP 영역)
+
+무릎 관절 국소(KNEE 영역)
+
+⚠️ 주의
+
+landmark, skeleton, 비율 고정 금지
+
+gating은 “정답 판정”이 아니라 의미 침범 방지용 필터
+
+3.3 Section Selection Rule (v0)
+
+THIGH v0에서는 다음 규칙만 허용한다.
+
+선택 규칙
+
+허용 영역 내 후보들 중
+
+중앙값(median)에 가장 가까운 단면
+
+이유
+
+max → HIP 혼동 위험
+
+min → knee 근접 퇴화 위험
+
+median → 사지 단면의 대표성 확보
+
+4. Circumference Computation
+
+선택된 단면에서:
+
+폐곡선 성립 시 둘레 계산
+
+불성립 시 NaN 반환
+
+계산 로직은 Circumference v0와 동일
+
+5. Warning Policy (Geometric 관점)
+
+Geometry는 신호만 남기고 판단하지 않는다.
+
+허용 Warning
+
+DEGEN_FAIL
+
+단면 후보 부족 / 폐곡선 불성립
+
+REGION_AMBIGUOUS
+
+upper leg 후보 다수
+
+LEG_REGION_UNCERTAIN
+
+상부 다리 영역 추정 불안정
+
+UNIT_FAIL
+
+수치 스케일 이상 감지
+
+Warning은:
+
+결과를 차단하지 않음
+
+Judgment Layer 입력 신호
+
+6. section_id & method_tag
+section_id
+
+포함 정보:
+
+axis (y)
+
+slice_index
+
+region_gate (upper_leg)
+
+JSON 직렬화 문자열 권장
+
+method_tag
+thigh_v0_y_slice_median
+
+7. Failure Handling
+상황	처리
+후보 단면 없음	NaN + DEGEN_FAIL
+폐곡선 불성립	NaN
+입력 계약 위반	Exception
+
+NaN은 정상 결과다.
+
+8. Geometric Boundary Statement
+
+본 Geometric Layer는 다음을 의도적으로 하지 않는다.
+
+hip/knee 위치 추론
+
+skeleton/pose 활용
+
+단위 보정
+
+의미론적 판단
+
+성능 최적화
+
+9. Status
+
+THIGH Geometric Layer v0: 설계 완료
+
+다음 단계: THIGH Validation Layer v0

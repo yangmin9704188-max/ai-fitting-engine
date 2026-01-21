@@ -1,89 +1,68 @@
-# AI Fitting Engine
+.
 
-1인 개발 환경의 AI 기반 가상 피팅 엔진 프로젝트입니다.
+🚀 AI Fitting Engine: Logic Core
+본 레포지토리는 B2B 가상 피팅 서비스를 위한 설명 가능하고 재현 가능한 체형 생성 엔진의 로직 코어를 관리합니다.
 
-## 프로젝트 개요
+📌 Single Source of Truth (SoT)
+모든 전략적 결정과 철학은 아래 문서를 단일 진실원으로 삼습니다.
 
-이 프로젝트는 AI 에이전트 분업 구조를 통해 1인 개발 환경에서도 체계적인 R&D와 운영을 가능하게 합니다.
+전략 및 철학: docs/MASTER_PLAN.md (또는 Notion Master Plan v1.1) 참조
 
-## 폴더 구조
+실시간 상태: SYNC_HUB.md (현재 마일스톤 및 릴리즈 상태)
 
-### 제품 로직
-- **`engine/`**: 미래 제품 로직의 중심 (점진적 이전 예정)
-  - 현재는 비어있으며, 향후 `core/`, `pipelines/` 로직이 점진적으로 이동될 예정
-  - 이번 PR에서는 이동하지 않음
+🏗️ 5-Layer R&D Pipeline
+본 프로젝트는 레이어 간 의존성을 격리하기 위해 5계층 파이프라인을 준수합니다.
 
-### 현재 실행 로직
-- **`core/`**: 재사용 가능한 순수 로직 (측정 함수, 필터, 유틸리티)
-- **`pipelines/`**: 실행 파이프라인
-- **`verification/`**: 검증 러너 및 도구
-- **`tests/`**: 테스트 스위트
+Semantic: docs/policies/measurements/ (의미 정의)
 
-### 운영 자동화
-- **`tools/`**: 운영 자동화 스크립트
-  - `sync_state.py`: CURRENT_STATE.md 패치 도구
-  - `render_ai_prompt.py`: AI 협업 프롬프트 생성
-  - `db_upsert.py`: DB 쓰기 단일 진입점
+Contract: docs/policies/measurements/ (인터페이스 규격)
 
-### 데이터베이스
-- **`db/metadata.db`**: 공식 메타데이터 데이터베이스 (SQLite)
-  - 모든 DB 쓰기 작업은 `tools/db_upsert.py`를 통해 이 파일에 기록됩니다
-  - 스키마는 `db/schema.sql`에 정의되어 있습니다
+Geometric: core/measurements/ (구현 로직)
 
-### 실험 산출물
-- **`artifacts/`**: 실험 실행 결과물
-- **`experiments/`**: 실험 관련 파일
-- **`logs/`**: 실행 로그
+Validation: verification/reports/ (사실 기록)
 
-### 문서
-- **`docs/`**: 프로젝트 문서
-  - `archive/`: 레거시 문서 (강제 규칙 아님, 참고용)
-  - `sync/`: Sync Hub 관련 문서
+Judgment: docs/judgments/ (해석 및 질문)
 
-### 데이터 및 모델
-- **`data/`**: 처리된 데이터
-- **`models/`**: SMPL-X 모델 파일
+📂 Directory Structure (Map)
+레포지토리의 주요 구조와 역할은 다음과 같습니다.
 
-## AI 분업 구조
+Core Logic
+core/: 재사용 가능한 순수 로직 (측정 함수, 필터, 유틸리티)
 
-프로젝트는 다음 역할로 분업됩니다:
+pipelines/: 실험 및 실행 파이프라인
 
-- **Human**: 최종 의사결정, 문서 확정, Git Commit & Tag 실행
-- **GPT**: 정책(Policy) 설계, 보고서/명세서 작성
-- **Gemini**: 2차 검토, 논리적 반례 제시
-- **Cursor**: 코드 작성, 실험 수행, 아티팩트 생성
-- **Antigravity**: 실험 종료 후 DB 업데이트 자동화
+engine/: (Future) 제품 로직 통합 공간 (현재 점진적 이전 중)
 
-## 하루 작업 루틴
+Verification & Ops
+verification/: 5-Layer 검증 러너 및 골든 데이터셋(NPZ)
 
-### 작업 시작
-1. `make ai-prompt` 또는 `make ai-prompt-json`으로 현재 상태 프롬프트 확인
-2. `docs/templates/CURSOR_TASK_TEMPLATE.md` 템플릿 사용하여 작업 지시
+tools/: 운영 자동화 (sync_state.py, db_upsert.py, render_ai_prompt.py)
 
-### 작업 종료
-1. 실험 결과 확인
-2. `tools/db_upsert.py` 실행 (Antigravity가 자동 실행)
-3. 필요 시 `tools/sync_state.py`로 CURRENT_STATE.md 업데이트
+db/: 공식 메타데이터 및 스키마 관리 (SQLite)
 
-## 레거시 문서
+Data & Artifacts
+data/: 처리된 데이터 및 데이터셋
 
-`docs/archive/` 폴더에는 과거 문서들이 보관되어 있습니다.
-이 문서들은 강제 규칙이 아니며, 참고용으로만 사용됩니다.
+models/: SMPL-X 모델 파라미터 및 관련 파일
 
-## Makefile 명령어
+artifacts/: 실험 실행 결과물 및 로그
 
-```bash
-# AI 프롬프트 생성
+🛠️ Quick Start & Commands
+AI 에이전트와의 협업 및 시스템 운영을 위한 주요 명령어입니다.
+
+Bash
+
+# AI 협업용 프롬프트 생성
 make ai-prompt
-make ai-prompt-json
 
-# CURRENT_STATE.md 패치
-make sync-dry ARGS="--set snapshot.status=candidate"
-make sync ARGS="--set last_update.trigger=manual_test"
-```
+# 특정 측정 항목 v0 검증 실행
+python verification/runners/verify_chest_v0.py
 
-## 참고 문서
+# 시스템 상태 업데이트 (SYNC HUB 동기화)
+make sync ARGS="--set snapshot.status=candidate"
+📏 Technical Standards
+단위(Unit): 모든 내부 인터페이스 및 연산은 meters(m) 단위를 표준으로 합니다.
 
-- `SYNC_HUB.md`: Sync Hub 구조 및 사용법
-- `DB_GUIDE.md`: 데이터베이스 사용 가이드
-- `engine/README.md`: Engine 폴더 설명
+좌표계: SMPL-X 표준 좌표계를 준수합니다.
+
+지적 정직성: 정의되지 않은 상황(Degenerate)에서는 억지로 값을 추정하지 않고 NaN을 반환합니다.

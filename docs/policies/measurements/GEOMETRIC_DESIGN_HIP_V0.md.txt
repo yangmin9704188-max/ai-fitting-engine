@@ -1,0 +1,214 @@
+GEOMETRIC_DESIGN_HIP_V0.md
+
+Geometric Layer — Design Specification
+
+0. Scope & Authority
+
+Layer: Geometric (Implementation Design)
+
+Measurement: HIP
+
+Semantic Anchor: SEMANTIC_DEFINITION_HIP_VNEXT.md
+
+Contract Anchor: CONTRACT_INTERFACE_HIP_V0.md
+
+Non-Goals:
+
+골반 해부학적 landmark 추론 ❌
+
+skeleton/pose 사용 ❌
+
+정확도 최적화 ❌
+
+PASS/FAIL 판정 ❌
+
+본 문서는 HIP을 “어떻게 계산할지”에 대한 최소 설계다.
+의미 해석과 판단은 절대 포함하지 않는다.
+
+1. Design Principles (핵심 원칙)
+
+HIP Geometric v0는 다음 원칙을 따른다.
+
+Circumference v0 / CHEST v0 패턴 재사용
+
+기하학적 극값(max) 의미론을 직접 강제하지 않음
+
+하부 몸통 영역을 벗어나는 단면의 자동 배제
+
+정의 불성립 시 NaN 반환 허용
+
+즉,
+
+“HIP을 가장 크게 재는 것”이 아니라
+“HIP의 의미론을 침범하지 않는 가장 단순한 계산”
+
+을 목표로 한다.
+
+2. Input / Output (계약 재확인)
+
+입력:
+
+verts: float32[N,3] (meters)
+
+measurement_key = HIP
+
+출력:
+
+circumference_m: float | NaN
+
+section_id: string
+
+method_tag: string
+
+warnings: list[string]
+
+출력 필드는 Contract Layer와 1:1 대응해야 한다.
+
+3. Geometric Strategy v0 (개념)
+3.1 Candidate Section Generation
+
+기준 축: y-axis
+
+방식:
+
+y축을 균일 간격으로 슬라이싱
+
+각 slice에서 폐곡선 후보 생성
+
+Circumference v0와 동일한 단면 생성 로직 사용
+
+목적
+
+재현성
+
+구현 안정성
+
+기존 Validation/Smoke 재사용
+
+3.2 HIP-specific Region Gating (하부 몸통)
+
+HIP v0는 의미를 훼손하지 않는 최소 gating만 적용한다.
+
+허용 영역
+
+하부 몸통(Lower Torso) 추정 범위
+
+명시적 배제
+
+허리 상부(WAIST 영역)
+
+대퇴(THIGH) 영역
+
+⚠️ 주의
+
+정확한 비율·좌표·landmark 고정 금지
+
+gating은 **“의미 보호용 필터”**이지 해부학적 판정이 아님
+
+3.3 Section Selection Rule (v0)
+
+HIP v0에서는 다음 규칙만 허용한다.
+
+선택 규칙
+
+허용 영역 내 후보들 중
+
+상위 분위수(upper quantile)에 가장 가까운 단면
+
+이유
+
+단일 max는 노이즈에 취약
+
+상위 분위수는 “대표성 있는 큰 둘레”를 안정적으로 근사
+
+⚠️ 규칙 성격
+
+이는 기하학적 선택 규칙
+
+“최대 둘레”라는 의미론을 직접 계산으로 강제하지 않는다
+
+4. Circumference Computation
+
+선택된 단면에서:
+
+폐곡선 성립 여부 확인
+
+성립 시 길이 계산
+
+불성립 시 NaN 반환
+
+계산 방법은 Circumference v0와 동일
+
+5. Warning Policy (Geometric 관점)
+
+Geometry는 신호만 남기고 판단하지 않는다.
+
+허용 Warning
+
+DEGEN_FAIL
+
+후보 부족 / 폐곡선 불성립
+
+REGION_AMBIGUOUS
+
+하부 몸통 후보 다수
+
+PELVIS_UNCERTAIN
+
+상위 분위수 후보 간 분산 큼
+
+UNIT_FAIL
+
+수치 스케일 이상 감지
+
+Warning은:
+
+결과를 차단하지 않음
+
+Judgment Layer의 입력 신호
+
+6. section_id & method_tag
+section_id
+
+포함 정보:
+
+axis (y)
+
+slice_index
+
+region_gate (lower_torso)
+
+quantile (upper_q)
+
+JSON 직렬화 문자열 권장
+
+method_tag
+hip_v0_y_slice_upper_quantile
+
+7. Failure Handling
+상황	처리
+후보 단면 없음	NaN + DEGEN_FAIL
+폐곡선 불성립	NaN
+입력 계약 위반	Exception
+
+NaN은 정상 결과다.
+
+8. Geometric Boundary Statement
+
+본 Geometric Layer는 다음을 의도적으로 하지 않는다.
+
+골반 위치 추론
+
+skeleton/pose 활용
+
+해부학적 판정
+
+단위 보정
+
+의미론적 판단
+
+9. Status
+
+HIP Geometric Layer v0: 설계 완료
+
+다음 단계: HIP Validation Layer v0

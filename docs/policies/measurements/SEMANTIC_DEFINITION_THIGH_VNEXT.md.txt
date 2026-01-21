@@ -1,0 +1,116 @@
+SEMANTIC_DEFINITION_THIGH_VNEXT.md
+
+Semantic Layer — Draft (vNext)
+
+0. Scope & Authority
+
+Layer: Semantic (Definition)
+
+Measurement: THIGH (Upper Leg Circumference)
+
+Family: Circumference Measurements (Limb)
+
+Non-Goals:
+
+계산 로직 ❌
+
+단면 선택 알고리즘 ❌
+
+임계값/판정 ❌
+
+해부학 landmark 추론 ❌
+
+본 문서는 THIGH가 무엇을 의미하는지만 정의한다.
+이후 Layer는 이 정의를 전제로만 동작한다.
+
+1. Core Semantic Statement
+
+THIGH는 하체(leg) 영역에서, 골반(HIP)과 무릎(KNEE) 사이의 상부 다리(upper leg)를 대표하는 둘레 측정이다.
+
+THIGH는 “하체 어디든 최대/최소”가 아니라,
+상부 다리의 대표 둘레를 의미한다.
+
+2. Distinction from HIP / KNEE / CALF
+
+HIP: 하부 몸통(골반/둔부 포함) 둘레
+
+THIGH: 사지(leg) 상부 구간 둘레
+
+KNEE: 관절 주변 국소 둘레(의미적으로 불안정 가능)
+
+CALF: 종아리(하부 다리) 둘레
+
+THIGH는 **HIP의 연장(하부 몸통)**도 아니고,
+KNEE 같은 관절 국소 측정도 아니다.
+
+이 구분은:
+
+HIP 영역으로의 침범 방지
+
+무릎 부근의 퇴화/잡음 영향 회피
+를 위한 의미론적 경계 선언이다.
+
+3. Defined Region (의미론적 영역)
+
+THIGH는 다음 의미론적 영역에서만 정의된다.
+
+Leg(사지) 영역 내
+
+**Upper leg (hip 아래 ~ knee 위)**의 대표 구간
+
+골반/둔부 포함 금지, 무릎 관절 국소 포함 금지
+
+정확한 좌표 비율, landmark, skeleton 기반 정의는
+Semantic Layer에서 의도적으로 고정하지 않는다.
+
+(이로써 Geometric Layer가 다양한 구현을 시도할 자유를 보장)
+
+4. Selection Semantics (의미 수준)
+
+THIGH는 상부 다리 영역에서 “대표적인 둘레”로 정의된다.
+
+중요:
+
+“대표적”은 기하학적 max/min을 강제하지 않는다
+
+이는 의미론적 표현이며, 구현 선택은 Geometric Layer의 책임이다
+
+5. Undefined Semantics (NaN = Undefined)
+
+THIGH는 다음 경우 정의되지 않음(Undefined) 으로 간주한다.
+
+상부 다리 영역에서 폐곡선 단면이 형성되지 않는 경우
+
+사지 형상이 불충분하여 상부 다리 구간이 성립하지 않는 경우
+
+영역이 모호하여 “상부 다리”라고 부를 수 있는 후보가 존재하지 않는 경우
+
+NaN은 실패가 아니라, THIGH가 성립하지 않음을 의미한다.
+
+6. Unit Assumption
+
+THIGH의 의미론은 입력 좌표가 meters 단위임을 전제로 한다.
+
+단위 위반 시 결과는 의미론적으로 해석 불가
+
+보정/추론 책임은 Semantic/Contract Layer에 귀속
+
+7. Semantic Boundary Statement
+
+본 Semantic Definition은 다음을 의도적으로 포함하지 않는다.
+
+hip/knee landmark 추론
+
+단면 생성/선택 규칙
+
+검증 기준 및 임계값
+
+Semantic Layer는 오직 다음 질문에만 답한다.
+
+“THIGH란 무엇을 측정한다고 말하는가?”
+
+8. Status
+
+THIGH Semantic Definition vNext: Draft 완료
+
+다음 단계: THIGH Contract Layer v0
