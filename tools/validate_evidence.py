@@ -12,9 +12,36 @@ def get_changed_runs(base_sha, head_sha):
     """
     Find changed run directories from git diff.
     Only returns runs that are actually changed in this PR.
+    
+    Rules:
+    - Only scans artifacts/ paths that are changed in base...head diff
+    - Only includes paths with 'runs' directory (excludes regression/ etc.)
+    - If diff fails or base/head invalid, returns empty (safe skip)
     """
     import subprocess
     
+    # Validate base and head SHA
+    if not base_sha or not head_sha:
+        print("WARNING: base or head SHA is empty. Skipping validation (safe skip).")
+        return []
+    
+    # Try to verify SHAs exist
+    try:
+        subprocess.run(
+            ['git', 'rev-parse', '--verify', base_sha],
+            capture_output=True,
+            check=True
+        )
+        subprocess.run(
+            ['git', 'rev-parse', '--verify', head_sha],
+            capture_output=True,
+            check=True
+        )
+    except subprocess.CalledProcessError:
+        print(f"WARNING: Invalid SHA (base={base_sha}, head={head_sha}). Skipping validation (safe skip).")
+        return []
+    
+    # Get changed files
     try:
         result = subprocess.run(
             ['git', 'diff', '--name-only', f'{base_sha}...{head_sha}'],
@@ -23,7 +50,9 @@ def get_changed_runs(base_sha, head_sha):
             check=True
         )
         changed_files = result.stdout.strip().split('\n')
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        print(f"WARNING: git diff failed (base={base_sha}, head={head_sha}). Skipping validation (safe skip).")
+        print(f"  Error: {e.stderr}")
         return []
     
     # Check if any artifacts/ files changed
@@ -38,8 +67,9 @@ def get_changed_runs(base_sha, head_sha):
         if file.startswith('artifacts/'):
             artifacts_changed = True
             
-            # Extract run directory from any artifacts path
+            # Extract run directory from artifacts path
             # Pattern: artifacts/.../runs/run_id/... or artifacts/.../runs/run_id
+            # IMPORTANT: Only include paths with 'runs' directory (exclude regression/, sensitivity/, etc.)
             parts = file.split('/')
             if 'runs' in parts:
                 runs_idx = parts.index('runs')
@@ -49,6 +79,8 @@ def get_changed_runs(base_sha, head_sha):
                     # Build path: artifacts/.../runs/run_id
                     run_dir = '/'.join(parts[:runs_idx + 2])
                     run_dirs.add(run_dir)
+            # Explicitly skip regression/, sensitivity/, etc. (not runs/)
+            # These are legacy folders and should not be validated
     
     # If no artifacts changed, return empty (will exit early)
     if not artifacts_changed:
@@ -245,14 +277,18 @@ def main():
         if pr_base:
             base_sha = f'origin/{pr_base}'
         else:
+            # Fallback: use HEAD~1, but this is a safe skip if diff fails
             base_sha = 'HEAD~1'
     
+    print(f"Checking changed artifacts between {base_sha}...{head_sha}")
+    
     # Get changed runs (only artifacts changed in this PR)
+    # If diff fails or no artifacts changed, returns empty (safe skip)
     changed_runs = get_changed_runs(base_sha, head_sha)
     
     if not changed_runs:
         print("No artifacts changed in this PR; skipping validation.")
-        print("(Legacy artifacts are not scanned)")
+        print("(Legacy artifacts (regression/, sensitivity/, etc.) are not scanned)")
         return 0
     
     print(f"Validating evidence runs: {len(changed_runs)}")
