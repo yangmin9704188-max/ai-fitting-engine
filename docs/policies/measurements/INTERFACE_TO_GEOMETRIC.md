@@ -1,119 +1,202 @@
-[Interface Contract] Semantic → Geometric Minimal Rules v1.0
-0. Scope
+---
+policy_id: measurements-interface-to-geometric
+policy_name: Semantic → Geometric Minimal Interface Contract
+version: 1.1.0
+layer: interface
+scope: semantic_to_geometric
+status: active
+keys: [BUST, WAIST, HIP]
+unit_in: m
+unit_out: m
+---
 
-본 규약은 Geometric Layer 구현체가 반드시 준수해야 하는 최소 제약이다.
+# [Interface Contract] Semantic → Geometric Minimal Rules
 
-본 규약은 측정 정확도/우열 판단을 포함하지 않는다.
+본 문서는 **Semantic Layer에서 확정된 인체 측정 정의**를  
+Geometric Layer 구현체로 전달하기 위한 **최소 인터페이스 규약**이다.
 
-1. 입력 계약 (Inputs)
-1.1 Required Inputs
+본 규약의 목적은 다음과 같다.
 
-Geometric Layer는 다음 입력만을 전제로 한다.
+- 측정의 **의미(Semantic)** 를 구현으로부터 보호한다
+- Geometric Layer의 **구현 자유도**를 최대화한다
+- 단위·형태·선택 규칙에 대한 **불변 조건**을 명확히 한다
 
-Body Surface Representation: 인체 표면을 나타내는 3D 표현(메시/implicit/sdf 등 어떤 형태든 가능)
+본 문서는 **정확도, 우열, 품질 판단을 다루지 않는다.**
 
-Measurement Key: {BUST, WAIST, HIP} 중 하나
+---
 
-Units Metadata: 입력 스칼라/텐서/객체는 반드시 unit 메타를 포함해야 하며, Geometric 진입 시점의 단위는 m 이어야 한다.
+## 0. Scope
 
-1.2 Forbidden Assumptions (금지 가정)
+- 적용 대상: Geometric Layer 구현체
+- 제외 범위:
+  - 측정 정확도 비교
+  - PASS / FAIL 판단
+  - 모델 학습, 회귀, Re-PCA
+  - 서비스/렌더링/비용
 
-특정 메시 토폴로지/정점 인덱스가 “항상 존재한다”는 가정 금지
+---
 
-특정 모델 파라미터(예: β)가 “항상 있다”는 가정 금지
+## 1. Normative Requirements (MUST)
 
-A-pose/T-pose를 “항상 강제한다”는 가정 금지
-(자세는 입력으로 주어질 수 있으나, 의미를 바꾸는 근거가 될 수 없음)
+### 1.1 Required Inputs
 
-2. 출력 계약 (Outputs)
-2.1 Required Output
+Geometric Layer는 아래 입력만을 전제로 한다.
 
-Geometric Layer는 아래 구조의 결과를 반환해야 한다.
+- **Body Surface Representation**
+  - 인체 표면을 나타내는 3D 표현
+  - 메시, implicit surface, SDF 등 형태는 자유
 
-measurement_key: {BUST|WAIST|HIP}
+- **Measurement Key**
+  - `{BUST, WAIST, HIP}` 중 하나
 
-circumference_m: float (meters)
+- **Units Metadata**
+  - 모든 수치 입력은 `m` 단위여야 한다
+  - 단위 변환(cm → m)은 DataLoader 책임이며,
+    Geometric Layer는 cm 입력을 받아서는 안 된다
 
-정의: 선택된 단면에서의 폐곡선 길이
+---
 
-section_id 또는 section_param: 구현체 내부에서 “어떤 단면을 선택했는지”를 재현 가능하게 식별하는 식별자(형식 자유)
+### 1.2 Forbidden Assumptions
 
-method_tag: 단면 및 폐곡선 산출 방법을 나타내는 태그(예: "plane_intersection", "geodesic_loop", "ring_sampling" 등)
+Geometric Layer는 다음을 가정해서는 안 된다.
 
-단, 태그는 의미를 바꾸지 않고, 단지 방법을 기록한다.
+- 특정 메시 토폴로지 또는 정점 인덱스의 존재
+- 특정 바디 모델(SMPL-X 등)의 사용
+- 특정 파라미터(예: β)가 항상 존재한다는 가정
+- A-pose / T-pose 강제
+  - 자세는 입력 조건일 수 있으나,
+    **측정의 의미를 바꾸는 근거가 될 수 없다**
 
-2.2 Optional Output (권장)
+---
 
-debug_geometry: 선택된 단면/폐곡선의 최소 표현(예: 포인트 샘플, 폴리라인, 파라메트릭 표현 중 택1)
+## 2. Required Outputs
 
-warnings: 경계/모호성 처리 발생 시 코드가 남기는 경고 문자열 리스트
+### 2.1 Normative Output Schema
 
-3. 의미 보존 규칙 (Semantic Preservation)
+```json
+{
+  "measurement_key": "BUST | WAIST | HIP",
+  "circumference_m": "number",
+  "section_id": "string",
+  "method_tag": "string",
+  "warnings": ["string"]
+}
+2.2 Output Field Semantics
+measurement_key
+입력으로 받은 측정 항목 키
 
-Geometric 구현체는 반드시 아래 Semantic 규칙을 구현 결과로 만족시켜야 한다.
+circumference_m
+선택된 단면에서의 폐곡선 길이
+단위: meters (m)
 
-3.1 공통 형태 규칙
+section_id
+구현체 내부에서 선택된 단면을
+재현 가능하게 식별할 수 있는 식별자
 
-모든 {BUST, WAIST, HIP} 결과는 단면 상의 폐곡선 길이여야 한다.
+권장 구성 (SHOULD):
 
-“단면”은 Semantic에서 인체 장축에 직교한다.
+사용된 알고리즘 또는 전략 식별자
 
-‘수평/수직’ 좌표계 해석은 구현체 책임이며, 어떤 해석을 선택했는지 method_tag/section_id로 재현 가능해야 한다.
+알고리즘 버전
 
-3.2 선택 규칙 (Selection Rule)
+핵심 파라미터 힌트
 
-Geometric Layer는 Semantic의 선택 규칙을 반드시 준수해야 한다.
+예시 (Informative):
 
-BUST: 정의된 가슴 영역에서 최대 둘레(Max) 선택
+plane_v1_height_0.85
 
-WAIST: 늑골 하단–장골능 사이 영역에서 최소 둘레(Min) 선택
+geodesic_v2_seed_auto
 
-HIP: 정의된 둔부/골반 영역에서 최대 둘레(Max) 선택
+method_tag
+단면/폐곡선 산출 방법 및
+선택·결정 규칙을 기록하기 위한 태그
 
-“영역(region)”을 어떻게 탐색/샘플링하는지는 구현 자유.
-단, 결과가 위의 Max/Min 선택 규칙을 만족해야 한다.
+warnings
+모호성 처리, 범위 이탈 등
+주의가 필요한 상황을 기록하는 로그
 
-3.3 모호성 처리 (Ambiguity Handling)
+3. Semantic Preservation Rules
+3.1 Common Shape Rule
+모든 측정 결과는
+인체 장축에 직교하는 단면 상의 폐곡선 길이여야 한다
 
-후보 단면이 다수인 경우, 구현체는 반드시 결정 규칙을 고정해야 하며,
-해당 규칙을 warnings 또는 method_tag에 기록해야 한다.
+“수평 / 수직” 좌표계 해석은
+Geometric Layer 구현체에 위임된다
 
-결정 규칙은 “정점 번호”나 “특정 모델 전용 규칙”에 의존하면 안 된다.
+3.2 Selection Rules (MANDATORY)
+BUST
+가슴 영역 내 둘레값 최대(Max) 단면
 
-4. 단위 규칙 (Unit Rules)
+WAIST
+늑골 하단–장골능 사이 둘레값 최소(Min) 단면
+
+HIP
+둔부 및 골반 영역 내 둘레값 최대(Max) 단면
+
+3.3 Ambiguity Handling (MUST)
+후보 단면이 다수인 경우,
+구현체는 결정 규칙을 반드시 고정해야 한다
+
+해당 결정 규칙은
+method_tag 또는 warnings에 반드시 기록되어야 한다
+
+기록에는 다음 정보가 포함되어야 한다:
+
+어떤 기준으로 단면이 선택되었는지
+
+왜 다른 후보가 제외되었는지(요약 수준)
+
+결정 규칙은 특정 정점 번호나
+모델 전용 규칙에 의존해서는 안 된다
+
+4. Unit Rules
 4.1 Unit Invariance
+Geometric Layer는 내부에서 단위를 변환하지 않는다
 
-Geometric Layer는 cm 입력을 절대 받지 않는다.
-(cm → m 변환은 DataLoader 책임)
+출력 circumference_m는 항상 m 단위이다
 
-Geometric Layer는 내부에서 단위를 변환하지 않는다.
+4.2 Range Sanity (MUST WITH WARNING)
+Geometric Layer는 측정 결과에 대해
+물리적 범위 검사를 반드시 수행해야 한다
 
-출력 circumference_m는 항상 m이다.
+결과가 비현실적 범위를 벗어나는 경우:
 
-4.2 Range Sanity (권장 강제)
+FAIL 또는 중단 판단을 내려서는 안 된다
 
-모델 진입 전 또는 측정 직후, 구현체는 최소한의 물리적 범위 검사를 수행해야 한다.
+대신 warnings에 반드시 기록해야 한다
 
-예: 키/둘레가 비현실적 범위를 벗어나면 warnings에 기록(실패 처리 여부는 Geometric 내부 정책)
+예시 범위 (Informative):
 
-5. 금지 사항 (Hard Prohibitions)
+둘레 < 0.1 m
 
-결과 값에 대해 PASS/FAIL, “정확하다/부정확하다” 같은 판단(Judgment) 출력 금지
+둘레 > 3.0 m
 
-“이 방법이 더 좋다” 식의 우열 논리 금지
+5. Hard Prohibitions (MUST NOT)
+PASS / FAIL 판단 출력
 
-Regressor, 학습, Re-PCA 등 다음 단계 언급 금지(Geometric 계약 범위 외)
+정확도·품질 평가
 
-6. 최소 수용 기준 (Acceptance)
+구현 간 우열 비교
 
-Geometric 구현체는 아래를 만족하면 Semantic 계약을 준수한 것으로 간주한다.
+Regressor, 학습, Re-PCA 언급
 
-(A) {BUST, WAIST, HIP} 각각에 대해 circumference_m을 산출한다.
+6. Acceptance Criteria
+Geometric Layer 구현체는 아래를 만족하면
+Semantic 계약을 준수한 것으로 간주한다.
 
-(B) 산출 값이 “단면 상 폐곡선 길이”라는 형태를 만족한다.
+(A) {BUST, WAIST, HIP} 결과를 반환한다
 
-(C) 선택 규칙(Max/Min)을 만족한다.
+(B) 결과는 단면 상 폐곡선 길이다
 
-(D) 단위 규칙(m only)을 위반하지 않는다.
+(C) 선택 규칙(Max / Min)을 만족한다
 
-(E) 어떤 단면을 선택했는지 section_id/param으로 재현 가능하게 남긴다.
+(D) 단위 규칙(m only)을 위반하지 않는다
+
+(E) 선택된 단면을 재현 가능하게 식별할 수 있다
+
+7. Versioning Policy
+MAJOR: 측정 의미 변경
+
+MINOR: 인터페이스 확장(하위 호환)
+
+PATCH: 문구 수정, 명확화
