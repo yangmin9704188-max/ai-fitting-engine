@@ -2,13 +2,13 @@
 
 snapshot:
   id:
-  status: candidate | hold | released
-  last_change: code | weight | config | dataset
+  status: candidate
+  last_change: code
   version_keys:
-    snapshot: true | false
-    semantic: true | false
-    geometry_impl: true | false
-    dataset: true | false
+    snapshot: false
+    semantic: false
+    geometry_impl: false
+    dataset: false
 
 pipeline:
   position: rd | local_validation | promotion | release_hold | production
@@ -34,7 +34,8 @@ decision:
 
 constraints:
   technical:
-    -
+    - HIP measurement function (core/measurements/hip_v0.py) not yet implemented
+    - CHEST measurement function (core/measurements/chest_v0.py) not yet implemented
   operational:
     -
 
@@ -44,5 +45,19 @@ forbidden_actions:
   -
 
 last_update:
-  date: 2026-01-19
-  trigger: devtools_entrypoints
+  date: 2026-01-21
+  trigger: validation_frame_additions
+
+changed_paths:
+  - verification/runners/verify_circumference_v0.py
+  - verification/runners/verify_chest_v0.py
+  - verification/runners/verify_hip_v0.py
+  - verification/datasets/golden/circumference_v0/
+  - verification/datasets/golden/chest_v0/
+  - verification/datasets/golden/hip_v0/
+  - tests/test_circumference_v0_validation_contract.py
+  - tests/test_chest_v0_validation_contract.py
+  - tests/test_hip_v0_validation_contract.py
+  - docs/policies/measurements/VALIDATION_FRAME_CIRCUMFERENCE_V0.md
+  - docs/policies/measurements/VALIDATION_FRAME_CHEST_V0.md
+  - docs/policies/measurements/VALIDATION_FRAME_HIP_V0.md
