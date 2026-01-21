@@ -144,6 +144,13 @@ jobs:
             exit 0
           fi
           
+          # Debug: Print version information
+          echo "=== Evidence Validator Version Debug ==="
+          echo "HEAD SHA: $(git rev-parse HEAD)"
+          echo "HEAD commit: $(git log -1 --oneline)"
+          echo "validate_evidence.py SHA256: $(python -c "import hashlib;print(hashlib.sha256(open('tools/validate_evidence.py','rb').read()).hexdigest())")"
+          echo "========================================"
+          
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
