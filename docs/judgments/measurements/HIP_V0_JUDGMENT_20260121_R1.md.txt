@@ -1,0 +1,161 @@
+HIP_V0_JUDGMENT_20260121_R1.md
+
+Judgment Layer v0 — Narrative Interpretation
+
+0. Scope & Provenance
+
+Layer: Judgment
+
+Measurement: HIP (Pelvic Circumference)
+
+Referenced Validation Artifacts:
+
+verification/reports/hip_v0/validation_results.csv
+
+verification/reports/hip_v0/validation_summary.json
+
+Validation Generation Time: 2026-01-21
+
+Referenced Commit: 3fb7c66
+
+Judgment Revision: R1
+
+본 문서는 위 Validation 산출물에 명시적으로 귀속되며,
+다른 실행 결과에 일반화되지 않는다.
+
+1. Judgment Role Statement
+
+본 Judgment는 HIP 측정의 결과를 옳다/그르다로 판정하지 않는다.
+대신 Validation Layer에서 기록된 사실을 **해석 가능한 신호(Signal)**로 구조화하고,
+다음 Semantic/Geometric Layer에서 재검토해야 할 질문을 도출한다.
+
+PASS / FAIL ❌
+
+임계값·기준선 ❌
+
+수정 지시 ❌
+
+2. Observed Signals
+2.1 Stability Signals (결정성)
+
+상태: ✅ 안정
+
+관찰 사실
+
+동일 입력에 대해 2회 반복 실행 시:
+
+section_id, method_tag, circumference_m가 일관되게 재현됨
+
+determinism_mismatch_count = 0 (요약 파일 기준)
+
+해석
+
+상위 분위수 기반 단면 선택은 비결정 요소에 의존하지 않는다.
+
+HIP v0는 재현성 측면에서 **기준선(reference behavior)**로 사용 가능하다.
+
+2.2 Degeneracy Response Signals (퇴화 입력 반응)
+
+상태: ✅ 방어적
+
+관찰 사실
+
+하부 몸통 영역에서 유효 단면이 형성되지 않는 케이스에서:
+
+예외 없이 NaN 반환
+
+DEGEN_FAIL warning 기록
+
+러너는 중단되지 않음
+
+해석
+
+HIP v0는 정의되지 않은 상황에서 계산을 강행하지 않는다.
+
+NaN = Undefined라는 Semantic 정의가 계약/구현 전반에 일관되게 반영되었다.
+
+2.3 Unit Sensitivity Signals (단위/스케일 감응)
+
+상태: ⚠️ 주의
+
+관찰 사실
+
+스케일 오류 의심 케이스에서:
+
+비정상적으로 큰 둘레 값 또는 NaN
+
+UNIT_FAIL warning 표식
+
+해석
+
+단위 오류를 자동 교정하지 않고 신호로만 노출한다.
+
+GIGO 원칙이 HIP 측정에서도 유지된다.
+
+2.4 Quantile Ambiguity Signals (상위 분위수 모호성)
+
+상태: 🔍 관찰 필요
+
+관찰 사실
+
+상위 분위수 후보가 다수인 케이스에서:
+
+결과는 결정적으로 선택됨
+
+PELVIS_UNCERTAIN 또는 REGION_AMBIGUOUS warning 기록
+
+해석
+
+상위 분위수 규칙은 극값 노이즈를 완화하지만,
+
+하부 몸통 영역의 폭이 넓을수록 대표성의 분산이 신호로 나타난다.
+
+3. Cross-Signal Interpretation
+
+HIP v0는 다음과 같은 시스템 성격을 보인다.
+
+✅ 결정론적이며 재현 가능
+
+✅ 정의 불성립 시 방어적(NaN)
+
+⚠️ 단위 오류를 숨기지 않고 노출
+
+🔍 분위수 기반 선택에서 영역 정의 폭에 민감
+
+이는 정확도 평가가 아니라,
+HIP 측정이 세계와 상호작용하는 방식에 대한 서술이다.
+
+4. Open Questions (No Actions)
+
+아래 질문들은 결론이나 지시가 아니라, 다음 사이클의 검토 대상이다.
+
+하부 몸통(Lower Torso)의 의미론적 범위를 Semantic Layer에서 더 좁혀야 하는가?
+
+상위 분위수 선택은 HIP의 “대표성”을 충분히 담보하는가?
+
+PELVIS_UNCERTAIN 신호는 순수 관찰로 유지할 것인가, 의미 정의 보완의 트리거로 사용할 것인가?
+
+HIP과 WAIST/THIGH 경계는 현 정의로 충분히 안정적인가?
+
+5. Judgment Boundary Statement
+
+본 문서는 다음을 의도적으로 포함하지 않는다.
+
+정확도 주장
+
+품질 판정
+
+알고리즘 수정 지시
+
+성능/비용 논의
+
+이 Judgment는 사고를 닫는 문서가 아니라,
+다음 사고를 여는 기록이다.
+
+6. Status Declaration
+
+HIP Judgment Layer v0 (R1): 작성 완료
+
+HIP Measurement는 **5-Layer 사이클(Semantic → Contract → Geometric → Validation → Judgment)**을 완주했다.
+
+다음 단계는 인간의 명시적 선언 이후에만 진행 가능하다.

@@ -1,0 +1,167 @@
+THIGH_V0_JUDGMENT_20260121_R1.md
+
+Judgment Layer v0 — Narrative Interpretation
+
+0. Scope & Provenance
+
+Layer: Judgment
+
+Measurement: THIGH (Upper Leg Circumference)
+
+Referenced Validation Artifacts:
+
+verification/reports/thigh_v0/validation_results.csv
+
+verification/reports/thigh_v0/validation_summary.json
+
+Validation Generation Time: 2026-01-21
+
+Referenced Commit: 292645b
+
+Judgment Revision: R1
+
+본 문서는 상기 Validation 산출물에 엄격히 귀속된다.
+다른 데이터셋/구현/시점으로 일반화하지 않는다.
+
+1. Judgment Role Statement
+
+THIGH Judgment Layer의 목적은 다음과 같다.
+
+PASS / FAIL ❌
+
+품질 등급 ❌
+
+수정 지시 ❌
+
+대신,
+
+Validation에서 기록된 사실을 ‘해석 가능한 신호(Signal)’로 구조화하고,
+다음 Semantic/Geometric Layer에서 다시 질문해야 할 지점을 명확히 남긴다.
+
+2. Observed Signals
+2.1 Stability Signals (결정성)
+
+상태: ✅ 안정
+
+관찰 사실
+
+동일 입력 2회 반복 실행 시:
+
+section_id, method_tag, circumference_m 값이 일관됨
+
+determinism_mismatch_count = 0 (요약 기준)
+
+해석
+
+y-axis slicing + median 선택 규칙은 사지 영역에서도 결정론적으로 작동한다.
+
+THIGH v0는 **재현 가능한 기준선(reference behavior)**로 사용 가능하다.
+
+2.2 Degeneracy Response Signals (퇴화 입력 반응)
+
+상태: ✅ 방어적
+
+관찰 사실
+
+상부 다리 영역이 성립하지 않는 케이스에서:
+
+예외 없이 NaN 반환
+
+DEGEN_FAIL warning 기록
+
+러너는 중단되지 않음
+
+해석
+
+THIGH v0는 “측정 불가” 상황을 오류로 위장하지 않는다.
+
+NaN = Undefined라는 Semantic 정의가 구현/검증 전반에 일관되게 반영되었다.
+
+2.3 Unit Sensitivity Signals (단위 감응)
+
+상태: ⚠️ 주의
+
+관찰 사실
+
+스케일 오류 의심 케이스에서:
+
+비정상 수치 또는 NaN
+
+UNIT_FAIL warning 표식
+
+해석
+
+단위 보정/추측을 하지 않는 방어적 태도가 유지된다.
+
+GIGO 원칙이 사지 측정에도 그대로 적용된다.
+
+2.4 Region Ambiguity Signals (영역 모호성)
+
+상태: 🔍 관찰 필요
+
+관찰 사실
+
+hip_bleed_risk, knee_proximity_risk 케이스에서:
+
+결과는 결정적으로 선택됨
+
+LEG_REGION_UNCERTAIN 또는 REGION_AMBIGUOUS warning 기록
+
+해석
+
+median 기반 선택은 극단값 노이즈를 피하지만,
+
+사지에서는 **의미론적 경계(hip↔thigh, thigh↔knee)**가 결과에 직접적인 신호로 드러난다.
+
+3. Cross-Signal Interpretation
+
+THIGH v0는 다음과 같은 시스템 성격을 가진다.
+
+✅ 결정론적이며 재현 가능
+
+✅ 정의 불성립 시 방어적(NaN)
+
+⚠️ 단위 오류를 숨기지 않음
+
+🔍 사지 영역 경계에서 의미론적 불확실성을 신호로 노출
+
+이는 정확도 평가가 아니라,
+
+THIGH 측정이 ‘사지’라는 구조적 특성과 어떻게 상호작용하는지에 대한 관찰 기록이다.
+
+4. Open Questions (No Actions)
+
+아래 질문들은 결론이나 지시가 아니다.
+다음 사이클에서 사고를 재개하기 위한 질문 목록이다.
+
+THIGH의 의미론적 범위를 Semantic Layer에서 더 좁혀야 하는가?
+
+median 규칙은 상부 다리의 “대표성”을 충분히 담보하는가?
+
+hip↔thigh, thigh↔knee 경계 신호는:
+
+의미 정의 보완의 근거인가,
+
+아니면 관찰 신호로 유지해야 하는가?
+
+사지 측정에서는 “대표 둘레” 개념이 몸통보다 본질적으로 더 불안정한가?
+
+5. Judgment Boundary Statement
+
+본 문서는 다음을 의도적으로 포함하지 않는다.
+
+정확도 주장
+
+품질 판정
+
+알고리즘 수정 지시
+
+성능/비용 논의
+
+이 Judgment는 결론 문서가 아니라 질문 문서다.
+
+6. Status Declaration
+
+THIGH Judgment Layer v0 (R1): 작성 완료
+
+THIGH Measurement는 **5-Layer 사이클(Semantic → Contract → Geometric → Validation → Judgment)**을 완주했다.
