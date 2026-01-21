@@ -1,5 +1,7 @@
 CONTRACT_INTERFACE_CHEST_V0.md
 
+**⚠️ Deprecated**: CHEST 단일 계약은 Deprecated이며, 표준 가슴 계열 측정은 UNDERBUST/BUST 이원화로 전환되었습니다. 신규 구현은 CONTRACT_INTERFACE_BUST_UNDERBUST_V0.md를 참조하세요.
+
 Contract Layer — Interface Definition
 
 0. Scope & Authority

@@ -1,5 +1,7 @@
 아래는 CHEST Measurement의 Semantic Definition vNext 초안입니다. (구현·계약·검증·판정 제외)
 
+**⚠️ Deprecated**: CHEST 단일 정의는 Deprecated이며, 표준 가슴 계열 측정은 UNDERBUST/BUST 이원화로 전환되었습니다. 신규 구현은 SEMANTIC_DEFINITION_UNDERBUST_VNEXT.md 및 SEMANTIC_DEFINITION_BUST_VNEXT.md를 참조하세요.
+
 SEMANTIC_DEFINITION_CHEST_VNEXT.md
 
 Semantic Layer — Final Draft (vNext)
