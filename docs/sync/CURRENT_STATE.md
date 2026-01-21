@@ -14,6 +14,10 @@ pipeline:
 position: rd | local\_validation | promotion | release\_hold | production
 position: local\_validation
 active\_runbook:
+- DB/metadata pipeline updated: artifacts table added for 5-Layer indexing
+- Migration script with auto-backup: tools/migrate_add_artifacts_table.py
+- db_upsert.py enhanced: artifacts upsert with layer inference, section_id/method_tag in extra_json
+- Smoke test added: tests/test_db_artifacts_smoke.py
 
 signals:
 validation:
@@ -50,7 +54,7 @@ operational:
 
 last\_update:
 date: 2026-01-21
-trigger: validation\_frame\_additions
+trigger: artifacts_db_indexing
 
 changed\_paths:
 
