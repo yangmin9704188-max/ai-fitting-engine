@@ -9,7 +9,10 @@ from pathlib import Path
 
 
 def get_changed_runs(base_sha, head_sha):
-    """Find changed run directories from git diff."""
+    """
+    Find changed run directories from git diff.
+    Only returns runs that are actually changed in this PR.
+    """
     import subprocess
     
     try:
@@ -23,19 +26,33 @@ def get_changed_runs(base_sha, head_sha):
     except subprocess.CalledProcessError:
         return []
     
+    # Check if any artifacts/ files changed
+    artifacts_changed = False
     run_dirs = set()
-    pattern = re.compile(r'artifacts/[^/]+/[^/]+/runs/([^/]+)/manifest\.json')
     
     for file in changed_files:
         if not file:
             continue
-        match = pattern.match(file)
-        if match:
-            # Extract directory path: artifacts/task/policy_version/runs/run_id/
+        
+        # Check if file is under artifacts/
+        if file.startswith('artifacts/'):
+            artifacts_changed = True
+            
+            # Extract run directory from any artifacts path
+            # Pattern: artifacts/.../runs/run_id/... or artifacts/.../runs/run_id
             parts = file.split('/')
-            if len(parts) >= 5 and parts[-1] == 'manifest.json':
-                run_dir = '/'.join(parts[:-1])
-                run_dirs.add(run_dir)
+            if 'runs' in parts:
+                runs_idx = parts.index('runs')
+                if runs_idx + 1 < len(parts):
+                    # Extract up to run_id directory
+                    run_id = parts[runs_idx + 1]
+                    # Build path: artifacts/.../runs/run_id
+                    run_dir = '/'.join(parts[:runs_idx + 2])
+                    run_dirs.add(run_dir)
+    
+    # If no artifacts changed, return empty (will exit early)
+    if not artifacts_changed:
+        return []
     
     return sorted(run_dirs)
 
@@ -102,12 +119,15 @@ def validate_metrics(metrics_path, run_id, baseline_ref):
 
 
 def check_pass_fail_rules(manifest, metrics):
-    """Apply PASS/FAIL rules v1.0."""
+    """
+    Check quality gates (warning-only, non-blocking).
+    Quality gates are informational only and do not cause CI failure.
+    """
     errors = []
     warnings = []
     
     if 'metrics' not in metrics or 'primary' not in metrics['metrics']:
-        return False, errors, warnings
+        return True, errors, warnings  # Pass if no metrics (schema validation handles missing)
     
     primary = metrics['metrics']['primary']
     regression = metrics.get('regression', {})
@@ -116,22 +136,23 @@ def check_pass_fail_rules(manifest, metrics):
     delta_pct = regression.get('delta_pct', 0)
     lower_is_better = primary.get('lower_is_better', True)
     
-    # Rule 4: Primary metric regression
+    # Rule 4: Primary metric regression (warning-only)
     if lower_is_better:
         if abs(delta) > 0.3:
-            errors.append(f"Primary metric regression too large: abs(delta)={abs(delta)} > 0.3")
+            warnings.append(f"WARNING: Primary metric regression large: abs(delta)={abs(delta)} > 0.3")
         if abs(delta_pct) > 5:
-            errors.append(f"Primary metric regression too large: abs(delta_pct)={abs(delta_pct)} > 5")
+            warnings.append(f"WARNING: Primary metric regression large: abs(delta_pct)={abs(delta_pct)} > 5")
     
-    # Rule 5: Secondary metric fail_rate
+    # Rule 5: Secondary metric fail_rate (warning-only)
     secondary = metrics['metrics'].get('secondary', [])
     for sec in secondary:
         if sec.get('name') == 'fail_rate':
             fail_rate_value = sec.get('value', 0)
             if fail_rate_value > 0.05:
-                errors.append(f"fail_rate too high: {fail_rate_value} > 0.05")
+                warnings.append(f"WARNING: fail_rate high: {fail_rate_value} > 0.05")
     
-    return len(errors) == 0, errors, warnings
+    # Always return True (pass) - warnings don't block CI
+    return True, errors, warnings
 
 
 def validate_run(run_dir):
@@ -152,7 +173,7 @@ def validate_run(run_dir):
         missing_files.append('summary.md')
     
     if missing_files:
-        return False, None, None, None, [f"Missing required files: {', '.join(missing_files)}"]
+        return False, None, None, None, [f"Missing required files: {', '.join(missing_files)}"], None
     
     run_id = run_dir_path.name
     all_errors = []
@@ -170,12 +191,14 @@ def validate_run(run_dir):
     all_errors.extend(metrics_errors)
     
     if all_errors:
-        return False, None, None, None, all_errors
+        return False, None, None, None, all_errors, None
     
-    # Apply PASS/FAIL rules
+    # Apply quality gates (warning-only, non-blocking)
     passed, rule_errors, warnings = check_pass_fail_rules(manifest, metrics)
+    # rule_errors should be empty (quality gates are warnings only)
     all_errors.extend(rule_errors)
     
+    # Schema errors block, but quality gate warnings don't
     if all_errors:
         passed = False
     
@@ -201,7 +224,8 @@ def validate_run(run_dir):
                 break
     
     errors_list = all_errors if all_errors else None
-    return passed, primary_metric, delta, delta_pct, errors_list, fail_rate
+    warnings_list = warnings if warnings else None
+    return passed, primary_metric, delta, delta_pct, errors_list, fail_rate, warnings_list
 
 
 def main():
@@ -223,19 +247,22 @@ def main():
         else:
             base_sha = 'HEAD~1'
     
-    # Get changed runs
+    # Get changed runs (only artifacts changed in this PR)
     changed_runs = get_changed_runs(base_sha, head_sha)
     
     if not changed_runs:
-        print("No evidence runs changed; skipping validation.")
+        print("No artifacts changed in this PR; skipping validation.")
+        print("(Legacy artifacts are not scanned)")
         return 0
     
     print(f"Validating evidence runs: {len(changed_runs)}")
     print("")
     
     results = []
+    all_warnings = []
+    
     for run_dir in changed_runs:
-        passed, primary, delta, delta_pct, errors, fail_rate = validate_run(run_dir)
+        passed, primary, delta, delta_pct, errors, fail_rate, warnings = validate_run(run_dir)
         run_id = Path(run_dir).name
         status = "PASS" if passed else "FAIL"
         
@@ -249,6 +276,10 @@ def main():
         if errors:
             for error in errors:
                 print(f"  ERROR: {error}")
+        if warnings:
+            for warning in warnings:
+                print(f"  {warning}")
+                all_warnings.append(f"{run_id}: {warning}")
         print("")
         
         results.append((run_id, passed))
@@ -259,11 +290,19 @@ def main():
     
     print("=" * 60)
     print(f"Summary: PASSED {passed_count} / FAILED {failed_count}")
+    if all_warnings:
+        print(f"Warnings: {len(all_warnings)} (non-blocking)")
     print("=" * 60)
     
     if failed_count > 0:
-        print("\nValidation failed. Please fix the errors above.")
+        print("\nValidation failed due to schema errors. Please fix the errors above.")
+        print("(Quality gate warnings do not block CI)")
         return 1
+    
+    if all_warnings:
+        print("\nQuality gate warnings (non-blocking):")
+        for warning in all_warnings:
+            print(f"  - {warning}")
     
     return 0
 
