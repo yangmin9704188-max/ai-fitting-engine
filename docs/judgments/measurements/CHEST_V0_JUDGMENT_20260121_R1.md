@@ -19,7 +19,7 @@ verification/reports/chest_v0/validation_summary.json
 
 Validation Generation Time: 2026-01-21
 
-Referenced Commit: (Validation 프레임/러너 생성 커밋 SHA 기입)
+Referenced Commit: 02b23fc
 
 Judgment Revision: R1
 
