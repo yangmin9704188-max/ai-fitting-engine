@@ -2,7 +2,7 @@
 Canonical: SYNC_HUB.md
 Key dictionary: docs/contract/standard_keys.md
 related_measurement_key ENUM: UNDERBUST|BUST|WAIST|HIP|THIGH|CIRCUMFERENCE|CHEST_LEGACY
-Guard ref: .github/workflows/ci-guard-sync-state.yml
+Guard ref: .github/workflows/guard-sync-state.yml
 Rule: This header block is canonical and must not be modified without explicit architect approval.
 ---
 
@@ -47,9 +47,7 @@ BUST\_CIRC\_M : 젖가슴 최대 둘레(볼륨), meters
 
 3.1.1 related_measurement_key ENUM Rule
 
-related_measurement_key ENUM: UNDERBUST | BUST | WAIST | HIP | THIGH | CIRCUMFERENCE | CHEST_LEGACY
-
-**Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
+See header block for ENUM definition. **Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
 
 3.2 Legacy Handling
 
@@ -107,6 +105,13 @@ UNDERBUST\_CIRC\_M = band\_cm / 100.0
 
 BUST\_CIRC\_M = UNDERBUST\_CIRC\_M + (DELTA\_CM\[cup] / 100.0)
 
+## Canonical Unit Standard
+- Canonical unit for all measurements: **meters (m)**
+- Precision target: **0.001 m (1 mm)** for reporting/exports
+- Ingestion must normalize raw units (e.g., cm → m) and record provenance
+- Reference: `docs/contract/UNIT_STANDARD.md`
+
+
 6. Male Rule (Normative)
 
 Male은 별도 키를 추가하지 않고 동일 키(UNDERBUST\_CIRC\_M, BUST\_CIRC\_M)를 사용한다.
@@ -140,7 +145,7 @@ Focus on: 가슴 계열 이원화 정의의 논리적 완결성(Semantic \& Cont
 
 Focus on: L4 Validation 산출물 경로는 verification/reports/<measurement\_key>\_v0/로 고정한다(예: validation\_summary.json은 warnings 기반 사실 기록 요약).
 
-**Guard ref**: [.github/workflows/ci-guard-sync-state.yml](.github/workflows/ci-guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
+**Guard ref**: See header block for official definition location.
 
 9. Provenance
 
