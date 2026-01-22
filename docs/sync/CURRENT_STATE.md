@@ -52,6 +52,7 @@ active\_runbook:
 - curated_v0 데이터셋 생성 파이프라인 추가 (pipelines/build_curated_v0.py): sizekorea_v1 매핑 기반 컬럼 추출, 단위 canonicalization (mm/cm/m -> m), warnings 기록 (예외 금지), 출력 경로 data/processed/curated_v0/curated_v0.parquet
 - curated_v0 warnings 스키마 문서 추가 (docs/data/curated_v0_warnings_schema.md): 경고 포맷 정의 (JSONL 형식, reason 코드, 필드 구조)
 - curated_v0 파이프라인 테스트 추가 (tests/test_build_curated_v0.py): dry-run 모드로 매핑/헤더/경고 포맷 검증
+- curated_v0 run summary 기록 (verification/runs/curated_v0/2026-01-23_run1.md): 실행 커맨드, 입력/출력 경로, row 수, warnings 카운트, unit canonicalization/outlier rules 적용 여부 (사실만)
 
 signals:
 validation:
