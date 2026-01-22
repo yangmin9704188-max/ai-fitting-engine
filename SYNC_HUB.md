@@ -57,6 +57,8 @@ BUST\_CIRC\_M : 젖가슴 최대 둘레(볼륨), meters
 
 **Standard Keys Dictionary**: See [docs/contract/standard_keys.md](docs/contract/standard_keys.md) for the complete authoritative list.
 
+Contract: Coverage v0 (45 keys) now enumerated in docs/contract/standard_keys.md.
+
 3.1.1 related_measurement_key ENUM Rule
 
 See header block for ENUM definition. **Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
