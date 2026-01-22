@@ -6,6 +6,8 @@ venv/
 
 # Data / Artifacts (do not version large outputs)
 data/
+!data/
+!data/README.md
 artifacts/
 verification/debug_output/
 verification/reports/
