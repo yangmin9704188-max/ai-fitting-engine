@@ -46,7 +46,7 @@
 ### 2.2) `data/processed/` (정제/파생 데이터)
 원천 데이터를 프로젝트에서 쓰기 좋은 형태로 정제한 결과물을 저장한다.
 
-#### 2.2.1) `data/processed/SizeKorea_Final/`
+#### 2.2.1) `data/processed/SizeKorea_Final/` (기존 cm 기반, 혼선 방지용 보존)
 7차+8차 데이터를 통합하고 이상치 제거 후, 분석/샘플링에 필요한 최소 필드만 남겨 저장한 정제 데이터.
 
 **정제 요약(현 상태)**
@@ -71,6 +71,24 @@
 - `SizeKorea_40-49_Male.csv`
 - `SizeKorea_50-59_Female.csv`
 - `SizeKorea_50-59_Male.csv`
+
+**참고**: 이 경로는 기존 cm 기반 processed 데이터를 보존하기 위한 것입니다. 새로운 m 기반 processed는 `data/processed/m_standard/` 경로를 사용합니다.
+
+#### 2.2.2) `data/processed/m_standard/` (m 단위, 0.001m 해상도)
+Ingestion 단계에서 meters canonicalization을 거친 정제 데이터.
+
+**정제 요약**
+- 단위: **meters (m)**, 해상도 **0.001m (1mm)**
+- 변환: `data/ingestion.py::canonicalize_units_to_m` 사용, source_unit 명시적 지정
+- Provenance: 각 파일에 `*_provenance.json` 메타 파일 포함 (source_unit, conversion_applied, canonical_unit="m", quantization="0.001m")
+
+**재생성 방법**
+```bash
+python data/regenerate_processed_m_standard.py \
+  --input_csv data/raw/sizekorea_raw/7th_data.csv \
+  --source_unit mm \
+  --output_dir data/processed/m_standard
+```
 
 **Processed 규칙**
 - 이 폴더의 산출물은 raw로부터 재생성 가능해야 한다(재현성).
@@ -99,7 +117,7 @@ SMPL-X 기반 파이프라인의 초기 단계 산출물(초기 betas 및 메타
 ---
 
 ## 3) 재생성(정제/골든셋) 워크플로우 개요
-- Raw(mm, 원천 단위 보존) → Ingestion(meters canonicalization, 0.001m 양자화) → Processed(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용)
+- Raw(mm, 원천 단위 보존) → Ingestion(meters canonicalization, 0.001m 양자화, source_unit 명시) → Processed/m_standard(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용, meta_unit="m" + provenance 포함)
 
 재생성 트리거(요약)
 - facts-only 러너 결과에서 `UNIT_FAIL`/`PERIMETER_LARGE` 재현, NaN 고율, 퇴화 경고 반복이 관측되면,
