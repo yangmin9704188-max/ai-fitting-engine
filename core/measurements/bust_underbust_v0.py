@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any, Literal
 import numpy as np
 import json
 import re
+import math
 
 # -----------------------------
 # Types
@@ -133,21 +134,59 @@ def _generate_section_id(plane_axis: str, plane_value: float, slice_index: int, 
     return json.dumps(section_data, sort_keys=True)
 
 
+def _order_points_polar(points_2d: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Order 2D points by polar angle around centroid.
+    Returns ordered points or None if degenerate.
+    """
+    if points_2d.shape[0] < 3:
+        return None
+    
+    # Check for NaN/inf
+    if not np.all(np.isfinite(points_2d)):
+        return None
+    
+    # Compute centroid
+    centroid = np.mean(points_2d, axis=0)
+    
+    # Check for degenerate case (all points same or very close)
+    centered = points_2d - centroid
+    distances = np.linalg.norm(centered, axis=1)
+    if np.max(distances) < 1e-6:
+        return None  # All points at same location
+    
+    # Compute angles (atan2: y=z, x=x for xz plane)
+    # For xz plane: x is first column, z is second column
+    angles = np.arctan2(centered[:, 1], centered[:, 0])  # atan2(z, x)
+    
+    # Sort by angle
+    sorted_indices = np.argsort(angles)
+    ordered_points = points_2d[sorted_indices]
+    
+    return ordered_points
+
+
 def _compute_perimeter(vertices_2d: np.ndarray) -> Optional[float]:
     """
     Compute closed curve perimeter from 2D vertices.
+    Points are ordered by polar angle around centroid before computing perimeter.
     Returns None if computation fails (degenerate case).
     """
     if vertices_2d.shape[0] < 3:
         return None
     
-    # Simple perimeter: sum of edge lengths in order
-    n = vertices_2d.shape[0]
+    # Order points by polar angle
+    ordered_points = _order_points_polar(vertices_2d)
+    if ordered_points is None:
+        return None
+    
+    # Compute perimeter from ordered points
+    n = ordered_points.shape[0]
     perimeter = 0.0
     
     for i in range(n):
         j = (i + 1) % n
-        edge_len = np.linalg.norm(vertices_2d[j] - vertices_2d[i])
+        edge_len = np.linalg.norm(ordered_points[j] - ordered_points[i])
         perimeter += edge_len
     
     return float(perimeter)

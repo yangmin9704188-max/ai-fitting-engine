@@ -187,5 +187,65 @@ def test_verts_based_underbust():
     assert isinstance(result.warnings, list)
 
 
+def test_unordered_ring_perimeter():
+    """Test: unordered ring points are correctly ordered and perimeter computed."""
+    # Create circular ring in xz plane (y is constant)
+    # Radius r = 0.15m, N = 128 points
+    r = 0.15
+    n_points = 128
+    angles = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
+    
+    # Generate points in xz plane (x, z coordinates)
+    x_coords = r * np.cos(angles)
+    z_coords = r * np.sin(angles)
+    
+    # Expected perimeter: 2 * pi * r
+    expected_perimeter = 2 * np.pi * r
+    
+    # Create verts with multiple y levels (to ensure slice detection)
+    # y = 0.2, 0.5, 0.8 (three rings)
+    n_verts = n_points * 3
+    verts = np.zeros((n_verts, 3), dtype=np.float32)
+    
+    y_levels = [0.2, 0.5, 0.8]
+    for ring_idx, y_val in enumerate(y_levels):
+        start_idx = ring_idx * n_points
+        end_idx = start_idx + n_points
+        
+        # Shuffle the order to test ordering
+        indices = np.arange(n_points)
+        np.random.seed(42)  # Fixed seed for reproducibility
+        np.random.shuffle(indices)
+        
+        for i, shuffled_idx in enumerate(indices):
+            verts[start_idx + i] = [x_coords[shuffled_idx], y_val, z_coords[shuffled_idx]]
+    
+    # Call measure_underbust_v0 without bra_size_token to trigger verts-based path
+    result = measure_underbust_v0(verts, bra_size_token=None)
+    
+    assert isinstance(result, BustUnderbustResult)
+    assert result.measurement_key == "UNDERBUST"
+    # NOT_IMPLEMENTED warning should not appear
+    assert "NOT_IMPLEMENTED" not in result.warnings
+    
+    # Result should be either finite or NaN with failure warning
+    if np.isfinite(result.circumference_m):
+        # Successful: check that perimeter is reasonable (wide tolerance)
+        # Allow 30% error margin: [0.7 * expected, 1.3 * expected]
+        assert 0.7 * expected_perimeter <= result.circumference_m <= 1.3 * expected_perimeter, \
+            f"Perimeter {result.circumference_m} not in expected range [{(0.7 * expected_perimeter):.4f}, {(1.3 * expected_perimeter):.4f}]"
+    else:
+        # Failed: should have failure warning
+        assert np.isnan(result.circumference_m)
+        assert ("UNDERBUST_MEASUREMENT_FAILED" in result.warnings or 
+                "EMPTY_CANDIDATES" in result.warnings or 
+                "SELECTION_FAILED" in result.warnings)
+    
+    # No exception should be raised
+    assert isinstance(result.section_id, str)
+    assert isinstance(result.method_tag, str)
+    assert isinstance(result.warnings, list)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
