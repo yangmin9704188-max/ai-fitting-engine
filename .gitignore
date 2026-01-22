@@ -11,10 +11,15 @@ data/
 artifacts/
 verification/debug_output/
 verification/reports/
+verification/runs/
 *.npy
 *.npz
 *.pt
 *.pth
+
+# Allow versioning verification datasets (golden/synthetic)
+!verification/datasets/**/*.npz
+!verification/datasets/**/*.npy
 
 # Models (SMPL-X, checkpoints)
 models/
