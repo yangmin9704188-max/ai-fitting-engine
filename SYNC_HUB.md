@@ -5,6 +5,17 @@ related_measurement_key ENUM: UNDERBUST|BUST|WAIST|HIP|THIGH|CIRCUMFERENCE|CHEST
 Guard ref: .github/workflows/guard-sync-state.yml
 Rule: This header block is canonical and must not be modified without explicit architect approval.
 ---
+### SYNC_HUB Update Triggers (운영 규칙, 매 PR 갱신 아님)
+- 아래 중 하나라도 발생하면 해당 PR에 SYNC_HUB.md 업데이트를 포함한다.
+- T1) Canonical header block 변경(Canonical path / Key dictionary / ENUM / Guard ref).
+- T2) Standard Keys(추가/삭제/rename) 또는 Unit Standard(단위 m, 반올림/정밀도) 변경.
+- T3) Contract 규칙 변경(입력 정규화 전제, NaN+warnings 정책, 허용 범위, Δ 테이블/Provenance).
+- T4) Semantic 정의/금지 조건/Deprecated 승계 규칙 변경(예: CHEST legacy 의미/관계).
+- T5) artifacts 인덱싱 규칙 변경(layer, related_measurement_key ENUM, extra_json 규칙).
+- T6) guard-sync-state 또는 CI 가드의 감시 경로/동기화 조건 변경.
+- T7) facts-driven triggers/운영 전환 규칙/Runbook 운용 규칙 변경.
+- 그 외 구현/리팩터링/테스트 변경은 SYNC_HUB를 수정하지 말고 CURRENT_STATE에만 기록한다.
+
 
 1. Project Overview \& Identity
 
