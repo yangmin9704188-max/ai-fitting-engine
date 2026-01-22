@@ -96,6 +96,8 @@ BUST_CIRC_M = UNDERBUST_CIRC_M + DELTA_CM[cup] / 100
 
 단위는 검증 대상이 아니라 계약 전제다.
 
+모든 입력 데이터는 Ingestion 단계에서 meters로 확정되어야 하며, data/processed 단계의 파일 포맷은 meters 단위를 강제한다.
+
 위반 시:
 
 Geometry는 단위 추론·보정을 수행하지 않는다

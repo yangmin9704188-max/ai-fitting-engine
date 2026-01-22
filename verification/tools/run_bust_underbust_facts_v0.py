@@ -64,9 +64,26 @@ def load_npz_data(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]
         warnings.append(f"NPZ_LOAD_FAILED: {str(e)}")
         return verts_list, case_ids, warnings
     
+    # Check if this is a Golden dataset (has meta_unit or schema_version)
+    is_golden = "meta_unit" in data or "schema_version" in data
+    
+    # Golden dataset strict shape check
+    if is_golden:
+        if "meta_unit" not in data:
+            warnings.append("GOLDEN_META_MISSING: meta_unit key not found")
+        if "schema_version" not in data:
+            warnings.append("GOLDEN_META_MISSING: schema_version key not found")
+    
     # Try common keys
     if "verts" in data:
         verts = data["verts"]
+        
+        # Golden dataset: strict shape check (N, V, 3) only
+        if is_golden:
+            if verts.ndim != 3 or verts.shape[2] != 3:
+                warnings.append(f"GOLDEN_SHAPE_VIOLATION: expected (N, V, 3), got {verts.shape}")
+                # For Golden, do not attempt conversion - return empty with warnings
+                return verts_list, case_ids, warnings
         
         # Handle object array: (N,) dtype=object, each element (V, 3)
         if verts.dtype == object and verts.ndim == 1:
@@ -321,8 +338,8 @@ def main():
     parser.add_argument(
         "--input_npz",
         type=str,
-        default="verification/datasets/golden/circumference_v0/s0_synthetic_cases.npz",
-        help="Input NPZ file path (default: verification/datasets/golden/circumference_v0/s0_synthetic_cases.npz)"
+        default="verification/datasets/golden/bust_underbust_v0/s0_synthetic_cases.npz",
+        help="Input NPZ file path (default: verification/datasets/golden/bust_underbust_v0/s0_synthetic_cases.npz)"
     )
     parser.add_argument(
         "--n",

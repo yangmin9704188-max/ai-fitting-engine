@@ -27,6 +27,8 @@ active\_runbook:
 - smoke test로 unordered ring 회귀 봉인
 - facts-only runner 추가 (verification/tools/run_bust_underbust_facts_v0.py): 무판정 통계 기록, NaN rate/warnings 빈도/co-occurrence 집계, JSON+CSV 출력
 - NPZ loader가 object-array verts/case_id를 지원하도록 안정화 (스키마 불일치 시 크래시 대신 0케이스 summary 기록 후 정상 종료, out_dir 자동 생성)
+- bust_underbust_v0 S0 Golden NPZ 생성기 추가 (verification/datasets/golden/bust_underbust_v0/create_s0_dataset.py): meters 단위, meta_unit/schema_version 메타 키 포함
+- facts runner 기본 입력을 bust_underbust_v0 S0 NPZ로 변경, Golden 입력에 한해 strict shape 적용 (meta_unit/schema_version 누락 시 warning, shape (N,V,3) 강제)
 
 signals:
 validation:

@@ -4,6 +4,7 @@ Key dictionary: docs/contract/standard_keys.md
 related_measurement_key ENUM: UNDERBUST|BUST|WAIST|HIP|THIGH|CIRCUMFERENCE|CHEST_LEGACY
 Guard ref: .github/workflows/guard-sync-state.yml
 Rule: This header block is canonical and must not be modified without explicit architect approval.
+Rule: Golden dataset 재생성 시 NPZ 내부에 meta_unit='m' 및 schema_version 메타 키 포함을 필수 계약으로 정의한다.
 ---
 ### SYNC_HUB Update Triggers (운영 규칙, 매 PR 갱신 아님)
 - 아래 중 하나라도 발생하면 해당 PR에 SYNC_HUB.md 업데이트를 포함한다.
