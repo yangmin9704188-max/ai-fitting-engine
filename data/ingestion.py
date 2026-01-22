@@ -42,6 +42,7 @@ def canonicalize_units_to_m(
         - No exceptions raised (NaN + warnings[] policy)
     """
     # Convert to numpy array for uniform handling
+    is_scalar = isinstance(values, (float, int))
     if isinstance(values, (list, tuple)):
         values_arr = np.array(values, dtype=np.float64)
     elif isinstance(values, np.ndarray):
@@ -49,9 +50,6 @@ def canonicalize_units_to_m(
     else:
         # Scalar
         values_arr = np.array([values], dtype=np.float64)
-        is_scalar = True
-    else:
-        is_scalar = False
     
     # Check for invalid source_unit
     if source_unit not in ["mm", "cm", "m"]:
