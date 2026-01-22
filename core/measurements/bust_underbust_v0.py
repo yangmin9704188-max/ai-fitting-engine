@@ -338,15 +338,52 @@ def measure_underbust_v0(
             warnings=warnings
         )
     
-    # Geometric measurement (TBD: use verts-based computation)
-    # For v0, return NaN with NOT_IMPLEMENTED warning
-    warnings.append("NOT_IMPLEMENTED: verts-based underbust measurement")
+    # Geometric measurement: try verts-based computation
+    # v0 heuristic: use y-axis slicing with median perimeter selection (structural stability)
+    candidates = _generate_candidates(verts, "UNDERBUST", warnings)
+    
+    if len(candidates) == 0:
+        warnings.append("EMPTY_CANDIDATES")
+        warnings.append("DEGEN_FAIL")
+        warnings.append("UNDERBUST_MEASUREMENT_FAILED")
+        return BustUnderbustResult(
+            measurement_key="UNDERBUST",
+            circumference_m=float('nan'),
+            section_id=json.dumps({"empty_candidates": True}),
+            method_tag="underbust_v0_empty",
+            warnings=warnings
+        )
+    
+    # Select candidate (UNDERBUST: median perimeter for structural stability)
+    selected = _select_candidate(candidates, "UNDERBUST")
+    
+    if selected is None:
+        warnings.append("SELECTION_FAILED")
+        warnings.append("UNDERBUST_MEASUREMENT_FAILED")
+        return BustUnderbustResult(
+            measurement_key="UNDERBUST",
+            circumference_m=float('nan'),
+            section_id=json.dumps({"selection_failed": True}),
+            method_tag="underbust_v0_failed",
+            warnings=warnings
+        )
+    
+    # Generate section_id
+    section_id = _generate_section_id(
+        selected["plane_axis"],
+        selected["plane_value"],
+        selected["slice_index"],
+        "UNDERBUST"
+    )
+    
+    # Generate method_tag
+    method_tag = f"underbust_v0_y_slice_median"
     
     return BustUnderbustResult(
         measurement_key="UNDERBUST",
-        circumference_m=float('nan'),
-        section_id=json.dumps({"not_implemented": True}),
-        method_tag="underbust_v0_not_implemented",
+        circumference_m=selected["perimeter"],
+        section_id=section_id,
+        method_tag=method_tag,
         warnings=warnings
     )
 

@@ -22,6 +22,7 @@ active\_runbook:
 - Smoke test added: tests/test_db_artifacts_smoke.py
 - bust/underbust geometric v0 엔트리포인트 추가 (core/measurements/bust_underbust_v0.py)
 - contract violation = NaN+warnings 정책을 테스트로 봉인 (tests/test_bust_underbust_v0_smoke.py)
+- UNDERBUST verts-based 측정 v0 heuristic 구현 (NOT_IMPLEMENTED 경고 제거, 실패 시 warnings 태그로 사실 기록)
 
 signals:
 validation:
@@ -49,7 +50,7 @@ constraints:
 technical:
 - HIP measurement function (core/measurements/hip\_v0.py) not yet implemented
 - CHEST measurement function (core/measurements/chest\_v0.py) not yet implemented
-- UNDERBUST verts-based measurement not yet implemented (bra_size_token path only)
+- UNDERBUST verts-based measurement uses v0 heuristic (y-axis slicing, median perimeter selection)
 operational:
 -
 
@@ -59,7 +60,7 @@ operational:
 
 last\_update:
 date: 2026-01-22
-trigger: bust_underbust_geometric_v0_impl
+trigger: underbust_verts_geometric_v0_impl
 
 changed\_paths:
 
