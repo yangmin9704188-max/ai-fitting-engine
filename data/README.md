@@ -99,7 +99,7 @@ SMPL-X 기반 파이프라인의 초기 단계 산출물(초기 betas 및 메타
 ---
 
 ## 3) 재생성(정제/골든셋) 워크플로우 개요
-- Raw(mm, 원천) → Processed(정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용)
+- Raw(mm, 원천 단위 보존) → Ingestion(meters canonicalization, 0.001m 양자화) → Processed(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용)
 
 재생성 트리거(요약)
 - facts-only 러너 결과에서 `UNIT_FAIL`/`PERIMETER_LARGE` 재현, NaN 고율, 퇴화 경고 반복이 관측되면,
