@@ -66,15 +66,17 @@ Strategic Direction:
 
 모든 측정 결과는 자동 보정 없이 신호(Warning 포함) 기반의 사실 기록 위주로 관리
 
-4.1 Data Refinement → Golden Regeneration Triggers (Facts-only)
+4.1 Facts-driven Triggers for Dataset Refinement \& Golden Regeneration
 
 Facts-only 러너 결과를 기반으로 한 데이터 정제 및 golden 재생성 전환 조건(운영 전환 규칙, PASS/FAIL 판정 아님):
 
 Trigger T1 (Unit/Scale suspicion): PERIMETER_LARGE 또는 UNIT_FAIL이 "서로 다른 2개 이상 NPZ"에서 재현되면, 다음 우선순위는 구현 튜닝이 아니라 "dataset unit standardization(m) + golden 재생성"이다.
 
-Trigger T2 (Persistent NaN): UNDERBUST/BUST NaN rate가 "2개 이상 NPZ에서 20% 이상"이면 dataset 재생성이 우선이다.
+Trigger T2 (Persistent NaN): UNDERBUST/BUST NaN rate가 "2개 이상 NPZ에서 20% 이상"이면 dataset 정제/재생성이 우선이다.
 
-Trigger T3 (Persistent Degeneracy): DEGEN_FAIL/EMPTY_CANDIDATES/BODY_AXIS_TOO_SHORT가 "2개 이상 NPZ에서 상위 경고"로 반복되면 golden 재생성이 우선이다.
+Trigger T3 (Persistent Degeneracy): DEGEN_FAIL/EMPTY_CANDIDATES/BODY_AXIS_TOO_SHORT가 "2개 이상 NPZ에서 상위 경고"로 반복되면 dataset 정제/재생성이 우선이다.
+
+최근 facts output 경로: verification/runs/facts/bust_underbust/
 
 Note: 위 트리거는 판정(PASS/FAIL)이 아니라 "작업 전환 규칙"이다. Validation/Judgment 레이어를 침범하지 않으며, 사실 신호 기반으로만 서술한다.
 
