@@ -23,6 +23,8 @@ active\_runbook:
 - bust/underbust geometric v0 엔트리포인트 추가 (core/measurements/bust_underbust_v0.py)
 - contract violation = NaN+warnings 정책을 테스트로 봉인 (tests/test_bust_underbust_v0_smoke.py)
 - UNDERBUST verts-based 측정 v0 heuristic 구현 (NOT_IMPLEMENTED 경고 제거, 실패 시 warnings 태그로 사실 기록)
+- perimeter 계산을 polar angle sorting 기반으로 안정화 (unordered slice points에서도 의미 있는 circumference 산출)
+- smoke test로 unordered ring 회귀 봉인
 
 signals:
 validation:
