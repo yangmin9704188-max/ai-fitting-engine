@@ -20,6 +20,8 @@ active\_runbook:
 - Migration script with auto-backup: tools/migrate_add_artifacts_table.py
 - db_upsert.py enhanced: artifacts upsert with layer inference, section_id/method_tag in extra_json
 - Smoke test added: tests/test_db_artifacts_smoke.py
+- bust/underbust geometric v0 엔트리포인트 추가 (core/measurements/bust_underbust_v0.py)
+- contract violation = NaN+warnings 정책을 테스트로 봉인 (tests/test_bust_underbust_v0_smoke.py)
 
 signals:
 validation:
@@ -47,6 +49,7 @@ constraints:
 technical:
 - HIP measurement function (core/measurements/hip\_v0.py) not yet implemented
 - CHEST measurement function (core/measurements/chest\_v0.py) not yet implemented
+- UNDERBUST verts-based measurement not yet implemented (bra_size_token path only)
 operational:
 -
 
@@ -56,11 +59,13 @@ operational:
 
 last\_update:
 date: 2026-01-22
-trigger: canonical_sync_hub_header_fix
+trigger: bust_underbust_geometric_v0_impl
 
 changed\_paths:
 
 * .github/workflows/guard-sync-state.yml (renamed from ci-guard-sync-state.yml)
+* core/measurements/bust_underbust_v0.py
+* tests/test_bust_underbust_v0_smoke.py
 * verification/runners/verify\_circumference\_v0.py
 * verification/runners/verify\_chest\_v0.py
 * verification/runners/verify\_hip\_v0.py
