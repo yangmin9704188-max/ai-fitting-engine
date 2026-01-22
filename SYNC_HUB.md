@@ -1,6 +1,10 @@
+---
 Canonical: SYNC_HUB.md
-
-**This line must not be deleted or changed. This file is the single canonical source for SYNC HUB.**
+Key dictionary: docs/contract/standard_keys.md
+related_measurement_key ENUM: UNDERBUST|BUST|WAIST|HIP|THIGH|CIRCUMFERENCE|CHEST_LEGACY
+Guard ref: .github/workflows/ci-guard-sync-state.yml
+Rule: This header block is canonical and must not be modified without explicit architect approval.
+---
 
 1. Project Overview \& Identity
 
