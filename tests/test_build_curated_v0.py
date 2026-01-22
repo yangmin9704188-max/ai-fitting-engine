@@ -28,7 +28,7 @@ def test_build_curated_v0_dry_run():
     - No exceptions are raised
     """
     script_path = Path(__file__).parent.parent / "pipelines" / "build_curated_v0.py"
-    mapping_path = Path(__file__).parent.parent / "data" / "column_map" / "sizekorea_v1.json"
+    mapping_path = Path(__file__).parent.parent / "data" / "column_map" / "sizekorea_v2.json"
     
     if not script_path.exists():
         print(f"Script not found: {script_path}")

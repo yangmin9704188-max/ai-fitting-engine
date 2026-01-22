@@ -3,7 +3,7 @@
 Build curated_v0 dataset from SizeKorea raw data.
 
 This pipeline:
-1. Extracts columns based on sizekorea_v1.json mapping
+1. Extracts columns based on sizekorea column mapping (v2 by default)
 2. Standardizes headers to standard_key (45 keys)
 3. Applies unit canonicalization (mm/cm/m -> m)
 4. Handles outliers (if rules exist) or records warnings
@@ -41,7 +41,7 @@ HEADER_ROWS = {
 
 
 def load_mapping_v1(mapping_path: Path) -> Dict[str, Any]:
-    """Load sizekorea_v1.json mapping."""
+    """Load sizekorea column mapping (v1 or v2)."""
     with open(mapping_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
@@ -351,7 +351,7 @@ def build_curated_v0(
     Build curated_v0 dataset.
     
     Args:
-        mapping_path: Path to sizekorea_v1.json
+        mapping_path: Path to sizekorea column mapping (v2 by default)
         output_path: Output file path
         output_format: "parquet" or "csv"
         dry_run: If True, only check headers/mapping, don't create file
@@ -511,8 +511,8 @@ def main():
     parser.add_argument(
         '--mapping',
         type=str,
-        default='data/column_map/sizekorea_v1.json',
-        help='Path to sizekorea_v1.json mapping file'
+        default='data/column_map/sizekorea_v2.json',
+        help='Path to sizekorea column mapping file (default: v2)'
     )
     parser.add_argument(
         '--output',
