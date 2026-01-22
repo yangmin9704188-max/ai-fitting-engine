@@ -8,9 +8,10 @@
 
 ## 1) 단위(Unit) 정책
 - Raw(`data/raw`)는 **원천 단위 보존**이 원칙이다. (SizeKorea 원천 단위: **mm**)
-- Processed(`data/processed`)는 프로젝트 내에서 사용하기 위한 **정제/파생 데이터**이며, 단위 변환/컬럼 표준화가 적용될 수 있다.
-- 현재 `SizeKorea_Final`은 원천 mm를 **cm로 변환**하여 저장한 상태다.
-- 프로젝트의 “계약/측정 표준 단위”는 별도 Unit Standard 문서(예: `docs/contract/UNIT_STANDARD.md`)를 단일 진실원으로 삼는다.
+- Processed(`data/processed`)는 프로젝트 내에서 사용하기 위한 **정제/파생 데이터**이며, 단위 변환/컬럼 표준화가 적용된다.
+- **모든 processed 데이터는 meters(m) 단위를 강제하며 0.001m(1mm) 해상도를 가진다.**
+- Ingestion 단계에서 원천 단위(mm/cm/m)를 meters로 명시적 변환 및 양자화를 수행한다 (`data/ingestion.py::canonicalize_units_to_m`).
+- 프로젝트의 “계약/측정 표준 단위”는 `docs/contract/UNIT_STANDARD.md`를 단일 진실원으로 삼는다.
   - 단위 정책이 확정/변경되면 processed는 재정제하여 일관성을 확보한다.
 
 ## 2) 디렉터리 레이아웃
