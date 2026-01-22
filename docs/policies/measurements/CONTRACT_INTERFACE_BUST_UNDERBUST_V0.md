@@ -8,6 +8,8 @@ Layer: Contract (Interface)
 
 Measurement: BUST / UNDERBUST (Breast Volume / Lower Chest Structural)
 
+**CHEST는 Deprecated/Reference-only이며, 표준 키가 아니다.** 신규 구현은 BUST/UNDERBUST 이원화 체계를 사용한다.
+
 Semantic Anchor: 
 - SEMANTIC_DEFINITION_BUST_VNEXT.md
 - SEMANTIC_DEFINITION_UNDERBUST_VNEXT.md
@@ -47,6 +49,8 @@ BUST_CIRC_M: 유방 볼륨 최대 둘레 (meters)
 
 2.2 Bra Size Input Format (브라 사이즈 입력)
 
+입력은 select 기반 정규화 토큰 전제를 따른다. 비표준 문자열 관용 파싱은 MVP 범위 밖이다.
+
 포맷: "75A" (band_cm + cup)
 
 구성:
@@ -64,6 +68,8 @@ band_cm: 65 ~ 90 (cm)
 cup: A, B, C, D, E, F
 
 2.4 Delta Table (컵별 Δ 값, cm)
+
+Δ 테이블은 MVP 휴리스틱/대표값이다. Provenance: 이 값들은 초기 MVP 운영 범위에서 채택된 대표값이며, 향후 데이터 기반 보정이 가능하다.
 
 컵 사이즈	Δ (cm)
 A	10.0
