@@ -1,6 +1,6 @@
 # Standard Measurement Keys Dictionary
 
-**Single Source of Truth**: This file is the authoritative dictionary for all standard measurement keys used in the AI Fitting Engine project.
+표준 키 사전의 단일 진실원.
 
 ## Standard Keys
 

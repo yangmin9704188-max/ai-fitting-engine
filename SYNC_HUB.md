@@ -1,6 +1,10 @@
+---
 Canonical: SYNC_HUB.md
-
-**This line must not be deleted or changed. This file is the single canonical source for SYNC HUB.**
+Key dictionary: docs/contract/standard_keys.md
+related_measurement_key ENUM: UNDERBUST|BUST|WAIST|HIP|THIGH|CIRCUMFERENCE|CHEST_LEGACY
+Guard ref: .github/workflows/guard-sync-state.yml
+Rule: This header block is canonical and must not be modified without explicit architect approval.
+---
 
 1. Project Overview \& Identity
 
@@ -43,9 +47,7 @@ BUST\_CIRC\_M : 젖가슴 최대 둘레(볼륨), meters
 
 3.1.1 related_measurement_key ENUM Rule
 
-related_measurement_key ENUM: UNDERBUST | BUST | WAIST | HIP | THIGH | CIRCUMFERENCE | CHEST_LEGACY
-
-**Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
+See header block for ENUM definition. **Rule**: related_measurement_key must use domain tokens (UNDERBUST, BUST, etc.), not full standard keys (UNDERBUST_CIRC_M) or arbitrary strings.
 
 3.2 Legacy Handling
 
@@ -136,7 +138,7 @@ Focus on: 가슴 계열 이원화 정의의 논리적 완결성(Semantic \& Cont
 
 Focus on: L4 Validation 산출물 경로는 verification/reports/<measurement\_key>\_v0/로 고정한다(예: validation\_summary.json은 warnings 기반 사실 기록 요약).
 
-**Guard ref**: [.github/workflows/ci-guard-sync-state.yml](.github/workflows/ci-guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
+**Guard ref**: See header block for official definition location.
 
 9. Provenance
 

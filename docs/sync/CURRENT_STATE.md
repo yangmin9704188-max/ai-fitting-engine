@@ -1,6 +1,6 @@
 # SYNC\_STATE
 
-**Guard ref**: [.github/workflows/ci-guard-sync-state.yml](../../.github/workflows/ci-guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
+**Guard ref**: [.github/workflows/guard-sync-state.yml](../../.github/workflows/guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
 
 snapshot:
 id:
@@ -55,11 +55,12 @@ operational:
 ## forbidden\_actions:
 
 last\_update:
-date: 2026-01-21
-trigger: artifacts_db_indexing
+date: 2026-01-22
+trigger: canonical_sync_hub_header_fix
 
 changed\_paths:
 
+* .github/workflows/guard-sync-state.yml (renamed from ci-guard-sync-state.yml)
 * verification/runners/verify\_circumference\_v0.py
 * verification/runners/verify\_chest\_v0.py
 * verification/runners/verify\_hip\_v0.py

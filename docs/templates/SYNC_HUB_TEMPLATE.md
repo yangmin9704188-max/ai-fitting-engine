@@ -1,5 +1,3 @@
 # SYNC HUB Template
 
-**⚠️ DEPRECATED / MOVED**: This template is deprecated. The canonical SYNC HUB is located at: `SYNC_HUB.md` (project root).
-
-For reference only. Do not use this file as the source of truth.
+이 파일은 템플릿입니다. Canonical SYNC HUB는 루트의 `SYNC_HUB.md`입니다.
