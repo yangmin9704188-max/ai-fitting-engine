@@ -8,9 +8,10 @@
 
 ## 1) 단위(Unit) 정책
 - Raw(`data/raw`)는 **원천 단위 보존**이 원칙이다. (SizeKorea 원천 단위: **mm**)
-- Processed(`data/processed`)는 프로젝트 내에서 사용하기 위한 **정제/파생 데이터**이며, 단위 변환/컬럼 표준화가 적용될 수 있다.
-- 현재 `SizeKorea_Final`은 원천 mm를 **cm로 변환**하여 저장한 상태다.
-- 프로젝트의 “계약/측정 표준 단위”는 별도 Unit Standard 문서(예: `docs/contract/UNIT_STANDARD.md`)를 단일 진실원으로 삼는다.
+- Processed(`data/processed`)는 프로젝트 내에서 사용하기 위한 **정제/파생 데이터**이며, 단위 변환/컬럼 표준화가 적용된다.
+- **모든 processed 데이터는 meters(m) 단위를 강제하며 0.001m(1mm) 해상도를 가진다.**
+- Ingestion 단계에서 원천 단위(mm/cm/m)를 meters로 명시적 변환 및 양자화를 수행한다 (`data/ingestion.py::canonicalize_units_to_m`).
+- 프로젝트의 “계약/측정 표준 단위”는 `docs/contract/UNIT_STANDARD.md`를 단일 진실원으로 삼는다.
   - 단위 정책이 확정/변경되면 processed는 재정제하여 일관성을 확보한다.
 
 ## 2) 디렉터리 레이아웃
@@ -98,7 +99,7 @@ SMPL-X 기반 파이프라인의 초기 단계 산출물(초기 betas 및 메타
 ---
 
 ## 3) 재생성(정제/골든셋) 워크플로우 개요
-- Raw(mm, 원천) → Processed(정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용)
+- Raw(mm, 원천 단위 보존) → Ingestion(meters canonicalization, 0.001m 양자화) → Processed(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용)
 
 재생성 트리거(요약)
 - facts-only 러너 결과에서 `UNIT_FAIL`/`PERIMETER_LARGE` 재현, NaN 고율, 퇴화 경고 반복이 관측되면,

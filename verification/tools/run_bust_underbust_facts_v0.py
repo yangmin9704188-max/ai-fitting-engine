@@ -67,10 +67,22 @@ def load_npz_data(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]
     # Check if this is a Golden dataset (has meta_unit or schema_version)
     is_golden = "meta_unit" in data or "schema_version" in data
     
-    # Golden dataset strict shape check
+    # Golden dataset strict shape check and meta_unit validation
     if is_golden:
         if "meta_unit" not in data:
             warnings.append("GOLDEN_META_MISSING: meta_unit key not found")
+            warnings.append("UNIT_FAIL: Golden NPZ missing meta_unit")
+        else:
+            # Validate meta_unit is "m"
+            meta_unit_value = data["meta_unit"]
+            if isinstance(meta_unit_value, np.ndarray):
+                meta_unit_str = str(meta_unit_value.item()) if meta_unit_value.size > 0 else None
+            else:
+                meta_unit_str = str(meta_unit_value)
+            
+            if meta_unit_str != "m":
+                warnings.append(f"UNIT_FAIL: Golden NPZ meta_unit='{meta_unit_str}', expected 'm'")
+        
         if "schema_version" not in data:
             warnings.append("GOLDEN_META_MISSING: schema_version key not found")
     

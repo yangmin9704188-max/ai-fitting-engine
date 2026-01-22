@@ -33,13 +33,17 @@ verts = np.array([[0.0, 0.5, 0.0], [0.1, 0.5, 0.0]], dtype=np.float32)  # meters
 cases.append(verts)
 case_ids.append("minimal_vertices")
 
-# Case 5: Scale error suspected (cm-like scale, 10x larger) - meters but suspiciously large
-verts = np.random.randn(100, 3).astype(np.float32) * 10.0  # 10x scale (cm-like, but stored as meters)
-for j in range(100):
-    x = (j % 10) / 10.0 * 5.0 - 2.5  # meters (but cm-scale values)
-    y = (j // 10) / 10.0 * 10.0  # meters
-    z = ((j % 5) / 5.0) * 3.0 - 1.5  # meters
-    verts[j] = [x, y, z]
+# Case 5: Scale error suspected (cm-like scale) - intentionally *100 to simulate cm units
+# This will trigger UNIT_FAIL / PERIMETER_LARGE warnings (fact recording only, no judgment)
+n_verts = 100
+verts = np.zeros((n_verts, 3), dtype=np.float32)
+for j in range(n_verts):
+    # Generate normal meter-scale coordinates
+    x = (j % 10) / 10.0 * 0.5 - 0.25  # meters
+    y = (j // 10) / 10.0 * 1.0  # meters
+    z = ((j % 5) / 5.0) * 0.3 - 0.15  # meters
+    # Multiply by 100 to simulate cm-scale (intentional unit error for warning reproduction)
+    verts[j] = [x * 100.0, y * 100.0, z * 100.0]
 cases.append(verts)
 case_ids.append("scale_error_suspected")
 
