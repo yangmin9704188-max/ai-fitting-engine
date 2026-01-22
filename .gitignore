@@ -6,7 +6,6 @@ venv/
 
 # Data / Artifacts (do not version large outputs)
 data/
-!data/
 !data/README.md
 artifacts/
 verification/debug_output/
@@ -17,9 +16,7 @@ verification/runs/
 *.pt
 *.pth
 
-# Allow versioning verification datasets (golden/synthetic)
-!verification/datasets/**/*.npz
-!verification/datasets/**/*.npy
+
 
 # Models (SMPL-X, checkpoints)
 models/

@@ -1,0 +1,829 @@
+{
+  "version": "v1",
+  "description": "SizeKorea raw column name to standard_key mapping for coverage v0 (45 keys)",
+  "keys": [
+    {
+      "standard_key": "HUMAN_ID",
+      "ko_term": "HUMAN_ID",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "SEX",
+      "ko_term": "성별",
+      "sources": {
+        "7th": {
+          "column": "성별",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "성별",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "성별",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "AGE",
+      "ko_term": "나이",
+      "sources": {
+        "7th": {
+          "column": "나이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "나이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "나이",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "HEIGHT_M",
+      "ko_term": "키",
+      "sources": {
+        "7th": {
+          "column": "S-STa-H-[FL01-HD01]-DM_키",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-H-[FL01-HD01]-DM_002. 키",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-H-[FL01-HD01]-DM_432. 키",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "WEIGHT_KG",
+      "ko_term": "몸무게",
+      "sources": {
+        "7th": {
+          "column": "S-STa-B-[BM01]-DM_몸무게",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-B-[BM01]-DM_125. 몸무게",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-B-[BM01]-DM_503. 몸무게",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "HEAD_CIRC_M",
+      "ko_term": "머리둘레",
+      "sources": {
+        "7th": {
+          "column": "S-SIa-C-[EY01~HD03~EY01]-DM_머리둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-SIa-C-[EY01~HD03~EY01]-DM_099. 머리둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-SIa-C-[EY01~HD03~EY01]-DM_482. 머리둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "NECK_CIRC_M",
+      "ko_term": "목둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[NK10]-DM_목둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[NK10]-DM_032. 목둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[NK10]-DM_450. 목둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "NECK_WIDTH_M",
+      "ko_term": "목너비",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "NECK_DEPTH_M",
+      "ko_term": "목두께",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "SHOULDER_WIDTH_M",
+      "ko_term": "어깨너비",
+      "sources": {
+        "7th": {
+          "column": "S-SIb-W-[SD01L-SD01R]-DM_어깨너비",
+          "present": true
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "CHEST_CIRC_M_REF",
+      "ko_term": "가슴둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[SD14]-DM_가슴둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[SD14]-DM_041. 가슴둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[SD14]-DM_459. 가슴둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "BUST_CIRC_M",
+      "ko_term": "젖가슴둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[CH01]-DM_젖가슴둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[CH01]-DM_042. 젖가슴둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[CH01]-DM_460. 젖가슴둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "UNDERBUST_CIRC_M",
+      "ko_term": "젖가슴아래둘레(여)",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[CH10]-DM_젖가슴아래둘레(여)",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[CH10]-DM_043. 젖가슴아래둘레(여)",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[CH10]-DM_461. 젖가슴아래둘레(여)",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "UNDERBUST_WIDTH_M",
+      "ko_term": "젖가슴아래너비",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "UNDERBUST_DEPTH_M",
+      "ko_term": "젖가슴아래두께",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "CHEST_WIDTH_M",
+      "ko_term": "가슴너비",
+      "sources": {
+        "7th": {
+          "column": "S-STa-W-[SD10]-DM_가슴너비",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-W-[SD10]-DM_018. 가슴너비",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-W-[SD10]-DM_443. 가슴너비",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "CHEST_DEPTH_M",
+      "ko_term": "가슴두께",
+      "sources": {
+        "7th": {
+          "column": "S-STa-D-[CH03]-DM_가슴두께",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-D-[CH03]-DM_025. 가슴두께",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-D-[CH03]-DM_448. 가슴두께",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "WAIST_CIRC_M",
+      "ko_term": "허리둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[WS11]-DM_허리둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[WS11]-DM_045. 허리둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[WS11]-DM_463. 허리둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "NAVEL_WAIST_CIRC_M",
+      "ko_term": "배꼽수준허리둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[WS30]-DM_배꼽수준허리둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[WS30]-DM_046. 배꼽수준허리둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[WS30]-DM_464. 배꼽수준허리둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "ABDOMEN_CIRC_M",
+      "ko_term": "배둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[WS40]-DM_배둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[WS40]-DM_047. 배둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "WAIST_WIDTH_M",
+      "ko_term": "허리너비",
+      "sources": {
+        "7th": {
+          "column": "S-STa-W-[WS11]-DM_허리너비",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-W-[WS11]-DM_020. 허리너비",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-W-[WS11]-DM_444. 허리너비",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "WAIST_DEPTH_M",
+      "ko_term": "허리두께",
+      "sources": {
+        "7th": {
+          "column": "S-STa-D-[WS15]-DM_허리두께",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-D-[WS15]-DM_027. 허리두께",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-D-[WS15]-DM_449. 허리두께",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "NAVEL_WAIST_WIDTH_M",
+      "ko_term": "배꼽수준허리너비",
+      "sources": {
+        "7th": {
+          "column": "S-STa-W-[WS30]-DM_배꼽수준허리너비",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-W-[WS30]-DM_021. 배꼽수준허리너비",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "NAVEL_WAIST_DEPTH_M",
+      "ko_term": "배꼽수준허리두께",
+      "sources": {
+        "7th": {
+          "column": "S-STa-D-[WS30]-DM_배꼽수준허리두께",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-D-[WS30]-DM_028. 배꼽수준허리두께",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "HIP_CIRC_M",
+      "ko_term": "엉덩이둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[HP40]-DM_엉덩이둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[HP40]-DM_048. 엉덩이둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[HP40]-DM_465. 엉덩이둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "HIP_WIDTH_M",
+      "ko_term": "엉덩이너비",
+      "sources": {
+        "7th": {
+          "column": "S-STa-W-[HP40]-DM_엉덩이너비",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-W-[HP40]-DM_022. 엉덩이너비",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-W-[HP40]-DM_445. 엉덩이너비",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "HIP_DEPTH_M",
+      "ko_term": "엉덩이두께",
+      "sources": {
+        "7th": {
+          "column": "S-STa-D-[HP40]-DM_엉덩이두께",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-D-[HP40]-DM_029. 엉덩이두께",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "UPPER_HIP_CIRC_M",
+      "ko_term": "Upper-hip둘레",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "TOP_HIP_CIRC_M",
+      "ko_term": "Top-hip둘레",
+      "sources": {
+        "7th": {
+          "column": null,
+          "present": false
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "UPPER_ARM_CIRC_M",
+      "ko_term": "위팔둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[SD10]-DM_위팔둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "ELBOW_CIRC_M",
+      "ko_term": "팔꿈치둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[EB02]-DM_팔꿈치둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": null,
+          "present": false
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "WRIST_CIRC_M",
+      "ko_term": "손목둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[WR03]-DM_손목둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[WR03]-DM_038. 손목둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[WR03]-DM_456. 손목둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "ARM_LEN_M",
+      "ko_term": "팔길이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-S-[SD01~EB01~WR02]-DM_팔길이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-S-[SD01~EB01~WR02]-DM_076. 팔길이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-S-[SD01~EB01~WR02]-DM_476. 팔길이",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "CROTCH_HEIGHT_M",
+      "ko_term": "샅높이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-H-[FL01-HP50]-DM_샅높이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-H-[FL01-HP50]-DM_013. 샅높이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-H-[FL01-HP50]-DM_439. 샅높이",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "KNEE_HEIGHT_M",
+      "ko_term": "무릎높이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-H-[FL01-KN10]-DM_무릎높이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-H-[FL01-KN10]-DM_014. 무릎높이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "CROTCH_FB_LEN_M",
+      "ko_term": "샅앞뒤길이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-S-[WS10~HP50~WS12]-DM_샅앞뒤길이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-S-[WS10~HP50~WS12]-DM_072. 샅앞뒤길이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-S-[WS10~HP50~WS12]-DM_472. 샅앞뒤길이",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "BACK_LEN_M",
+      "ko_term": "등길이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-S-[NK03~WS12]-DM_등길이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-S-[NK03~WS12]-DM_067. 등길이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "FRONT_CENTER_LEN_M",
+      "ko_term": "앞중심길이",
+      "sources": {
+        "7th": {
+          "column": "S-STa-S-[NK01~WS10]-DM_앞중심길이",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-S-[NK01~WS10]-DM_071. 앞중심길이",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "THIGH_CIRC_M",
+      "ko_term": "넙다리둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[UL01]-DM_넙다리둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[UL01]-DM_051. 넙다리둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[UL01]-DM_466. 넙다리둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "MID_THIGH_CIRC_M",
+      "ko_term": "넙다리중간둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[UL10]-DM_넙다리중간둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[UL10]-DM_052. 넙다리중간둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "KNEE_CIRC_M",
+      "ko_term": "무릎둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[KN20]-DM_무릎둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[KN20]-DM_053. 무릎둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[KN20]-DM_467. 무릎둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "BELOW_KNEE_CIRC_M",
+      "ko_term": "무릎아래둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[KN22]-DM_무릎아래둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[KN22]-DM_054. 무릎아래둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "CALF_CIRC_M",
+      "ko_term": "장딴지둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[LL01]-DM_장딴지둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[LL01]-DM_055. 장딴지둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "S-STa-C-[LL01]-DM_468. 장딴지둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "MIN_CALF_CIRC_M",
+      "ko_term": "종아리최소둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[LL10]-DM_종아리최소둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[LL10]-DM_056. 종아리최소둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    },
+    {
+      "standard_key": "ANKLE_MAX_CIRC_M",
+      "ko_term": "발목최대둘레",
+      "sources": {
+        "7th": {
+          "column": "S-STa-C-[AK01~AK02~AK01]-DM_발목최대둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "S-STa-C-[AK01~AK02~AK01]-DM_057. 발목최대둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": null,
+          "present": false
+        }
+      }
+    }
+  ],
+  "notes": {
+    "matching_policy": "exact match only",
+    "tie_break_policy": "prefer -DM_ pattern, null if multiple DM matches",
+    "unmatched_keys": [
+      "HUMAN_ID",
+      "NECK_WIDTH_M",
+      "NECK_DEPTH_M",
+      "UNDERBUST_WIDTH_M",
+      "UNDERBUST_DEPTH_M",
+      "UPPER_HIP_CIRC_M",
+      "TOP_HIP_CIRC_M"
+    ]
+  }
+}
