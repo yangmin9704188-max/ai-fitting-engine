@@ -47,6 +47,8 @@ active\_runbook:
 - v0 매핑 적용 완료: 7th_data.csv, 8th_data_3d.csv, 8th_data_direct.csv → raw_normalized_v0 변환 완료 (data/processed/raw_normalized_v0/ 경로에 저장, 커밋 금지)
 - 정규화된 컬럼 관측 스크립트 추가 (tools/observe_normalized_columns.py): key columns (human_id, sex, age, height, weight) 및 bust/underbust columns (bust_girth, underbust_girth, chest_girth) 존재 여부 및 결측률 관측 (출력: verification/runs/column_observation/normalized_column_observation.json, 커밋 금지)
 - Contract: measurement_coverage_v0.csv (45 keys) frozen
+- tools: 7th xlsx->csv converter 추가 (human id 문자열 고정)
+- tools: context sample extractor 추가 (커밋 금지 산출물 생성)
 
 signals:
 validation:
