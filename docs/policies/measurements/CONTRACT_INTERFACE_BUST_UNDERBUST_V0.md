@@ -21,7 +21,7 @@ bust_v0 / underbust_v0 (초기 구현)
 BUST / UNDERBUST 계열 이후 버전
 
 본 문서는 BUST/UNDERBUST의 의미론을 코드 인터페이스로 봉인한다.
-계산 방법, 단면 선택, 검증 기준, 판단 로직은 포함하지 않는다.
+측정(Geometric) 계산은 포함하지 않음. 단, 입력 정규화(브라→표준키 변환) 규칙은 Contract 범위다.
 
 1. Contract Role Statement
 
@@ -123,11 +123,11 @@ warnings	list[string]	주의 신호 목록
 4.1 Contract Violation (포맷/범위 위반)
 
 상황	처리
-포맷 위반 (예: "75", "ABC")	ValueError 허용 또는 NaN + warnings["FORMAT_VIOLATION"]
-범위 위반 (band < 65 또는 > 90)	ValueError 허용 또는 NaN + warnings["RANGE_VIOLATION"]
-cup 미인식 (예: "G", "H")	ValueError 허용 또는 NaN + warnings["CUP_UNKNOWN"]
+포맷 위반 (예: "75", "ABC")	NaN + warnings["FORMAT_VIOLATION"]
+범위 위반 (band < 65 또는 > 90)	NaN + warnings["RANGE_VIOLATION"]
+cup 미인식 (예: "G", "H")	NaN + warnings["CUP_UNKNOWN"]
 
-선택: ValueError 또는 NaN + warnings 중 하나를 선택해 문서에 고정한다.
+**정책 봉인**: Contract Violation은 반드시 NaN + warnings[]로 처리한다. ValueError는 허용하지 않는다.
 
 자동 보정 금지: 포맷/범위 위반 시 자동으로 "가장 가까운 유효값"으로 보정하지 않는다.
 
