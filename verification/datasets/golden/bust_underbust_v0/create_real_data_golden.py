@@ -128,13 +128,13 @@ def main():
         "--processed_csv",
         type=str,
         required=True,
-        help="Path to processed CSV (m_standard)"
+        help="Path to processed CSV (m_standard). If not exists, first run: python data/regenerate_processed_m_standard.py --input_csv <raw_csv> --source_unit <mm|cm|m> --output_dir data/processed/m_standard"
     )
     parser.add_argument(
         "--output_npz",
         type=str,
-        required=True,
-        help="Output NPZ file path"
+        default="verification/datasets/golden/bust_underbust_v0/golden_real_data_v0.npz",
+        help="Output NPZ file path (default: verification/datasets/golden/bust_underbust_v0/golden_real_data_v0.npz)"
     )
     parser.add_argument(
         "--source_unit",

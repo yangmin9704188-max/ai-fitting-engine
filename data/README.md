@@ -77,6 +77,10 @@
 #### 2.2.2) `data/processed/m_standard/` (m 단위, 0.001m 해상도)
 Ingestion 단계에서 meters canonicalization을 거친 정제 데이터.
 
+**현재 상태**
+- 경로 존재 여부: `data/processed/m_standard/` 디렉토리는 현재 존재하지 않음 (재생성 필요)
+- 형식: CSV 파일 (측정 컬럼: height, chest_girth, waist_girth, hip_girth 등, 단위: meters)
+
 **정제 요약**
 - 단위: **meters (m)**, 해상도 **0.001m (1mm)**
 - 변환: `data/ingestion.py::canonicalize_units_to_m` 사용, source_unit 명시적 지정
@@ -84,9 +88,11 @@ Ingestion 단계에서 meters canonicalization을 거친 정제 데이터.
 
 **재생성 방법**
 ```bash
+# 예시: SizeKorea processed 데이터 재생성 (cm -> m)
 python data/regenerate_processed_m_standard.py \
-  --input_csv data/raw/sizekorea_raw/7th_data.csv \
-  --source_unit mm \
+  --input_csv data/processed/SizeKorea_Final/SizeKorea_20-29_Female.csv \
+  --source_unit cm \
+  --columns height:Height chest_girth:Chest_Girth waist_girth:Waist_Girth hip_girth:Hip_Girth \
   --output_dir data/processed/m_standard
 ```
 
