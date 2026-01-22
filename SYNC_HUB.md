@@ -172,6 +172,10 @@ Focus on: L4 Validation 산출물 경로는 verification/reports/<measurement\_k
 
 **Guard ref**: See header block for official definition location.
 
+8.1 Ops Contract (Memo)
+
+SoT = `/SYNC_HUB.md`, 운영 신호 = `/docs/sync/CURRENT_STATE.md`. PR에 core/, tests/, verification/, tools/, db/, pipelines/, .github/workflows/ 변경이 포함되면 `docs/sync/CURRENT_STATE.md`를 같은 PR에 업데이트(guard-sync-state 준수). `.gitignore` 정책: `data/` 본문은 기본 ignore, 단 `data/README.md`는 track. `verification/runs/`는 항상 ignore(산출물 커밋 금지). `verification/datasets/**/*.npz`는 golden/재현 목적에 한해 커밋 허용(allowlist). facts output은 `verification/runs/facts/...` 경로에 저장하되 커밋 금지.
+
 9. Provenance
 
 Snapshot Tag: snapshot-20260122-bust-underbust-mvp1

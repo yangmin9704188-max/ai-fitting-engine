@@ -19,6 +19,8 @@ It is a **Contract-layer** rule and applies to all measurement keys and datasets
 - This ensures stable diffs and consistent comparisons across runs.
 
 ## Ingestion Rule (Raw → Canonical)
+- Raw data may exist in mm/cm/m formats, but MUST be preserved in original units during raw storage.
+- Processed/canonical data MUST be in meters (m). External display/contract interfaces MUST use meters.
 - If upstream/raw data is in cm, it MUST be converted during ingestion:
   - `meters = cm / 100`
 - If upstream/raw data is already in meters, it MUST be validated as meters.
