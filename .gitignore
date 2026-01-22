@@ -17,6 +17,10 @@ verification/runs/
 *.pt
 *.pth
 
+# Allow versioning verification datasets (golden/synthetic)
+!verification/datasets/**/*.npz
+!verification/datasets/**/*.npy
+
 # Models (SMPL-X, checkpoints)
 models/
 
