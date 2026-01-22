@@ -144,12 +144,12 @@ def main():
         
         print(f"\n  Key columns existence:")
         for col, exists in obs['key_columns_existence'].items():
-            status = "✓" if exists else "✗"
+            status = "[OK]" if exists else "[MISSING]"
             print(f"    {status} {col}")
         
         print(f"\n  Bust/underbust columns existence:")
         for col, exists in obs['bust_columns_existence'].items():
-            status = "✓" if exists else "✗"
+            status = "[OK]" if exists else "[MISSING]"
             print(f"    {status} {col}")
         
         print(f"\n  Bust/underbust missing rates:")
