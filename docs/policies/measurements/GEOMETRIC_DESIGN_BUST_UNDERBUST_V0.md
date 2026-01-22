@@ -211,6 +211,14 @@ LARGE_BUST_UNDERBUST_DELTA
 
 남성 케이스에서 큰 Δ 감지 시 (Contract 위반 아님, 신호만)
 
+INPUT_CONTRACT_FAIL
+
+입력 계약 위반 (형식/타입/범위)
+
+MEASUREMENT_KEY_MISMATCH
+
+measurement_key 불일치
+
 Warning은:
 
 결과를 차단하지 않음
@@ -249,8 +257,8 @@ bust_v0_y_slice_max
 상황	처리
 후보 단면 없음	NaN + DEGEN_FAIL
 폐곡선 불성립	NaN
-입력 오류	Exception (Contract 위반)
-measurement_key 불일치	Exception (Contract 위반)
+입력 오류	NaN + warnings["INPUT_CONTRACT_FAIL"] (예외 금지)
+measurement_key 불일치	NaN + warnings["MEASUREMENT_KEY_MISMATCH"] (예외 금지)
 
 NaN은 정상 결과다.
 
