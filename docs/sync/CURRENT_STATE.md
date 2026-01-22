@@ -40,6 +40,10 @@ active\_runbook:
 - NPZ meta_unit 검증이 실데이터 Golden 경로에서도 적용됨 (verification/tools/run_bust_underbust_facts_v0.py의 기존 검증 로직 활용)
 - real-data golden NPZ 생성 및 Run B 실행 런북 추가 (verification/datasets/golden/bust_underbust_v0/README_REAL_DATA_GOLDEN.md): processed(m_standard) 재생성 방법, golden NPZ 생성 커맨드, facts runner Run B 실행 커맨드 문서화
 - data/processed/m_standard/ 경로 상태 확인: 현재 존재하지 않음, 재생성 필요 (data/README.md에 상태 및 재생성 방법 문서화)
+- SizeKorea raw 데이터 컬럼명 관측 스크립트 추가 (tools/observe_sizekorea_columns.py): raw CSV 파일별 row 수, 컬럼 목록, 공통 컬럼 교집합/차집합 요약 관측 (출력: verification/runs/column_observation/, 커밋 금지)
+- SizeKorea 한국어 컬럼명 → 영문 표준 키 매핑 테이블 v0 생성 (data/column_map/sizekorea_v0.json): 최소 세트 매핑 (human_id, sex, age, height, weight, chest_girth, bust_girth, underbust_girth, waist_girth, hip_girth 등), unmapped 컬럼은 ko__ 접두사 + __unmapped 접미사로 보존
+- SizeKorea 헤더 정규화 스크립트 추가 (data/normalize_sizekorea_headers.py): raw CSV (한국어 헤더) → raw_normalized_v0 (영문 헤더) 변환, 매핑 성공률/미매핑 목록 출력 (커밋 금지), 예외 금지 (warnings 기록)
+- data/processed/raw_normalized_v0/ 경로 도입: 영문 헤더 정규화 중간 단계 데이터 저장, 다음 단계로 curated_v0 통합으로 이어짐
 
 signals:
 validation:
