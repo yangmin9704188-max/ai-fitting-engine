@@ -45,44 +45,140 @@ def get_git_sha() -> Optional[str]:
         return None
 
 
-def load_npz_data(npz_path: str) -> tuple[List[np.ndarray], List[str]]:
+def load_npz_data(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]]:
     """
     Load verts from NPZ file.
-    Returns: (list of verts arrays, list of case_ids)
+    Supports multiple formats:
+    - verts: (N, V, 3) float array
+    - verts: (V, 3) float array (single case)
+    - verts: (N,) object array, each element (V, 3) float array
+    Returns: (list of verts arrays, list of case_ids, list of warnings)
     """
-    data = np.load(npz_path, allow_pickle=True)
+    warnings = []
+    verts_list = []
+    case_ids = []
+    
+    try:
+        data = np.load(npz_path, allow_pickle=True)
+    except Exception as e:
+        warnings.append(f"NPZ_LOAD_FAILED: {str(e)}")
+        return verts_list, case_ids, warnings
     
     # Try common keys
     if "verts" in data:
         verts = data["verts"]
+        
+        # Handle object array: (N,) dtype=object, each element (V, 3)
+        if verts.dtype == object and verts.ndim == 1:
+            try:
+                for i in range(verts.shape[0]):
+                    v = verts[i]
+                    if isinstance(v, np.ndarray) and v.ndim == 2 and v.shape[1] == 3:
+                        verts_list.append(v.astype(np.float32))
+                    else:
+                        warnings.append(f"SKIP_INVALID_VERT: index={i}, shape={v.shape if isinstance(v, np.ndarray) else type(v)}")
+            except Exception as e:
+                warnings.append(f"OBJECT_ARRAY_PARSE_FAILED: {str(e)}")
+        
         # Handle batched format: (T, N, 3) -> list of (N, 3)
-        if verts.ndim == 3:
-            verts_list = [verts[i] for i in range(verts.shape[0])]
+        elif verts.ndim == 3:
+            try:
+                verts_list = [verts[i].astype(np.float32) for i in range(verts.shape[0])]
+            except Exception as e:
+                warnings.append(f"BATCHED_ARRAY_PARSE_FAILED: {str(e)}")
+        
+        # Handle single case: (V, 3)
         elif verts.ndim == 2:
-            verts_list = [verts]
+            try:
+                verts_list = [verts.astype(np.float32)]
+            except Exception as e:
+                warnings.append(f"SINGLE_ARRAY_PARSE_FAILED: {str(e)}")
+        
         else:
-            raise ValueError(f"Unexpected verts shape: {verts.shape}")
+            warnings.append(f"UNSUPPORTED_VERTS_SHAPE: {verts.shape}, dtype={verts.dtype}")
+    
     elif "cases" in data:
-        verts_list = data["cases"]
+        try:
+            cases = data["cases"]
+            if isinstance(cases, (list, np.ndarray)):
+                if isinstance(cases, np.ndarray) and cases.dtype == object:
+                    # Object array of arrays
+                    for i, case in enumerate(cases):
+                        if isinstance(case, np.ndarray) and case.ndim == 2:
+                            verts_list.append(case.astype(np.float32))
+                        else:
+                            warnings.append(f"SKIP_INVALID_CASE: index={i}")
+                else:
+                    verts_list = [v.astype(np.float32) if isinstance(v, np.ndarray) else v for v in cases]
+            else:
+                warnings.append(f"UNSUPPORTED_CASES_TYPE: {type(cases)}")
+        except Exception as e:
+            warnings.append(f"CASES_PARSE_FAILED: {str(e)}")
+    
     else:
         # Try to find any array-like data
         keys = list(data.keys())
         if len(keys) == 0:
-            raise ValueError("No data found in NPZ file")
-        verts_list = [data[k] for k in keys if isinstance(data[k], np.ndarray) and data[k].ndim >= 2]
-        if len(verts_list) == 0:
-            raise ValueError("No valid verts arrays found in NPZ file")
+            warnings.append("NO_DATA_FOUND: NPZ file is empty")
+        else:
+            warnings.append(f"VERTS_KEY_NOT_FOUND: available keys={keys}")
+            # Try to extract from any array-like key
+            for k in keys:
+                try:
+                    arr = data[k]
+                    if isinstance(arr, np.ndarray):
+                        if arr.dtype == object and arr.ndim == 1:
+                            # Object array
+                            for i, elem in enumerate(arr):
+                                if isinstance(elem, np.ndarray) and elem.ndim == 2 and elem.shape[1] == 3:
+                                    verts_list.append(elem.astype(np.float32))
+                        elif arr.ndim == 3 and arr.shape[2] == 3:
+                            # Batched format
+                            verts_list.extend([arr[i].astype(np.float32) for i in range(arr.shape[0])])
+                        elif arr.ndim == 2 and arr.shape[1] == 3:
+                            # Single case
+                            verts_list.append(arr.astype(np.float32))
+                except Exception as e:
+                    warnings.append(f"KEY_{k}_PARSE_FAILED: {str(e)}")
     
     # Get case_ids if available
-    if "case_ids" in data:
-        case_ids = [str(cid) for cid in data["case_ids"]]
-    else:
+    if "case_id" in data:
+        try:
+            case_id_data = data["case_id"]
+            # Handle object array
+            if isinstance(case_id_data, np.ndarray) and case_id_data.dtype == object:
+                case_ids = [str(cid) for cid in case_id_data]
+            elif isinstance(case_id_data, np.ndarray):
+                case_ids = [str(cid) for cid in case_id_data]
+            elif isinstance(case_id_data, (list, tuple)):
+                case_ids = [str(cid) for cid in case_id_data]
+            else:
+                case_ids = [str(case_id_data)]
+        except Exception as e:
+            warnings.append(f"CASE_ID_PARSE_FAILED: {str(e)}")
+            case_ids = []
+    elif "case_ids" in data:
+        try:
+            case_id_data = data["case_ids"]
+            # Handle object array
+            if isinstance(case_id_data, np.ndarray) and case_id_data.dtype == object:
+                case_ids = [str(cid) for cid in case_id_data]
+            elif isinstance(case_id_data, np.ndarray):
+                case_ids = [str(cid) for cid in case_id_data]
+            elif isinstance(case_id_data, (list, tuple)):
+                case_ids = [str(cid) for cid in case_id_data]
+            else:
+                case_ids = [str(case_id_data)]
+        except Exception as e:
+            warnings.append(f"CASE_IDS_PARSE_FAILED: {str(e)}")
+            case_ids = []
+    
+    # Generate case_ids if not found or mismatch
+    if len(case_ids) != len(verts_list):
+        warnings.append(f"CASE_ID_COUNT_MISMATCH: case_ids={len(case_ids)}, verts={len(verts_list)}")
         case_ids = [f"case_{i:04d}" for i in range(len(verts_list))]
     
-    # Ensure float32
-    verts_list = [v.astype(np.float32) for v in verts_list]
-    
-    return verts_list, case_ids
+    return verts_list, case_ids, warnings
 
 
 def process_sample(
@@ -243,9 +339,63 @@ def main():
     
     args = parser.parse_args()
     
+    # Create output directory
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
     # Load data
     print(f"Loading data from: {args.input_npz}")
-    verts_list, case_ids = load_npz_data(args.input_npz)
+    verts_list, case_ids, load_warnings = load_npz_data(args.input_npz)
+    
+    # Report load warnings
+    if load_warnings:
+        print(f"Load warnings ({len(load_warnings)}):")
+        for w in load_warnings[:10]:  # Show first 10
+            print(f"  {w}")
+        if len(load_warnings) > 10:
+            print(f"  ... and {len(load_warnings) - 10} more warnings")
+    
+    # Check if any data loaded
+    if len(verts_list) == 0:
+        print("WARNING: No valid cases loaded. Generating empty summary...")
+        # Generate empty summary
+        summary = {
+            "git_sha": get_git_sha(),
+            "input_npz": args.input_npz,
+            "n_samples": 0,
+            "load_warnings": load_warnings,
+            "statistics": {
+                "n_total": 0,
+                "nan_rates": {
+                    "underbust": {"count": 0, "rate": 0.0},
+                    "bust": {"count": 0, "rate": 0.0}
+                },
+                "warning_frequency": {},
+                "warning_co_occurrence": {},
+                "value_statistics": {
+                    "underbust": {"n_finite": 0, "mean": None, "std": None, "min": None, "max": None},
+                    "bust": {"n_finite": 0, "mean": None, "std": None, "min": None, "max": None}
+                }
+            }
+        }
+        json_path = out_dir / "facts_summary.json"
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        print(f"Saved empty summary: {json_path}")
+        
+        # Create empty CSV
+        csv_path = out_dir / "facts_per_sample.csv"
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "case_id", "underbust_circ_m", "bust_circ_m", "underbust_is_nan", "bust_is_nan",
+                "underbust_method_tag", "bust_method_tag", "underbust_warnings", "bust_warnings"
+            ])
+            writer.writeheader()
+        print(f"Saved empty CSV: {csv_path}")
+        print("\n=== Facts Summary ===")
+        print(f"Total samples: 0")
+        print(f"Load warnings: {len(load_warnings)}")
+        return
     
     # Limit number of samples
     if args.n is not None and args.n < len(verts_list):
@@ -268,15 +418,12 @@ def main():
     print("Computing statistics...")
     stats = compute_statistics(results)
     
-    # Create output directory
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    
     # Save JSON summary
     summary = {
         "git_sha": get_git_sha(),
         "input_npz": args.input_npz,
         "n_samples": len(results),
+        "load_warnings": load_warnings if load_warnings else None,
         "statistics": stats
     }
     
