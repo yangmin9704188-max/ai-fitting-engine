@@ -49,6 +49,9 @@ active\_runbook:
 - Contract: measurement_coverage_v0.csv (45 keys) frozen
 - tools: 7th xlsx->csv converter 추가 (human id 문자열 고정)
 - tools: context sample extractor 추가 (커밋 금지 산출물 생성)
+- curated_v0 데이터셋 생성 파이프라인 추가 (pipelines/build_curated_v0.py): sizekorea_v1 매핑 기반 컬럼 추출, 단위 canonicalization (mm/cm/m -> m), warnings 기록 (예외 금지), 출력 경로 data/processed/curated_v0/curated_v0.parquet
+- curated_v0 warnings 스키마 문서 추가 (docs/data/curated_v0_warnings_schema.md): 경고 포맷 정의 (JSONL 형식, reason 코드, 필드 구조)
+- curated_v0 파이프라인 테스트 추가 (tests/test_build_curated_v0.py): dry-run 모드로 매핑/헤더/경고 포맷 검증
 
 signals:
 validation:
