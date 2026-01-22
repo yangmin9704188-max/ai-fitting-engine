@@ -105,6 +105,13 @@ UNDERBUST\_CIRC\_M = band\_cm / 100.0
 
 BUST\_CIRC\_M = UNDERBUST\_CIRC\_M + (DELTA\_CM\[cup] / 100.0)
 
+## Canonical Unit Standard
+- Canonical unit for all measurements: **meters (m)**
+- Precision target: **0.001 m (1 mm)** for reporting/exports
+- Ingestion must normalize raw units (e.g., cm → m) and record provenance
+- Reference: `docs/contract/UNIT_STANDARD.md`
+
+
 6. Male Rule (Normative)
 
 Male은 별도 키를 추가하지 않고 동일 키(UNDERBUST\_CIRC\_M, BUST\_CIRC\_M)를 사용한다.
