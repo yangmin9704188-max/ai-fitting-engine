@@ -1,0 +1,39 @@
+{
+  "version": "v0",
+  "description": "SizeKorea raw CSV Korean column name to English standard key mapping (minimum set for integration/curation)",
+  "mapping": {
+    "HUMAN ID": "human_id",
+    "성별": "sex",
+    "ISO나이": "age",
+    "나이": "age",
+    "키": "height",
+    "신장": "height",
+    "몸무게": "weight",
+    "체중": "weight",
+    "가슴둘레": "chest_girth",
+    "젖가슴둘레": "bust_girth",
+    "젖가슴아래둘레": "underbust_girth",
+    "허리둘레": "waist_girth",
+    "배꼽수준허리둘레": "waist_navel_girth",
+    "엉덩이둘레": "hip_girth",
+    "넓적다리둘레": "thigh_girth",
+    "BMI": "bmi",
+    "체지방률": "body_fat_percentage"
+  },
+  "notes": {
+    "unmapped_prefix": "ko__",
+    "unmapped_suffix": "__unmapped",
+    "mapping_priority": [
+      "human_id",
+      "sex",
+      "age",
+      "height",
+      "weight",
+      "chest_girth",
+      "bust_girth",
+      "underbust_girth",
+      "waist_girth",
+      "hip_girth"
+    ]
+  }
+}

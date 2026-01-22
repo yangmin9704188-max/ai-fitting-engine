@@ -32,14 +32,18 @@
 - SizeKorea 보고서/원천 테이블(7th/8th) 보관
 - 파일:
   - `2021년 8차 인체치수조사_최종보고서.pdf` (8차 최종보고서)
-  - `7th_data.csv` / `7th_data.xlsx` (2015년 직접 측정 6,427건, 기본 단위 mm)
-  - `8th_data_3d.csv` (2020~2024년 3D 스캔 기반 4,552건)
-  - `8th_data_direct.csv` (2020~2024년 직접 측정 5,099건)
+  - `7th_data.csv` / `7th_data.xlsx` (2015년 직접 측정 6,427건, 기본 단위 mm, 한국어 컬럼명)
+  - `8th_data_3d.csv` (2020~2024년 3D 스캔 기반 4,552건, 한국어 컬럼명)
+  - `8th_data_direct.csv` (2020~2024년 직접 측정 5,099건, 한국어 컬럼명)
   - `8th_data.xlsx` (직접/3D 스캔 포함)
 
 **Raw 규칙**
 - 원천 파일은 “내용 수정 금지”.
 - 정제/필터링/컬럼명 변경/단위 변환은 `data/processed`에서 수행한다.
+
+**컬럼명 정규화 (선행 작업)**
+- SizeKorea raw 데이터는 한국어 컬럼명을 사용하므로, 통합/정제 전에 영문 표준 키로 정규화가 필요합니다.
+- 정규화 워크플로우: `raw` (한국어 헤더) → `raw_normalized_v0` (영문 헤더) → `curated_v0` (통합 정제 DB)
 
 ---
 
@@ -74,7 +78,28 @@
 
 **참고**: 이 경로는 기존 cm 기반 processed 데이터를 보존하기 위한 것입니다. 새로운 m 기반 processed는 `data/processed/m_standard/` 경로를 사용합니다.
 
-#### 2.2.2) `data/processed/m_standard/` (m 단위, 0.001m 해상도)
+#### 2.2.2) `data/processed/raw_normalized_v0/` (영문 헤더 정규화)
+SizeKorea raw 데이터의 한국어 컬럼명을 영문 표준 키로 정규화한 중간 단계 데이터.
+
+**정규화 요약**
+- 입력: `data/raw/sizekorea_raw/*.csv` (한국어 컬럼명)
+- 출력: `data/processed/raw_normalized_v0/*_normalized.csv` (영문 표준 키)
+- 매핑 테이블: `data/column_map/sizekorea_v0.json` (한국어 → 영문 키 매핑)
+- 정규화 스크립트: `data/normalize_sizekorea_headers.py`
+- 매핑되지 않은 컬럼: `ko__` 접두사 + `__unmapped` 접미사로 보존
+
+**정규화 방법**
+```bash
+python data/normalize_sizekorea_headers.py \
+  --input_csv data/raw/sizekorea_raw/7th_data.csv \
+  --output_csv data/processed/raw_normalized_v0/7th_data_normalized.csv \
+  --header_row 4
+```
+
+**다음 단계**
+- `raw_normalized_v0` → `curated_v0` (7th/8th 통합 + 정제)로 이어집니다.
+
+#### 2.2.3) `data/processed/m_standard/` (m 단위, 0.001m 해상도)
 Ingestion 단계에서 meters canonicalization을 거친 정제 데이터.
 
 **현재 상태**
@@ -123,7 +148,9 @@ SMPL-X 기반 파이프라인의 초기 단계 산출물(초기 betas 및 메타
 ---
 
 ## 3) 재생성(정제/골든셋) 워크플로우 개요
-- Raw(mm, 원천 단위 보존) → Ingestion(meters canonicalization, 0.001m 양자화, source_unit 명시) → Processed/m_standard(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용, meta_unit="m" + provenance 포함)
+- Raw(mm, 원천 단위 보존, 한국어 컬럼명) → Header Normalization(영문 표준 키) → raw_normalized_v0(영문 헤더) → curated_v0(7th/8th 통합 + 정제) → Ingestion(meters canonicalization, 0.001m 양자화, source_unit 명시) → Processed/m_standard(m, 정제/표준화) → step1_output(모델 입력 파생) → Verification/Golden(회귀/사실 기록용, meta_unit="m" + provenance 포함)
+
+**참고**: `data/processed/SizeKorea_Final/`은 reference-only이며, 새로운 워크플로우에서는 `raw_normalized_v0` → `curated_v0` 경로를 사용합니다.
 
 재생성 트리거(요약)
 - facts-only 러너 결과에서 `UNIT_FAIL`/`PERIMETER_LARGE` 재현, NaN 고율, 퇴화 경고 반복이 관측되면,
