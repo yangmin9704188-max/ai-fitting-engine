@@ -1408,7 +1408,8 @@ def build_curated_v0(
     warnings_output_path: Optional[Path] = None,
     quality_summary_path: Optional[Path] = None,
     header_candidates_path: Optional[Path] = None,
-    arm_knee_trace_path: Optional[Path] = None
+    arm_knee_trace_path: Optional[Path] = None,
+    unit_fail_trace_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Build curated_v0 dataset.
