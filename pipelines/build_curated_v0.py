@@ -1016,6 +1016,43 @@ def apply_unit_canonicalization(
         # Use numeric values for unit conversion
         values = numeric_series.values
         converted = canonicalize_units_to_m(values, source_unit, warning_list)
+        
+        # 7th-specific unit override heuristic: check if cm->m conversion resulted in unrealistic values
+        # If p50 > 2.5 or p99 > 3.5, treat as mm scale instead (apply additional /10)
+        applied_scale_before = None
+        applied_scale_after = None
+        if source_key == "7th" and source_unit == "cm":
+            # Check if this is a unit=m key (expected_unit='m' means _M suffix)
+            expected_unit = get_expected_unit(col)
+            if expected_unit == 'm':
+                # Check distribution after cm->m conversion
+                finite_converted = converted[np.isfinite(converted)]
+                if len(finite_converted) > 0:
+                    p50 = np.median(finite_converted)
+                    p99 = np.percentile(finite_converted, 99)
+                    
+                    # If values are unrealistic in meters (p50 > 2.5 or p99 > 3.5), treat as mm
+                    if p50 > 2.5 or p99 > 3.5:
+                        # Apply additional /10 (treating as mm instead of cm)
+                        # Original: mm values -> cm conversion (/100) -> m conversion (/100) = /10000 total
+                        # Correct: mm values -> m conversion (/1000) = /1000 total
+                        # So we need to multiply by 10 to correct the scale
+                        converted = converted / 10.0
+                        applied_scale_before = 100  # cm->m scale
+                        applied_scale_after = 1000  # mm->m scale
+                        
+                        # Emit warning
+                        file_path = SOURCE_FILES.get(source_key, "unknown")
+                        warnings.append({
+                            "source": source_key,
+                            "file": file_path,
+                            "column": col,
+                            "reason": "UNIT_OVERRIDE_SUSPECTED_MM",
+                            "row_index": None,
+                            "original_value": None,
+                            "details": f"source_key={source_key}, standard_key={col}, p50={p50:.4f}, p99={p99:.4f}, applied_scale_before={applied_scale_before}, applied_scale_after={applied_scale_after}"
+                        })
+        
         result_df[col] = converted
         
         # Add coercion info to details if NaN increased
