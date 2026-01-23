@@ -2704,6 +2704,103 @@ def test_7th_source_level_rule_no_unit_estimation():
         f"8th_direct: CHEST_CIRC_M_REF should be 'cm' (median heuristic), got {unit_map_8th.get('CHEST_CIRC_M_REF')}"
 
 
+def test_expects_meter_predicate():
+    """
+    Test expects_meter() predicate function.
+    
+    Verifies:
+    - expects_meter('CHEST_CIRC_M_REF') is True (contains '_M', not just endswith)
+    - expects_meter('WEIGHT_KG') is False
+    - expects_meter('HUMAN_ID') is False
+    - expects_meter('HEIGHT_M') is True
+    - expects_meter('ANKLE_MAX_CIRC_M') is True
+    """
+    from pipelines.build_curated_v0 import expects_meter
+    
+    # Meter-expected keys (contains '_M')
+    assert expects_meter('CHEST_CIRC_M_REF') is True, "CHEST_CIRC_M_REF should expect meter (contains '_M')"
+    assert expects_meter('HEIGHT_M') is True, "HEIGHT_M should expect meter"
+    assert expects_meter('ANKLE_MAX_CIRC_M') is True, "ANKLE_MAX_CIRC_M should expect meter"
+    assert expects_meter('WRIST_CIRC_M') is True, "WRIST_CIRC_M should expect meter"
+    assert expects_meter('WAIST_CIRC_M') is True, "WAIST_CIRC_M should expect meter"
+    
+    # Non-meter keys
+    assert expects_meter('WEIGHT_KG') is False, "WEIGHT_KG should not expect meter"
+    assert expects_meter('HUMAN_ID') is False, "HUMAN_ID should not expect meter"
+    assert expects_meter('SEX') is False, "SEX should not expect meter"
+    assert expects_meter('AGE') is False, "AGE should not expect meter"
+
+
+def test_7th_chest_circ_m_ref_10x_fix():
+    """
+    Regression test: CHEST_CIRC_M_REF 10x error fix for 7th source.
+    
+    Verifies that CHEST_CIRC_M_REF=920 (in mm) converts to 0.92m (not 9.2m).
+    
+    Root cause: expects_meter() predicate must include CHEST_CIRC_M_REF (contains '_M', not just endswith).
+    Without this fix, CHEST_CIRC_M_REF falls back to unit estimation (cm misclassification) -> 920 becomes 9.2m.
+    
+    Test case:
+    - source_key='7th'
+    - CHEST_CIRC_M_REF values around 920 (as numeric, mm scale)
+    - Force unit estimation fallback would choose 'cm' today -> 9.2m; after fix -> 0.92m
+    - Assert p50 (or direct conversion) equals 0.92 (± small tolerance)
+    
+    Key requirement: No key-specific hardcoding in production code.
+    """
+    # Create DataFrame with CHEST_CIRC_M_REF values around 920 (mm scale)
+    # These values would be detected as cm by median heuristic (median > 10)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, median=920
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Test unit_map creation (7th source-level rule should force mm for CHEST_CIRC_M_REF)
+    unit_map = sample_units(df, sample_size=5, source_key='7th')
+    
+    # Verify 7th source-level rule: CHEST_CIRC_M_REF is mm (not cm, no estimation)
+    assert unit_map.get('CHEST_CIRC_M_REF') == 'mm', \
+        f"CHEST_CIRC_M_REF should be 'mm' (7th source-level rule), got {unit_map.get('CHEST_CIRC_M_REF')}"
+    
+    # Verify no cm estimation occurred (median > 10 would trigger cm in 8th)
+    assert unit_map.get('CHEST_CIRC_M_REF') != 'cm', \
+        "7th should not estimate cm for CHEST_CIRC_M_REF (source-level rule)"
+    
+    # Step 2: Apply unit canonicalization
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m (not 9.2 m)
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    
+    # Critical assertion: p50 should be ~0.92 m (not 9.2 m)
+    p50 = float(chest_converted.quantile(0.50))
+    assert abs(p50 - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF p50 should be 0.92 m (not 9.2 m), got {p50}"
+    
+    # Verify all values are in realistic range (0.7-1.2m for chest circumference)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    
+    # Verify individual values
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m, got {chest_converted.iloc[0]}"
+    assert abs(chest_converted.iloc[1] - 0.95) < 0.01, \
+        f"CHEST_CIRC_M_REF[1] should be 0.95 m, got {chest_converted.iloc[1]}"
+    
+    # Verify 8th sources still use median heuristic (not affected by 7th change)
+    unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
+    # For 8th, median > 10 should still detect as cm (existing policy maintained)
+    assert unit_map_8th.get('CHEST_CIRC_M_REF') == 'cm', \
+        f"8th_direct: CHEST_CIRC_M_REF should be 'cm' (median heuristic), got {unit_map_8th.get('CHEST_CIRC_M_REF')}"
+
+
 def test_parse_numeric_string_7th_cases():
     """
     Test parse_numeric_string_7th function with specific cases.

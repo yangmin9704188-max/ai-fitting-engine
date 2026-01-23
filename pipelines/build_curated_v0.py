@@ -619,17 +619,45 @@ def check_massive_null_introduced(
             })
 
 
+def expects_meter(standard_key: str) -> bool:
+    """
+    Authoritative predicate: does this standard_key expect meter unit after canonicalization?
+    
+    Returns True if the key indicates length/circ/height/width/depth measured in meters.
+    This is the single source of truth for meter-key detection used everywhere.
+    
+    Rules:
+    - Returns False for meta keys: HUMAN_ID, SEX, AGE
+    - Returns False for WEIGHT_KG
+    - Returns True if the key contains '_M' (not only at the end, e.g., CHEST_CIRC_M_REF)
+    - Must not end with '_KG' (to exclude WEIGHT_KG)
+    
+    Args:
+        standard_key: Standard key name
+        
+    Returns:
+        True if key expects meter unit, False otherwise
+    """
+    if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+        return False
+    if standard_key == 'WEIGHT_KG' or standard_key.endswith('_KG'):
+        return False
+    # CRITICAL: Check if '_M' is in the key (not just endswith), to include CHEST_CIRC_M_REF
+    return '_M' in standard_key
+
+
 def get_expected_unit(standard_key: str) -> Optional[str]:
     """
     Get expected unit for a standard_key based on standard_keys.md contract.
     
     Returns 'm' for measurement keys with _M suffix, 'kg' for WEIGHT_KG, None for meta.
+    Uses expects_meter() for consistency.
     """
     if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
         return None
     if standard_key == 'WEIGHT_KG':
         return 'kg'
-    if standard_key.endswith('_M'):
+    if expects_meter(standard_key):
         return 'm'
     return None
 
@@ -949,17 +977,17 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100, source_key: Optional[
             unit_map[col] = "kg"
             continue
         
-        # For 7th source: source-level rule - no unit estimation, always mm for unit=m keys
+        # For 7th source: source-level rule - no unit estimation, always mm for meter-expected keys
         # CRITICAL: 7th에서는 unit 추정을 절대 하지 않고 source-level rule로 원본 단위를 고정
         # This prevents 10x errors from median-based cm estimation (e.g., 245mm -> 2.45m, 920mm -> 9.2m)
+        # Uses expects_meter() predicate to include all meter-expected keys (e.g., CHEST_CIRC_M_REF)
         if source_key == '7th':
-            expected_unit = get_expected_unit(col)
-            if expected_unit == 'm':
-                # 7th source-level rule: unit=m keys are always mm (no estimation, no cm/m metadata)
+            if expects_meter(col):
+                # 7th source-level rule: meter-expected keys are always mm (no estimation, no cm/m metadata)
                 # This ensures only mm->m(/1000) conversion occurs, never cm->m(/100)
                 unit_map[col] = "mm"
                 continue
-            # For non-unit=m keys (e.g., WEIGHT_KG already handled above), skip 7th rule
+            # For non-meter keys (e.g., WEIGHT_KG already handled above), skip 7th rule
             # Fall through to default logic if needed
         
         # For 8th_direct/8th_3d: keep existing median-based heuristic
