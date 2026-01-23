@@ -298,12 +298,16 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                 # Normalize string values: strip whitespace
                 cleaned = original_series.astype(str).str.strip()
                 
-                # Helper function to distinguish decimal comma vs thousands separator
-                def normalize_comma_number(s: str) -> str:
-                    """Normalize comma-separated numbers.
+                # Helper function to parse numeric strings with comma handling
+                # Order: decimal comma first, then thousands separator
+                def parse_numeric_str(s: str) -> str:
+                    """Parse numeric string with comma handling.
                     
-                    Case 1 (thousands separator): "1,736", "12,345" -> remove comma
-                    Case 2 (decimal comma): "79,5", "377,0" (comma followed by 1-2 digits, no dot) -> replace comma with '.'
+                    Order of processing:
+                    A. Decimal comma pattern first: ^\d{1,4},\d{1,2}$ (e.g., "79,5" -> 79.5, "245,0" -> 245.0)
+                    B. Thousands separator: remove comma (e.g., "1,736" -> "1736")
+                    
+                    This order prevents decimal comma values from being incorrectly treated as thousands.
                     """
                     if pd.isna(s) or s == '' or s == 'nan':
                         return s
@@ -314,15 +318,15 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                     if ',' not in s:
                         return s
                     
-                    # Check if dot exists (if dot exists, comma is likely thousands separator)
+                    # Check if dot exists (if dot exists, comma is thousands separator)
                     if '.' in s:
                         # Remove comma (thousands separator)
                         return s.replace(',', '')
                     
-                    # No dot: check if comma is followed by 1-2 digits (decimal comma pattern)
-                    # Pattern: digits, comma, 1-2 digits, optional end
+                    # No dot: check decimal comma pattern first (1-4 digits, comma, 1-2 digits)
+                    # This must be checked BEFORE thousands separator removal
                     import re
-                    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+                    decimal_comma_pattern = r'^\d{1,4},\d{1,2}$'
                     if re.match(decimal_comma_pattern, s):
                         # Decimal comma: replace with dot
                         return s.replace(',', '.')
@@ -330,8 +334,8 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                         # Thousands separator: remove comma
                         return s.replace(',', '')
                 
-                # Apply normalization
-                cleaned = cleaned.apply(normalize_comma_number)
+                # Apply parsing (decimal comma first, then thousands separator)
+                cleaned = cleaned.apply(parse_numeric_str)
                 
                 try:
                     numeric_series = pd.to_numeric(cleaned, errors='coerce')
