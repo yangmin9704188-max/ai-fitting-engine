@@ -70,6 +70,7 @@ active\_runbook:
 - Contract update (data/column_map/sizekorea_v2.json): Added exact headers for 7 keys (ABDOMEN_CIRC_M, BACK_LEN_M, FRONT_CENTER_LEN_M, ANKLE_MAX_CIRC_M, MIN_CALF_CIRC_M, BICEPS_CIRC_M, FOREARM_CIRC_M); 8th_3d headers updated for 4 keys; 2 new keys added (BICEPS_CIRC_M, FOREARM_CIRC_M). Post-update run: warnings_total=374, column_not_present=22, value_missing=134
 - curated_v0 quality summary (pipelines/build_curated_v0.py): --emit-quality-summary option added; generates source×key completeness metrics (non_null_count, missing_count, missing_rate) and duplicate header detection (base header with .1/.2 suffixes); quality summary emitted to specified markdown path
 - curated_v0 header candidates diagnostic (pipelines/build_curated_v0.py): --emit-header-candidates option added; finds header candidates for ARM_LEN_M and KNEE_HEIGHT_M in 8th_direct/8th_3d sources; outputs facts-only markdown with candidate columns and non-null counts for manual confirmation
+- Contract finalization for ARM_LEN_M and KNEE_HEIGHT_M (data/column_map/sizekorea_v2.json): Updated contract headers for ARM_LEN_M and KNEE_HEIGHT_M based on header candidates; ARM_LEN_M: all sources use '팔길이'; KNEE_HEIGHT_M: all sources use '앉은무릎높이'; ran curated_v0 build and recorded counters (rows=12365, columns=48, warnings_total=374, value_missing=134)
 
 signals:
 validation:
