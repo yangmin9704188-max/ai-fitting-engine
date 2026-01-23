@@ -357,8 +357,8 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "배둘레",
+          "present": true
         }
       }
     },
@@ -663,8 +663,8 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "등길이",
+          "present": true
         }
       }
     },
@@ -681,8 +681,8 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "앞중심길이",
+          "present": true
         }
       }
     },
@@ -807,8 +807,44 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "발목최대둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "BICEPS_CIRC_M",
+      "ko_term": "(편)위팔둘레",
+      "sources": {
+        "7th": {
+          "column": "(편)위팔둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "(편)위팔둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "(편)위팔둘레",
+          "present": true
+        }
+      }
+    },
+    {
+      "standard_key": "FOREARM_CIRC_M",
+      "ko_term": "(편)팔꿈치둘레",
+      "sources": {
+        "7th": {
+          "column": "(편)팔꿈치둘레",
+          "present": true
+        },
+        "8th_direct": {
+          "column": "(편)팔꿈치둘레",
+          "present": true
+        },
+        "8th_3d": {
+          "column": "(편)팔꿈치둘레",
+          "present": true
         }
       }
     }
