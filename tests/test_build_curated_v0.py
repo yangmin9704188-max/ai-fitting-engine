@@ -32,7 +32,10 @@ from pipelines.build_curated_v0 import (
     collect_arm_knee_trace,
     emit_arm_knee_trace,
     collect_unit_fail_trace,
-    emit_unit_fail_trace
+    emit_unit_fail_trace,
+    check_all_null_extracted,
+    check_massive_null_introduced,
+    check_scale_and_range_suspected
 )
 
 
@@ -1691,6 +1694,11 @@ if __name__ == '__main__':
         test_unit_warnings_source_key_presence()
         test_unit_fail_trace_generation()
         test_unit_fail_trace_dtype_safe()
+        test_all_null_extracted_sensor()
+        test_massive_null_introduced_sensor()
+        test_scale_suspected_sensor()
+        test_range_suspected_sensor()
+        test_scale_suspected_heights_mm()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
