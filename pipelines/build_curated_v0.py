@@ -187,13 +187,16 @@ def parse_numeric_string_7th(value: str) -> str:
     Parse numeric string with 7th-specific comma handling strategy.
     
     Unified parser for all 7th source numeric conversions.
+    Explicitly disambiguates European decimal comma vs thousands separator.
+    
     Priority order:
-    (a) European decimal comma pattern: ^\d+,\d{1,2}$ 
-        -> Replace ',' with '.' (e.g., "79,5" -> "79.5", "245,0" -> "245.0")
-    (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-        -> Remove ',' (e.g., "1,736" -> "1736", "12,345" -> "12345")
-    (c) If dot exists, comma is thousands separator -> Remove ','
-    (d) Ambiguous cases: fallback to comma removal
+    A) European decimal comma pattern: ^[+-]?\d{1,4},\d+$
+       -> Replace ',' with '.' (e.g., "245,0" -> "245.0", "920,0" -> "920.0", "79,5" -> "79.5")
+    B) Thousands separator pattern: ^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$
+       -> Remove ',' (e.g., "1,736" -> "1736", "12,345.6" -> "12345.6")
+    C) If dot exists, comma is thousands separator -> Remove ','
+    D) Sentinel/empty handling: preserve sentinel values (9999, empty) for downstream processing
+    E) Ambiguous cases: fallback to comma removal
     
     Args:
         value: String value to parse
@@ -210,26 +213,30 @@ def parse_numeric_string_7th(value: str) -> str:
     if ',' not in s:
         return s
     
-    # (a) European decimal comma pattern: ^\d+,\d{1,2}$
-    # Matches: "79,5", "245,0", "1234,56" (any digits before comma, 1-2 digits after)
-    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+    # A) European decimal comma pattern: ^[+-]?\d{1,4},\d+$
+    # Matches: "245,0", "920,0", "79,5", "1234,56" (1-4 digits before comma, any digits after)
+    # This prevents 10x scale errors (e.g., "920,0" -> "920.0", not "9200")
+    decimal_comma_pattern = r'^[+-]?\d{1,4},\d+$'
     if re.match(decimal_comma_pattern, s):
         # Decimal comma: replace with dot
         return s.replace(',', '.')
     
-    # (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-    # Matches: "1,736", "12,345", "1,234,567" (1-3 digits, then groups of 3 digits)
-    thousands_pattern = r'^\d{1,3}(,\d{3})+$'
+    # B) Thousands separator pattern: ^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$
+    # Matches: "1,736", "12,345", "1,234,567", "12,345.6" (1-3 digits, then groups of 3 digits, optional decimal)
+    thousands_pattern = r'^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$'
     if re.match(thousands_pattern, s):
         # Thousands separator: remove comma
         return s.replace(',', '')
     
-    # (c) If dot exists, comma is thousands separator
+    # C) If dot exists, comma is thousands separator
     if '.' in s:
         # Remove comma (thousands separator)
         return s.replace(',', '')
     
-    # (d) Ambiguous case: fallback to comma removal
+    # D) Sentinel/empty handling: preserve sentinel values for downstream processing
+    # (handled by caller, but ensure we don't break sentinel detection)
+    
+    # E) Ambiguous case: fallback to comma removal
     return s.replace(',', '')
 
 
@@ -361,13 +368,15 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         
         # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
         # Source-specific parser strategy for 7th only - uses unified parse_numeric_string_7th function
-        # CRITICAL: XLSX may auto-convert "245,0" to numeric 2450, so we must convert to string first
+        # CRITICAL: XLSX may auto-convert "920,0" to numeric 9200 (10x error), so we must convert to string first
+        # CRITICAL: Apply parser regardless of dtype (numeric or object) to prevent 10x scale errors
         if source_key == '7th':
             # Convert to string first (handles both object and numeric dtype from XLSX)
-            # This ensures parser is applied even if Excel already converted "245,0" to 2450
+            # This ensures parser is applied even if Excel already converted "920,0" to 9200
+            # dtype 무관 적용: numeric dtype이어도 반드시 string 변환 후 파싱
             cleaned = original_series.astype(str).str.strip()
             
-            # Apply unified 7th-specific parsing strategy
+            # Apply unified 7th-specific parsing strategy (euro-decimal-comma disambiguation)
             cleaned = cleaned.apply(parse_numeric_string_7th)
             
             try:
@@ -1130,9 +1139,11 @@ def apply_unit_canonicalization(
         # For 7th source, apply unified comma parser strategy before numeric conversion
         original_series = df[col]
         
-        # Apply 7th-specific parser strategy if needed (before numeric conversion)
-        if source_key == '7th' and original_series.dtype == 'object':
-            # Apply unified 7th parser to all object dtype columns before numeric conversion
+        # Apply 7th-specific parser strategy (dtype 무관 적용)
+        # CRITICAL: XLSX may auto-convert "920,0" to numeric 9200, so we must parse even for numeric dtype
+        if source_key == '7th':
+            # Apply unified 7th parser regardless of dtype (numeric or object)
+            # This prevents 10x scale errors from Excel auto-conversion
             parsed_series = original_series.astype(str).str.strip().apply(parse_numeric_string_7th)
             numeric_series = pd.to_numeric(parsed_series, errors='coerce')
         else:

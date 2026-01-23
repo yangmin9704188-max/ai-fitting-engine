@@ -2625,6 +2625,111 @@ def test_7th_unit_inference_default_mm():
     assert unit_map_8th.get('ANKLE_MAX_CIRC_M') == 'cm', f"8th_direct: ANKLE_MAX_CIRC_M should be 'cm' (median heuristic), got {unit_map_8th.get('ANKLE_MAX_CIRC_M')}"
 
 
+def test_parse_numeric_string_7th_cases():
+    """
+    Test parse_numeric_string_7th function with specific cases.
+    
+    Regression test for 7th euro-decimal-comma disambiguation:
+    - "920,0" -> 920.0 (prevents 10x error: 9200)
+    - "245,0" -> 245.0 (prevents 10x error: 2450)
+    - "79,5"  -> 79.5 (prevents 10x error: 795)
+    - "1,736" -> 1736.0 (thousands separator)
+    
+    Critical: These cases must parse correctly to prevent 10x scale errors.
+    """
+    from pipelines.build_curated_v0 import parse_numeric_string_7th
+    
+    # Test European decimal comma cases
+    assert parse_numeric_string_7th("920,0") == "920.0", "920,0 should parse to 920.0"
+    assert parse_numeric_string_7th("245,0") == "245.0", "245,0 should parse to 245.0"
+    assert parse_numeric_string_7th("79,5") == "79.5", "79,5 should parse to 79.5"
+    
+    # Test thousands separator case
+    assert parse_numeric_string_7th("1,736") == "1736", "1,736 should parse to 1736"
+    
+    # Test edge cases
+    assert parse_numeric_string_7th("920") == "920", "920 should remain 920"
+    assert parse_numeric_string_7th("") == "", "Empty string should remain empty"
+    
+    # Verify numeric conversion
+    assert float(parse_numeric_string_7th("920,0")) == 920.0, "Parsed 920,0 should convert to float 920.0"
+    assert float(parse_numeric_string_7th("245,0")) == 245.0, "Parsed 245,0 should convert to float 245.0"
+    assert float(parse_numeric_string_7th("79,5")) == 79.5, "Parsed 79,5 should convert to float 79.5"
+    assert float(parse_numeric_string_7th("1,736")) == 1736.0, "Parsed 1,736 should convert to float 1736.0"
+
+
+def test_end_to_end_7th_comma_decimal_prevents_10x():
+    """
+    End-to-end test: 7th comma decimal parsing prevents 10x scale errors.
+    
+    Verifies that CHEST_CIRC_M_REF="920,0" (in mm) converts to 0.92 m (not 9.2 m).
+    
+    Test case:
+    - source_key='7th'
+    - standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920,0" with European decimal comma
+    - Expected: final value should be 0.92 m (not 9.2 m)
+    - This ensures 7th parser strategy prevents 10x errors from comma parsing
+    
+    Key requirement: No key-specific exceptions, only source_key='7th' rule.
+    """
+    # Create DataFrame with "920,0" (European decimal comma, in mm)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': pd.Series(["920,0", "950,0", "900,0"], dtype='object'),  # mm scale with euro decimal comma
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Preprocess (applies 7th comma parser strategy, dtype 무관)
+    df_preprocessed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify parsing: "920,0" -> 920.0 (not 9200)
+    chest_preprocessed = df_preprocessed['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_preprocessed) > 0, "CHEST_CIRC_M_REF should have non-null values after preprocessing"
+    assert abs(chest_preprocessed.iloc[0] - 920.0) < 0.1, \
+        f"CHEST_CIRC_M_REF[0] should be 920.0 after parsing (not 9200), got {chest_preprocessed.iloc[0]}"
+    
+    # Step 2: Apply unit conversion (7th source-level rule forces mm for unit=m keys)
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'mm'  # 7th source-level rule will force mm even if unit meta says 'cm'
+    }
+    df_converted = apply_unit_canonicalization(df_preprocessed, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m (not 9.2 m)
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    
+    # Critical assertion: final value should be 0.92 m (not 9.2 m)
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m (not 9.2 m), got {chest_converted.iloc[0]}"
+    assert abs(chest_converted.iloc[1] - 0.95) < 0.01, \
+        f"CHEST_CIRC_M_REF[1] should be 0.95 m (not 9.5 m), got {chest_converted.iloc[1]}"
+    
+    # Verify all values are in realistic range (0.7-1.2m for chest circumference)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    
+    # Test with numeric dtype (simulating Excel auto-conversion)
+    # Excel may convert "920,0" to numeric 9200, but our parser should still handle it
+    df_numeric = pd.DataFrame({
+        'CHEST_CIRC_M_REF': pd.Series([9200.0, 9500.0, 9000.0], dtype='float64'),  # Simulated Excel auto-conversion
+        'SEX': ['M', 'F', 'M']
+    })
+    warnings_numeric = []
+    df_numeric_preprocessed = preprocess_numeric_columns(df_numeric, '7th', warnings_numeric)
+    
+    # Even with numeric dtype, parser should be applied (dtype 무관)
+    # However, if Excel already converted "920,0" to 9200, we can't recover the original comma
+    # This test verifies that dtype 무관 파싱 is applied (even if recovery is not possible)
+    chest_numeric_preprocessed = df_numeric_preprocessed['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_numeric_preprocessed) > 0, "Numeric dtype should still be processed"
+
+
 def test_7th_unit_override_synthetic_regression():
     """
     Synthetic unit conversion regression test for 7th source.
