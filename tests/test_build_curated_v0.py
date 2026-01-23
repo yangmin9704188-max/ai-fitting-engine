@@ -32,7 +32,10 @@ from pipelines.build_curated_v0 import (
     collect_arm_knee_trace,
     emit_arm_knee_trace,
     collect_unit_fail_trace,
-    emit_unit_fail_trace
+    emit_unit_fail_trace,
+    check_all_null_extracted,
+    check_massive_null_introduced,
+    check_scale_and_range_suspected
 )
 
 
@@ -1746,6 +1749,219 @@ def test_chest_circ_ref_no_collapse():
     # This test only verifies unit conversion doesn't collapse
 
 
+def test_all_null_extracted_sensor():
+    """
+    Test ALL_NULL_EXTRACTED sensor: non_null_count == 0 after extraction.
+    
+    Verifies:
+    1) ALL_NULL_EXTRACTED warning is emitted when column has all nulls after extraction
+    2) Warning includes correct details (rows_total, non_null_count, stage)
+    3) Meta columns (HUMAN_ID, SEX, AGE) are excluded from check
+    """
+    import json
+    
+    # Create synthetic DataFrame with all-null column
+    df = pd.DataFrame({
+        'HEIGHT_M': [np.nan] * 100,
+        'WEIGHT_KG': [70.0] * 100,
+        'WAIST_CIRC_M': [np.nan] * 100,
+        'HUMAN_ID': ['ID001'] * 100,
+        'SEX': ['M'] * 100,
+        'AGE': [30] * 100
+    })
+    
+    # Create minimal mapping
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WEIGHT_KG', 'sources': {'7th': {'present': True, 'column': 'WEIGHT_KG'}}},
+            {'standard_key': 'WAIST_CIRC_M', 'sources': {'7th': {'present': True, 'column': 'WAIST_CIRC_M'}}},
+            {'standard_key': 'HUMAN_ID', 'sources': {'7th': {'present': True, 'column': 'HUMAN_ID'}}},
+            {'standard_key': 'SEX', 'sources': {'7th': {'present': True, 'column': 'SEX'}}},
+            {'standard_key': 'AGE', 'sources': {'7th': {'present': True, 'column': 'AGE'}}}
+        ]
+    }
+    
+    warnings = []
+    check_all_null_extracted(df, '7th', warnings, mapping)
+    
+    # Verify warnings: HEIGHT_M and WAIST_CIRC_M should trigger (all null)
+    # WEIGHT_KG should not (has values)
+    # Meta columns should not trigger
+    all_null_warnings = [w for w in warnings if w.get('reason') == 'ALL_NULL_EXTRACTED']
+    assert len(all_null_warnings) == 2, f"Should have 2 ALL_NULL_EXTRACTED warnings, got {len(all_null_warnings)}"
+    
+    # Check HEIGHT_M warning
+    height_warning = [w for w in all_null_warnings if w.get('column') == 'HEIGHT_M']
+    assert len(height_warning) == 1, "Should have ALL_NULL_EXTRACTED for HEIGHT_M"
+    assert height_warning[0]['source'] == '7th'
+    assert 'rows_total=100' in height_warning[0]['details']
+    assert 'non_null_count=0' in height_warning[0]['details']
+    assert 'stage=after_extraction_before_preprocess' in height_warning[0]['details']
+    
+    # Verify meta columns are not checked
+    meta_warnings = [w for w in all_null_warnings if w.get('column') in ['HUMAN_ID', 'SEX', 'AGE']]
+    assert len(meta_warnings) == 0, "Meta columns should not trigger ALL_NULL_EXTRACTED"
+
+
+def test_massive_null_introduced_sensor():
+    """
+    Test MASSIVE_NULL_INTRODUCED sensor: non_null drops >= 0.95 AND >= 1000.
+    
+    Verifies:
+    1) MASSIVE_NULL_INTRODUCED warning is emitted when drop_rate >= 0.95 AND drop_count >= 1000
+    2) Warning includes correct details (before/after non_null, drop_rate)
+    3) Small drops (< 1000) do not trigger
+    """
+    # Create synthetic DataFrames: before has 2000 non-null, after has 50 non-null
+    df_before = pd.DataFrame({
+        'HEIGHT_M': [1.7] * 2000 + [np.nan] * 100,
+        'WEIGHT_KG': [70.0] * 2000 + [np.nan] * 100
+    })
+    
+    df_after = pd.DataFrame({
+        'HEIGHT_M': [1.7] * 50 + [np.nan] * 2050,  # Drop from 2000 to 50 (drop_rate = 0.975, drop_count = 1950)
+        'WEIGHT_KG': [70.0] * 2000 + [np.nan] * 100  # No drop
+    })
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WEIGHT_KG', 'sources': {'7th': {'present': True, 'column': 'WEIGHT_KG'}}}
+        ]
+    }
+    
+    warnings = []
+    check_massive_null_introduced(df_before, df_after, '7th', warnings, mapping)
+    
+    # Verify warning: HEIGHT_M should trigger (drop_rate=0.975, drop_count=1950)
+    massive_warnings = [w for w in warnings if w.get('reason') == 'MASSIVE_NULL_INTRODUCED']
+    assert len(massive_warnings) == 1, f"Should have 1 MASSIVE_NULL_INTRODUCED warning, got {len(massive_warnings)}"
+    
+    height_warning = massive_warnings[0]
+    assert height_warning['column'] == 'HEIGHT_M'
+    assert height_warning['source'] == '7th'
+    assert 'before_non_null=2000' in height_warning['details']
+    assert 'after_non_null=50' in height_warning['details']
+    assert 'drop_rate=0.975' in height_warning['details']
+
+
+def test_scale_suspected_sensor():
+    """
+    Test SCALE_SUSPECTED sensor: p50 > 10.0 or < 0.01 for expected_unit='m' keys.
+    
+    Verifies:
+    1) SCALE_SUSPECTED warning is emitted when p50 > 10.0 (mm scale suspected)
+    2) SCALE_SUSPECTED warning is emitted when p50 < 0.01 (double-division suspected)
+    3) Warning includes correct details (p01, p50, p99, min, max, reason)
+    """
+    # Create synthetic DataFrame with mm-scale values (p50 > 10.0)
+    df_mm_scale = pd.DataFrame({
+        'HEIGHT_M': [1700.0, 1750.0, 1800.0, 1650.0, 1720.0],  # mm scale (p50 = 1720)
+        'WAIST_CIRC_M': [0.8, 0.85, 0.9, 0.75, 0.82]  # Normal scale (p50 = 0.82)
+    })
+    
+    # Create synthetic DataFrame with double-division values (p50 < 0.01)
+    df_double_div = pd.DataFrame({
+        'HEIGHT_M': [0.0017, 0.00175, 0.0018, 0.00165, 0.00172],  # Double division (p50 = 0.00172)
+        'WAIST_CIRC_M': [0.8, 0.85, 0.9, 0.75, 0.82]  # Normal scale
+    })
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WAIST_CIRC_M', 'sources': {'7th': {'present': True, 'column': 'WAIST_CIRC_M'}}}
+        ]
+    }
+    
+    warnings_mm = []
+    check_scale_and_range_suspected(df_mm_scale, '7th', warnings_mm, mapping)
+    
+    # Verify HEIGHT_M triggers SCALE_SUSPECTED (p50 > 10.0)
+    scale_warnings_mm = [w for w in warnings_mm if w.get('reason') == 'SCALE_SUSPECTED']
+    assert len(scale_warnings_mm) == 1, f"Should have 1 SCALE_SUSPECTED warning, got {len(scale_warnings_mm)}"
+    assert scale_warnings_mm[0]['column'] == 'HEIGHT_M'
+    assert 'p50 > 10.0' in scale_warnings_mm[0]['details'] or 'mm scale suspected' in scale_warnings_mm[0]['details']
+    
+    warnings_double = []
+    check_scale_and_range_suspected(df_double_div, '7th', warnings_double, mapping)
+    
+    # Verify HEIGHT_M triggers SCALE_SUSPECTED (p50 < 0.01)
+    scale_warnings_double = [w for w in warnings_double if w.get('reason') == 'SCALE_SUSPECTED']
+    assert len(scale_warnings_double) == 1, f"Should have 1 SCALE_SUSPECTED warning, got {len(scale_warnings_double)}"
+    assert scale_warnings_double[0]['column'] == 'HEIGHT_M'
+    assert 'p50 < 0.01' in scale_warnings_double[0]['details'] or 'double-division suspected' in scale_warnings_double[0]['details']
+
+
+def test_range_suspected_sensor():
+    """
+    Test RANGE_SUSPECTED sensor: values outside physical range >= 50.
+    
+    Verifies:
+    1) RANGE_SUSPECTED warning is emitted when >= 50 values are outside physical range
+    2) Warning includes correct details (p01, p50, p99, min, max, out_of_range_count, expected_range)
+    3) HEIGHT_M uses range [0.8, 2.5]
+    """
+    # Create synthetic DataFrame with many values outside HEIGHT_M range [0.8, 2.5]
+    # 60 values outside range (50 below 0.8, 10 above 2.5)
+    df = pd.DataFrame({
+        'HEIGHT_M': [0.5] * 50 + [3.0] * 10 + [1.7] * 40,  # 60 out of range
+        'WAIST_CIRC_M': [0.8, 0.85, 0.9, 0.75, 0.82] * 20  # All in range
+    })
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WAIST_CIRC_M', 'sources': {'7th': {'present': True, 'column': 'WAIST_CIRC_M'}}}
+        ]
+    }
+    
+    warnings = []
+    check_scale_and_range_suspected(df, '7th', warnings, mapping)
+    
+    # Verify HEIGHT_M triggers RANGE_SUSPECTED (60 out of range >= 50)
+    range_warnings = [w for w in warnings if w.get('reason') == 'RANGE_SUSPECTED']
+    assert len(range_warnings) == 1, f"Should have 1 RANGE_SUSPECTED warning, got {len(range_warnings)}"
+    
+    height_warning = range_warnings[0]
+    assert height_warning['column'] == 'HEIGHT_M'
+    assert height_warning['source'] == '7th'
+    assert 'out_of_range_count=60' in height_warning['details']
+    assert 'expected_range=[0.8, 2.5]' in height_warning['details']
+
+
+def test_scale_suspected_heights_mm():
+    """
+    Test SCALE_SUSPECTED for HEIGHT_M with mm-scale values (1700 -> 1.7 conversion failure case).
+    
+    Verifies:
+    1) HEIGHT_M with values like 1700 (mm scale) triggers SCALE_SUSPECTED
+    2) Warning details include p50 and reason
+    """
+    # Create synthetic DataFrame with mm-scale HEIGHT_M (1700 = 1.7m in mm)
+    df = pd.DataFrame({
+        'HEIGHT_M': [1700.0, 1750.0, 1800.0, 1650.0, 1720.0] * 20  # 100 rows, p50 = 1720
+    })
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}}
+        ]
+    }
+    
+    warnings = []
+    check_scale_and_range_suspected(df, '7th', warnings, mapping)
+    
+    # Verify SCALE_SUSPECTED is triggered
+    scale_warnings = [w for w in warnings if w.get('reason') == 'SCALE_SUSPECTED']
+    assert len(scale_warnings) >= 1, "Should have at least 1 SCALE_SUSPECTED warning"
+    
+    height_warning = [w for w in scale_warnings if w.get('column') == 'HEIGHT_M']
+    assert len(height_warning) == 1, "Should have SCALE_SUSPECTED for HEIGHT_M"
+    assert 'p50' in height_warning[0]['details']
+    assert height_warning[0]['source'] == '7th'
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1774,6 +1990,11 @@ if __name__ == '__main__':
         test_unit_fail_trace_dtype_safe()
         test_unit_conversion_numeric_coercion()
         test_chest_circ_ref_no_collapse()
+        test_all_null_extracted_sensor()
+        test_massive_null_introduced_sensor()
+        test_scale_suspected_sensor()
+        test_range_suspected_sensor()
+        test_scale_suspected_heights_mm()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
