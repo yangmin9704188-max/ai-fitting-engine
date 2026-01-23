@@ -2100,15 +2100,19 @@ def test_parse_decimal_comma_vs_thousands_comma():
     Test 7th comma parsing: distinguish decimal comma vs thousands separator.
     
     Verifies:
-    1) "79,5" -> 79.5 (decimal comma)
-    2) "377,0" -> 377.0 (decimal comma)
-    3) "1,736" -> 1736 (thousands separator)
-    4) "12,345" -> 12345 (thousands separator)
-    5) "1,234.56" -> 1234.56 (dot exists, comma is thousands separator)
+    1) "79,5" -> 79.5 (decimal comma, pattern ^\d{1,4},\d{1,2}$)
+    2) "245,0" -> 245.0 (decimal comma, critical case to prevent 10x scale error)
+    3) "377,0" -> 377.0 (decimal comma)
+    4) "1,736" -> 1736 (thousands separator, not matched by decimal pattern)
+    5) "12,345" -> 12345 (thousands separator, not matched by decimal pattern)
+    6) "1,234.56" -> 1234.56 (dot exists, comma is thousands separator)
+    
+    Critical regression test: "245,0" must parse to 245.0, not 2450 (10x error).
     """
     # Create synthetic DataFrame with mixed comma patterns
+    # Include critical case "245,0" that could cause 10x scale error if processed incorrectly
     df = pd.DataFrame({
-        'WAIST_CIRC_M': pd.Series(["79,5", "377,0", "1,736", "12,345", "1,234.56", "800"], dtype='object'),
+        'WAIST_CIRC_M': pd.Series(["79,5", "245,0", "377,0", "1,736", "12,345", "1,234.56", "800"], dtype='object'),
         'SHOULDER_WIDTH_M': pd.Series(["40,5", "450", "1,200", "50,0"], dtype='object'),
         'HEIGHT_M': pd.Series(["1,700", "175", "1,800"], dtype='object')
     })
@@ -2116,9 +2120,10 @@ def test_parse_decimal_comma_vs_thousands_comma():
     warnings = []
     result_df = preprocess_numeric_columns(df, '7th', warnings)
     
-    # Verify decimal comma parsing
+    # Verify decimal comma parsing (critical: must parse correctly to prevent 10x error)
     waist_values = result_df['WAIST_CIRC_M'].dropna()
     assert 79.5 in waist_values.values or abs(waist_values.values - 79.5).min() < 0.1, "79,5 should parse to 79.5"
+    assert 245.0 in waist_values.values or abs(waist_values.values - 245.0).min() < 0.1, "245,0 should parse to 245.0 (not 2450)"
     assert 377.0 in waist_values.values or abs(waist_values.values - 377.0).min() < 0.1, "377,0 should parse to 377.0"
     
     # Verify thousands separator parsing
@@ -2130,6 +2135,9 @@ def test_parse_decimal_comma_vs_thousands_comma():
     
     # Verify normal values still work
     assert 800 in waist_values.values or abs(waist_values.values - 800).min() < 0.1, "800 should remain 800"
+    
+    # Critical assertion: "245,0" must NOT be parsed as 2450 (10x error)
+    assert not (2450 in waist_values.values or (abs(waist_values.values - 2450).min() < 0.1)), "245,0 must NOT parse to 2450 (10x scale error)"
 
 
 def test_unit_fail_counts_do_not_treat_nan_as_inf():
