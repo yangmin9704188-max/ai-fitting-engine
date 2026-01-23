@@ -2625,6 +2625,85 @@ def test_7th_unit_inference_default_mm():
     assert unit_map_8th.get('ANKLE_MAX_CIRC_M') == 'cm', f"8th_direct: ANKLE_MAX_CIRC_M should be 'cm' (median heuristic), got {unit_map_8th.get('ANKLE_MAX_CIRC_M')}"
 
 
+def test_7th_source_level_rule_no_unit_estimation():
+    """
+    Test 7th source-level rule: no unit estimation, always mm for unit=m keys.
+    
+    Regression test for 10x scale error prevention:
+    - 7th 소스에서는 unit 추정을 절대 하지 않고 source-level rule로 원본 단위를 고정
+    - CHEST_CIRC_M_REF=920, ANKLE_MAX_CIRC_M=245, WRIST_CIRC_M=158 같은 값이
+      최종 m 단위로 0.92 / 0.245 / 0.158 근처가 되는지 검증
+    - median 기반 cm 추정이 발생하지 않아야 함 (245mm -> 2.45m 방지)
+    
+    Key requirement: No key-specific exceptions, only source_key='7th' rule.
+    """
+    # Create DataFrame with mm-scale values that would be detected as cm by median heuristic
+    # These values are in mm: 920, 245, 158 (median > 10 would trigger cm estimation)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, median=920
+        'ANKLE_MAX_CIRC_M': [245.0, 250.0, 240.0, 248.0, 242.0],  # mm scale, median=245
+        'WRIST_CIRC_M': [158.0, 160.0, 155.0, 159.0, 157.0],  # mm scale, median=158
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Test unit_map creation (source-level rule should force mm, no estimation)
+    unit_map = sample_units(df, sample_size=5, source_key='7th')
+    
+    # Verify 7th source-level rule: unit=m keys are always mm (no cm estimation)
+    assert unit_map.get('CHEST_CIRC_M_REF') == 'mm', \
+        f"CHEST_CIRC_M_REF should be 'mm' (7th source-level rule), got {unit_map.get('CHEST_CIRC_M_REF')}"
+    assert unit_map.get('ANKLE_MAX_CIRC_M') == 'mm', \
+        f"ANKLE_MAX_CIRC_M should be 'mm' (7th source-level rule), got {unit_map.get('ANKLE_MAX_CIRC_M')}"
+    assert unit_map.get('WRIST_CIRC_M') == 'mm', \
+        f"WRIST_CIRC_M should be 'mm' (7th source-level rule), got {unit_map.get('WRIST_CIRC_M')}"
+    
+    # Verify no cm estimation occurred (median > 10 would trigger cm in 8th)
+    assert unit_map.get('CHEST_CIRC_M_REF') != 'cm', "7th should not estimate cm (source-level rule)"
+    assert unit_map.get('ANKLE_MAX_CIRC_M') != 'cm', "7th should not estimate cm (source-level rule)"
+    assert unit_map.get('WRIST_CIRC_M') != 'cm', "7th should not estimate cm (source-level rule)"
+    
+    # Step 2: Apply unit canonicalization
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m, 245.0 mm -> 0.245 m, 158.0 mm -> 0.158 m
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m (not 9.2 m), got {chest_converted.iloc[0]}"
+    
+    ankle_converted = df_converted['ANKLE_MAX_CIRC_M'].dropna()
+    assert len(ankle_converted) > 0, "ANKLE_MAX_CIRC_M should have non-null values after conversion"
+    assert abs(ankle_converted.iloc[0] - 0.245) < 0.01, \
+        f"ANKLE_MAX_CIRC_M[0] should be 0.245 m (not 2.45 m), got {ankle_converted.iloc[0]}"
+    
+    wrist_converted = df_converted['WRIST_CIRC_M'].dropna()
+    assert len(wrist_converted) > 0, "WRIST_CIRC_M should have non-null values after conversion"
+    assert abs(wrist_converted.iloc[0] - 0.158) < 0.01, \
+        f"WRIST_CIRC_M[0] should be 0.158 m (not 1.58 m), got {wrist_converted.iloc[0]}"
+    
+    # Verify all values are in realistic range (not 10x error range)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    assert (ankle_converted > 0.1).all() and (ankle_converted < 0.5).all(), \
+        f"All ANKLE_MAX_CIRC_M values should be in realistic range (0.1-0.5m), got {ankle_converted.values}"
+    assert (wrist_converted > 0.1).all() and (wrist_converted < 0.3).all(), \
+        f"All WRIST_CIRC_M values should be in realistic range (0.1-0.3m), got {wrist_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range for chest
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    assert (ankle_converted < 1.0).all(), \
+        f"ANKLE_MAX_CIRC_M values should NOT be in 10x error range (>1m), got {ankle_converted.values}"
+    
+    # Verify 8th sources still use median heuristic (not affected by 7th change)
+    unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
+    # For 8th, median > 10 should still detect as cm (existing policy maintained)
+    assert unit_map_8th.get('CHEST_CIRC_M_REF') == 'cm', \
+        f"8th_direct: CHEST_CIRC_M_REF should be 'cm' (median heuristic), got {unit_map_8th.get('CHEST_CIRC_M_REF')}"
+
+
 def test_parse_numeric_string_7th_cases():
     """
     Test parse_numeric_string_7th function with specific cases.

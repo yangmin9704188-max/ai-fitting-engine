@@ -949,15 +949,21 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100, source_key: Optional[
             unit_map[col] = "kg"
             continue
         
-        # For 7th source: unit=m standard keys default to mm (no cm heuristic)
-        if source_key == '7th' and is_unit_m_key(col):
-            # Default to mm for unit=m keys in 7th (no cm estimation)
-            # Only check if values are already in meters (median < 1)
-            if median_val < 1:
-                unit_map[col] = "m"
-            else:
-                unit_map[col] = "mm"  # Default assumption for 7th
-            continue
+        # For 7th source: source-level rule - no unit estimation, always mm for unit=m keys
+        # CRITICAL: 7th에서는 unit 추정을 절대 하지 않고 source-level rule로 원본 단위를 고정
+        # This prevents 10x errors from median-based cm estimation (e.g., 245mm -> 2.45m, 920mm -> 9.2m)
+        if source_key == '7th':
+            expected_unit = get_expected_unit(col)
+            if expected_unit == 'm':
+                # 7th source-level rule: unit=m keys are always mm (no estimation, no cm/m metadata)
+                # This ensures only mm->m(/1000) conversion occurs, never cm->m(/100)
+                unit_map[col] = "mm"
+                continue
+            # For non-unit=m keys (e.g., WEIGHT_KG already handled above), skip 7th rule
+            # Fall through to default logic if needed
+        
+        # For 8th_direct/8th_3d: keep existing median-based heuristic
+        # (unit metadata=0이므로 mm fallback, but median heuristic still applies)
         
         # Contract: Length/circumference are in mm (convert to m)
         # Heuristic: typical human measurements
@@ -2377,6 +2383,38 @@ def build_curated_v0(
     if completeness_report_path is not None and all_source_dfs:
         generate_completeness_report(all_source_dfs, mapping, completeness_report_path)
         print(f"Saved completeness report: {completeness_report_path}")
+        
+        # Verify 7th 10x error resolution (facts-only)
+        if '7th' in all_source_dfs and '8th_direct' in all_source_dfs:
+            df_7th = all_source_dfs['7th']
+            df_8th = all_source_dfs['8th_direct']
+            
+            # Check key columns that were affected by 10x errors
+            check_keys = ['CHEST_CIRC_M_REF', 'ANKLE_MAX_CIRC_M', 'WRIST_CIRC_M']
+            resolved_keys = []
+            
+            for key in check_keys:
+                if key in df_7th.columns and key in df_8th.columns:
+                    # Get p50 from 7th and 8th
+                    series_7th = pd.to_numeric(df_7th[key], errors='coerce')
+                    series_8th = pd.to_numeric(df_8th[key], errors='coerce')
+                    
+                    finite_7th = series_7th[np.isfinite(series_7th)]
+                    finite_8th = series_8th[np.isfinite(series_8th)]
+                    
+                    if len(finite_7th) > 0 and len(finite_8th) > 0:
+                        p50_7th = float(finite_7th.quantile(0.50))
+                        p50_8th = float(finite_8th.quantile(0.50))
+                        
+                        # Check if 7th p50 is in reasonable range (within 2x of 8th p50)
+                        # This verifies 10x error is resolved (7th p50 should be ~0.7-1.2m, not 9.2m)
+                        if p50_8th > 0 and 0.5 * p50_8th <= p50_7th <= 2.0 * p50_8th:
+                            resolved_keys.append(f"{key} (7th p50={p50_7th:.3f}m, 8th p50={p50_8th:.3f}m)")
+            
+            if resolved_keys:
+                print(f"\n7th 10x error resolution (facts-only): {len(resolved_keys)} keys resolved")
+                for key_info in resolved_keys:
+                    print(f"  - {key_info}")
     
     # Print summary
     print("\n=== Summary ===")
