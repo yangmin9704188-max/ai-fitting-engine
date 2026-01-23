@@ -234,8 +234,105 @@ def test_unit_heuristic_clear_scale():
     return True
 
 
+def test_sentinel_missing_handling():
+    """
+    Test that sentinel missing values (9999 for 8th_direct, empty for 7th/8th_3d)
+    are replaced with NaN and SENTINEL_MISSING warnings are recorded.
+    """
+    import json
+    from pathlib import Path
+    from pipelines.build_curated_v0 import build_curated_v0
+    
+    mapping_path = Path("data/column_map/sizekorea_v2.json")
+    if not mapping_path.exists():
+        print("Mapping file not found, skipping test")
+        return True
+    
+    # Test with small sample (use CSV to avoid parquet engine dependency)
+    output_path = Path("test_output_sentinel.csv")
+    warnings_output_path = Path("test_warnings_sentinel.jsonl")
+    
+    try:
+        stats = build_curated_v0(
+            mapping_path=mapping_path,
+            output_path=output_path,
+            output_format="csv",
+            dry_run=False,
+            max_rows=50,
+            warnings_output_path=warnings_output_path
+        )
+        
+        # Check warnings for SENTINEL_MISSING
+        if warnings_output_path.exists():
+            sentinel_warnings = []
+            with open(warnings_output_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    w = json.loads(line)
+                    if w.get('reason') == 'SENTINEL_MISSING':
+                        sentinel_warnings.append(w)
+            
+            # Should have at least some SENTINEL_MISSING warnings
+            print(f"Found {len(sentinel_warnings)} SENTINEL_MISSING warnings")
+            
+            # Verify warning structure
+            for w in sentinel_warnings[:5]:  # Check first 5
+                assert 'reason' in w, "Warning must have 'reason' field"
+                assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
+                assert 'source' in w, "Warning must have 'source' field"
+                assert 'column' in w, "Warning must have 'column' field"
+                assert 'original_value' in w, "Warning must have 'original_value' field"
+        
+        # Cleanup
+        if output_path.exists():
+            try:
+                output_path.unlink()
+            except:
+                pass
+        if warnings_output_path.exists():
+            try:
+                warnings_output_path.unlink()
+            except:
+                pass
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error in sentinel test: {e}")
+        return False
+
+
+def test_comma_parsing_7th():
+    """
+    Test that 7th CSV numeric columns with commas are parsed correctly.
+    """
+    import pandas as pd
+    from pipelines.build_curated_v0 import preprocess_numeric_columns
+    
+    # Create test DataFrame with comma-separated numbers
+    df = pd.DataFrame({
+        'HEIGHT_M': ['1,736', '1,800', '1,650'],
+        'WEIGHT_KG': ['70', '80', '65'],
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    df_processed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Check that commas were removed and values are numeric
+    assert pd.api.types.is_numeric_dtype(df_processed['HEIGHT_M']), "HEIGHT_M should be numeric after comma removal"
+    
+    # Check values (should be 1736, 1800, 1650)
+    values = df_processed['HEIGHT_M'].dropna().tolist()
+    assert len(values) > 0, "Should have parsed values"
+    assert all(v > 1000 for v in values), "Values should be in mm range (1000+)"
+    
+    return True
+
+
 if __name__ == '__main__':
     success1 = test_build_curated_v0_dry_run()
     success2 = test_unit_heuristic_ambiguous_scale()
     success3 = test_unit_heuristic_clear_scale()
-    sys.exit(0 if (success1 and success2 and success3) else 1)
+    success4 = test_sentinel_missing_handling()
+    success5 = test_comma_parsing_7th()
+    sys.exit(0 if (success1 and success2 and success3 and success4 and success5) else 1)

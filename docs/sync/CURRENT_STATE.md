@@ -55,6 +55,7 @@ active\_runbook:
 - curated_v0 run summary 기록 (verification/runs/curated_v0/2026-01-23_run1.md): 실행 커맨드, 입력/출력 경로, row 수, warnings 카운트, unit canonicalization/outlier rules 적용 여부 (사실만)
 - curated_v0 unit heuristic 안전장치 테스트 추가 (tests/test_build_curated_v0.py): ambiguous scale 입력 시 NaN + warnings 동작 검증 (unit_undetermined), 명확한 스케일 입력 시 변환 적용 검증
 - curated_v0 파이프라인 mapping v2 사용 반영 (pipelines/build_curated_v0.py): 기본값을 sizekorea_v2.json으로 변경, 테스트 업데이트 (tests/test_build_curated_v0.py), v2 실행 요약 기록 (verification/runs/curated_v0/2026-01-23_v2_run1.md)
+- curated_v0 ingest 규칙 강화 (pipelines/build_curated_v0.py): 동적 헤더 탐색(표준 측정항목 명 매칭), 7th 콤마 제거, sentinel 결측 처리(9999/empty → NaN + SENTINEL_MISSING warnings), 성별 정규화(남/여 → M/F), 테스트 추가(sentinel/comma 파싱 검증)
 
 signals:
 validation:
