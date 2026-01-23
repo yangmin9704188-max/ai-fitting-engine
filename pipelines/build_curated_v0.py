@@ -42,26 +42,31 @@ HEADER_ROWS = {
 
 
 def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = False, 
-                     source_key: str = None, max_check: int = 20) -> tuple[int, Optional[int]]:
+                     source_key: str = None, max_check: int = 20) -> tuple[int, Optional[int], Optional[int]]:
     """
-    Find primary and secondary header rows.
+    Find primary, code, and secondary header rows.
     
     Primary header: First column value exactly matches "표준 측정항목 명" (for measurements).
-    - Typically row 5 (0-indexed) for 7th data when anchor is found.
+    - Typically row 4 (0-indexed) for 7th data when anchor is found.
+    
+    Code row: Row containing "표준 측정항목 코드" (typically primary_row + 1).
+    - Typically row 5 (0-indexed) for 7th data.
     
     Secondary header: Row containing "성별"/"SEX" or "ID"/"HUMAN_ID" tokens (for meta columns).
-    - Searched in range primary+1 to primary+6 (typically row 7 for 7th data).
+    - Searched in range primary+1 to primary+6 (typically row 6 for 7th data).
     - For 8th series, secondary header strings are cleaned (numeric prefix removed).
     
-    Returns (primary_row, secondary_row) where secondary_row may be None.
+    Returns (primary_row, code_row, secondary_row) where code_row and secondary_row may be None.
     """
     anchor_term = "표준 측정항목 명"
     anchor_term_with_space = " " + anchor_term
+    code_term = "표준 측정항목 코드"
     
     # Secondary header tokens (exact match or contains)
     secondary_tokens = ["성별", "SEX", "ID", "HUMAN_ID", "HUMAN ID", "나이"]
     
     primary_row = None
+    code_row = None
     secondary_row = None
     
     if is_xlsx:
@@ -69,7 +74,7 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
         try:
             df_sample = pd.read_excel(file_path, header=None, nrows=max_check, engine='openpyxl')
         except Exception:
-            return (HEADER_ROWS.get('7th', 6), None)
+            return (HEADER_ROWS.get('7th', 4), None, None)
     else:
         # Read CSV file
         encodings = ['utf-8-sig', 'cp949', 'utf-8']
@@ -82,7 +87,7 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
                 continue
         
         if df_sample is None:
-            return (HEADER_ROWS.get('7th', 6), None)
+            return (HEADER_ROWS.get('7th', 4), None, None)
     
     # Find primary header (anchor term)
     # Search for "표준 측정항목 명" in ANY cell of the row (not just first column)
@@ -98,6 +103,19 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
                     break
         if primary_row is not None:
             break
+    
+    # Find code row (표준 측정항목 코드) - typically primary_row + 1
+    if primary_row is not None:
+        # Check primary_row + 1 for code term
+        if primary_row + 1 < len(df_sample):
+            code_candidate_row = primary_row + 1
+            for col_idx in range(len(df_sample.columns)):
+                cell_val = df_sample.iloc[code_candidate_row, col_idx]
+                if pd.notna(cell_val):
+                    cell_val_str = str(cell_val).strip()
+                    if code_term in cell_val_str:
+                        code_row = code_candidate_row
+                        break
     
     # Find secondary header (SEX/HUMAN_ID) near primary
     # Search range: primary+1 to primary+6 (typically row 7 for 7th when primary is row 5)
@@ -144,22 +162,22 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
     # Fallback: if primary not found, use default
     if primary_row is None:
         if '7th' in str(file_path):
-            primary_row = HEADER_ROWS.get('7th', 6)
+            primary_row = HEADER_ROWS.get('7th', 4)
         elif '8th_direct' in str(file_path):
-            primary_row = HEADER_ROWS.get('8th_direct', 6)
+            primary_row = HEADER_ROWS.get('8th_direct', 4)
         elif '8th_3d' in str(file_path):
-            primary_row = HEADER_ROWS.get('8th_3d', 6)
+            primary_row = HEADER_ROWS.get('8th_3d', 4)
         else:
-            primary_row = 6
+            primary_row = 4
     
-    return (primary_row, secondary_row)
+    return (primary_row, code_row, secondary_row)
 
 
 def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'utf-8-sig', max_check: int = 20) -> int:
     """
     Find header row (primary) - kept for backward compatibility.
     """
-    primary_row, _ = find_header_rows(file_path, mapping, is_xlsx=False, max_check=max_check)
+    primary_row, _, _ = find_header_rows(file_path, mapping, is_xlsx=False, max_check=max_check)
     return primary_row
 
 
@@ -792,20 +810,46 @@ def build_curated_v0(
             else:
                 print(f"  Warning: XLSX not found, using CSV fallback: {file_path}")
         
-        # Find header rows (primary and secondary)
-        # Primary: "표준 측정항목 명" anchor row (typically row 5 for 7th)
-        # Secondary: Row with "성별"/"HUMAN_ID" tokens near primary (typically row 7 for 7th)
-        primary_row, secondary_row = find_header_rows(file_path, mapping, is_xlsx=is_xlsx, source_key=source_key)
+        # Find header rows (primary, code, and secondary)
+        # Primary: "표준 측정항목 명" anchor row (typically row 4 for 7th)
+        # Code: "표준 측정항목 코드" row (typically row 5 for 7th, primary_row + 1)
+        # Secondary: Row with "성별"/"HUMAN_ID" tokens near primary (typically row 6 for 7th)
+        primary_row, code_row, secondary_row = find_header_rows(file_path, mapping, is_xlsx=is_xlsx, source_key=source_key)
         print(f"  Detected primary header row: {primary_row}")
+        if code_row is not None:
+            print(f"  Detected code row: {code_row}")
         if secondary_row is not None:
             print(f"  Detected secondary header row: {secondary_row}")
+        
+        # Calculate data start row: max of all header rows + 1
+        # This ensures header/code/meta rows are excluded from data
+        header_rows_list = [primary_row]
+        if code_row is not None:
+            header_rows_list.append(code_row)
+        if secondary_row is not None:
+            header_rows_list.append(secondary_row)
+        data_start_row = max(header_rows_list) + 1
+        print(f"  Data start row (after header cutoff): {data_start_row}")
         
         # Load raw file
         df_raw = load_raw_file(file_path, primary_row, secondary_row, source_key, is_xlsx=is_xlsx)
         
+        # Drop header/code/meta rows from DataFrame
+        # After load_raw_file with header=primary_row, DataFrame index starts from 0
+        # Original file row (primary_row + 1) becomes DataFrame index 0
+        # Original file row (code_row) becomes DataFrame index (code_row - primary_row - 1) if code_row > primary_row
+        # Original file row (secondary_row) becomes DataFrame index (secondary_row - primary_row - 1) if secondary_row > primary_row
+        # We need to drop rows before data_start_row in original file coordinates
+        # In DataFrame coordinates: drop rows with index < (data_start_row - primary_row - 1)
+        if len(df_raw) > 0:
+            df_start_idx = data_start_row - primary_row - 1
+            if df_start_idx > 0:
+                df_raw = df_raw.iloc[df_start_idx:].copy().reset_index(drop=True)
+                print(f"  Dropped {df_start_idx} header/code/meta rows, remaining: {len(df_raw)} rows")
+        
         # Load secondary DataFrame if secondary header exists
         df_secondary = None
-        if secondary_row is not None and source_key == '7th':
+        if secondary_row is not None:
             try:
                 if is_xlsx:
                     df_secondary = pd.read_excel(file_path, header=secondary_row, engine='openpyxl')
@@ -818,12 +862,23 @@ def build_curated_v0(
                         except (UnicodeDecodeError, Exception):
                             continue
                 
+                if df_secondary is not None and len(df_secondary) > 0:
+                    # Drop header/code/meta rows from secondary DataFrame as well
+                    # After load with header=secondary_row, DataFrame index starts from 0
+                    # Original file row (secondary_row + 1) becomes DataFrame index 0
+                    # We need to drop rows before data_start_row in original file coordinates
+                    # In DataFrame coordinates: drop rows with index < (data_start_row - secondary_row - 1)
+                    sec_df_start_idx = data_start_row - secondary_row - 1
+                    if sec_df_start_idx > 0:
+                        df_secondary = df_secondary.iloc[sec_df_start_idx:].copy().reset_index(drop=True)
+                
                 # Ensure HUMAN_ID/SEX columns are string in secondary
-                for col in df_secondary.columns:
-                    col_str = str(col).strip()
-                    if 'ID' in col_str or 'HUMAN_ID' in col_str or '성별' in col_str or 'SEX' in col_str:
-                        df_secondary[col] = df_secondary[col].astype(str).str.strip()
-                        df_secondary[col] = df_secondary[col].str.replace(r'\.0$', '', regex=True)
+                if df_secondary is not None:
+                    for col in df_secondary.columns:
+                        col_str = str(col).strip()
+                        if 'ID' in col_str or 'HUMAN_ID' in col_str or '성별' in col_str or 'SEX' in col_str:
+                            df_secondary[col] = df_secondary[col].astype(str).str.strip()
+                            df_secondary[col] = df_secondary[col].str.replace(r'\.0$', '', regex=True)
             except Exception:
                 df_secondary = None
         
