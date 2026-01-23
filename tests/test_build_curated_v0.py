@@ -28,7 +28,9 @@ from pipelines.build_curated_v0 import (
     detect_duplicate_headers,
     generate_quality_summary,
     find_header_candidates,
-    emit_header_candidates
+    emit_header_candidates,
+    collect_arm_knee_trace,
+    emit_arm_knee_trace
 )
 
 
@@ -1268,6 +1270,79 @@ def test_header_candidates_generation():
             "Content should be facts-only, no action directives"
 
 
+def test_arm_knee_trace_generation():
+    """
+    Test that ARM_LEN_M and KNEE_HEIGHT_M trace is generated correctly.
+    
+    Verifies:
+    1) collect_arm_knee_trace collects trace data with correct structure
+    2) emit_arm_knee_trace generates facts-only markdown
+    3) Trace includes dtype, sample_values, non_null_count, non_finite_count, min/max
+    """
+    import tempfile
+    
+    # Create synthetic DataFrame with ARM_LEN_M and KNEE_HEIGHT_M
+    # Note: np.isfinite returns False for NaN, inf, -inf
+    # So non_finite_count includes NaN + inf + -inf
+    df = pd.DataFrame({
+        'ARM_LEN_M': [0.5, 0.6, np.nan, 0.55, 0.65, np.inf, -np.inf, 0.7, 0.8, np.nan] * 2,  # 16 non-null, 4 missing (NaN), 2 inf/-inf
+        'KNEE_HEIGHT_M': [0.4, 0.45, 0.42, np.nan, 0.43, 0.41, np.inf, 0.44, np.nan, 0.46] * 2,  # 16 non-null, 4 missing (NaN), 1 inf
+        'other_col': [1, 2, 3, 4, 5] * 4
+    })
+    
+    # Test collect_arm_knee_trace
+    trace = collect_arm_knee_trace(df, '8th_direct', 'after_extraction')
+    
+    # Verify ARM_LEN_M trace
+    assert 'ARM_LEN_M' in trace, "ARM_LEN_M should be in trace"
+    arm_trace = trace['ARM_LEN_M']
+    assert arm_trace['present'] == True, "ARM_LEN_M should be present"
+    assert arm_trace['dtype'] == 'float64', "ARM_LEN_M dtype should be float64"
+    assert arm_trace['non_null_count'] == 16, f"ARM_LEN_M non_null_count should be 16, got {arm_trace['non_null_count']}"
+    assert arm_trace['total_rows'] == 20, "ARM_LEN_M total_rows should be 20"
+    # non_finite_count includes NaN (4) + inf/-inf (2*2=4) = 8 total non-finite
+    assert arm_trace['non_finite_count'] == 8, f"ARM_LEN_M non_finite_count should be 8 (4 NaN + 4 inf/-inf), got {arm_trace['non_finite_count']}"
+    assert len(arm_trace['sample_values']) == 16, "ARM_LEN_M should have 16 sample values"
+    assert arm_trace['min_value'] is not None, "ARM_LEN_M min_value should be set"
+    assert arm_trace['max_value'] is not None, "ARM_LEN_M max_value should be set"
+    
+    # Verify KNEE_HEIGHT_M trace
+    assert 'KNEE_HEIGHT_M' in trace, "KNEE_HEIGHT_M should be in trace"
+    knee_trace = trace['KNEE_HEIGHT_M']
+    assert knee_trace['present'] == True, "KNEE_HEIGHT_M should be present"
+    assert knee_trace['non_null_count'] == 16, f"KNEE_HEIGHT_M non_null_count should be 16, got {knee_trace['non_null_count']}"
+    # non_finite_count includes NaN (4) + inf (2) = 6 total non-finite
+    assert knee_trace['non_finite_count'] == 6, f"KNEE_HEIGHT_M non_finite_count should be 6 (4 NaN + 2 inf), got {knee_trace['non_finite_count']}"
+    
+    # Test emit_arm_knee_trace
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "arm_knee_trace.md"
+        all_traces = {
+            '8th_direct': [trace]
+        }
+        emit_arm_knee_trace(all_traces, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), f"ARM/KNEE trace file should be created at {output_path}"
+        
+        # Read and verify content
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify facts-only content
+        assert '8th_direct' in content, "Content should include source '8th_direct'"
+        assert 'ARM_LEN_M' in content, "Content should include ARM_LEN_M"
+        assert 'KNEE_HEIGHT_M' in content, "Content should include KNEE_HEIGHT_M"
+        assert 'dtype' in content, "Content should include dtype"
+        assert 'non_null_count' in content, "Content should include non_null_count"
+        assert 'non_finite_count' in content, "Content should include non_finite_count"
+        assert 'sample_values' in content, "Content should include sample_values"
+        
+        # Verify no action directives (facts-only)
+        assert 'should' not in content.lower() or ('should' in content.lower() and 'should be' not in content.lower()), \
+            "Content should be facts-only, no action directives"
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1289,6 +1364,7 @@ if __name__ == '__main__':
         test_non_finite_normalization()
         test_quality_summary_generation()
         test_header_candidates_generation()
+        test_arm_knee_trace_generation()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:

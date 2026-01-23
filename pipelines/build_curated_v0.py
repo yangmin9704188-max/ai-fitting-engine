@@ -403,7 +403,9 @@ def extract_columns_from_source(
     df_secondary: Optional[pd.DataFrame],
     source_key: str,
     mapping: Dict[str, Any],
-    warnings: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]],
+    collect_trace: bool = False,
+    trace_data: Optional[Dict[str, Any]] = None
 ) -> pd.DataFrame:
     """
     Extract and standardize columns from raw DataFrame based on mapping.
@@ -481,9 +483,19 @@ def extract_columns_from_source(
                     values = values[:num_rows]
             result_data[standard_key] = values
     
+    # Create DataFrame before preprocessing for trace
+    df_before_preprocess = pd.DataFrame(result_data, index=df.index)
+    
+    # Collect trace before preprocessing (for ARM_LEN_M and KNEE_HEIGHT_M only)
+    if collect_trace and trace_data is not None and source_key in ['8th_direct', '8th_3d']:
+        trace_before = collect_arm_knee_trace(df_before_preprocess, source_key, 'after_extraction_before_preprocess')
+        if 'traces' not in trace_data:
+            trace_data['traces'] = []
+        trace_data['traces'].append(trace_before)
+    
     # Preprocess numeric columns (comma removal, sentinel replacement)
     # HUMAN_ID is excluded from numeric processing
-    df_preprocessed = preprocess_numeric_columns(pd.DataFrame(result_data, index=df.index), source_key, warnings)
+    df_preprocessed = preprocess_numeric_columns(df_before_preprocess, source_key, warnings)
     
     # Normalize sex values
     if 'SEX' in df_preprocessed.columns:
@@ -1015,6 +1027,153 @@ def emit_header_candidates(
     print(f"Saved header candidates: {output_path}")
 
 
+def collect_arm_knee_trace(
+    df: pd.DataFrame,
+    source_key: str,
+    stage: str,
+    target_keys: List[str] = ['ARM_LEN_M', 'KNEE_HEIGHT_M']
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Collect trace data for ARM_LEN_M and KNEE_HEIGHT_M at a specific processing stage.
+    
+    Args:
+        df: DataFrame at current stage
+        source_key: Source identifier
+        stage: Stage name (e.g., 'after_extraction', 'after_preprocess', 'after_unit_conversion')
+        target_keys: List of standard keys to trace
+    
+    Returns:
+        Dictionary mapping standard_key -> trace_info
+    """
+    trace_data = {}
+    
+    for standard_key in target_keys:
+        if standard_key not in df.columns:
+            trace_data[standard_key] = {
+                "stage": stage,
+                "source": source_key,
+                "present": False,
+                "dtype": None,
+                "sample_values": [],
+                "non_null_count": 0,
+                "total_rows": len(df),
+                "non_finite_count": 0,
+                "min_value": None,
+                "max_value": None
+            }
+            continue
+        
+        series = df[standard_key]
+        non_null_count = series.notna().sum()
+        
+        # Get sample values (first 20 non-null values)
+        sample_values = []
+        non_null_series = series.dropna()
+        if len(non_null_series) > 0:
+            sample_values = non_null_series.head(20).tolist()
+            # Convert to string for markdown output
+            sample_values = [str(v) for v in sample_values]
+        
+        # Check for non-finite values
+        if pd.api.types.is_numeric_dtype(series):
+            non_finite_mask = ~np.isfinite(series)
+            non_finite_count = non_finite_mask.sum()
+            
+            # Get min/max from finite values
+            finite_series = series[np.isfinite(series)]
+            min_value = float(finite_series.min()) if len(finite_series) > 0 else None
+            max_value = float(finite_series.max()) if len(finite_series) > 0 else None
+        else:
+            non_finite_count = 0
+            min_value = None
+            max_value = None
+        
+        trace_data[standard_key] = {
+            "stage": stage,
+            "source": source_key,
+            "present": True,
+            "dtype": str(series.dtype),
+            "sample_values": sample_values,
+            "non_null_count": int(non_null_count),
+            "total_rows": int(len(df)),
+            "non_finite_count": int(non_finite_count),
+            "min_value": min_value,
+            "max_value": max_value
+        }
+    
+    return trace_data
+
+
+def emit_arm_knee_trace(
+    all_traces: Dict[str, List[Dict[str, Dict[str, Any]]]],
+    output_path: Path
+):
+    """
+    Emit ARM_LEN_M and KNEE_HEIGHT_M trace to markdown file (facts-only).
+    
+    Args:
+        all_traces: Dictionary mapping source_key -> list of trace_data dicts
+        output_path: Path to output markdown file
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write("# ARM_LEN_M and KNEE_HEIGHT_M Trace Diagnostic (facts-only)\n\n")
+        f.write("This document traces values for ARM_LEN_M and KNEE_HEIGHT_M through processing stages.\n\n")
+        
+        for source_key in ['8th_direct', '8th_3d']:
+            if source_key not in all_traces:
+                continue
+            
+            f.write(f"## {source_key}\n\n")
+            
+            source_traces = all_traces[source_key]
+            
+            for standard_key in ['ARM_LEN_M', 'KNEE_HEIGHT_M']:
+                f.write(f"### {standard_key}\n\n")
+                
+                # Find traces for this key
+                key_traces = []
+                for trace_dict in source_traces:
+                    if standard_key in trace_dict:
+                        key_traces.append(trace_dict[standard_key])
+                
+                if not key_traces:
+                    f.write("No trace data available.\n\n")
+                    continue
+                
+                # Write trace for each stage
+                for trace in key_traces:
+                    stage = trace.get('stage', 'unknown')
+                    f.write(f"#### {stage}\n\n")
+                    
+                    if not trace.get('present', False):
+                        f.write("- Column not present in DataFrame\n\n")
+                        continue
+                    
+                    f.write(f"- **dtype**: {trace.get('dtype', 'unknown')}\n")
+                    f.write(f"- **non_null_count**: {trace.get('non_null_count', 0)} / {trace.get('total_rows', 0)}\n")
+                    f.write(f"- **non_finite_count**: {trace.get('non_finite_count', 0)}\n")
+                    
+                    min_val = trace.get('min_value')
+                    max_val = trace.get('max_value')
+                    if min_val is not None and max_val is not None:
+                        f.write(f"- **min_value**: {min_val}\n")
+                        f.write(f"- **max_value**: {max_val}\n")
+                    
+                    sample_values = trace.get('sample_values', [])
+                    if sample_values:
+                        f.write(f"- **sample_values** (first {len(sample_values)} non-null):\n")
+                        for i, val in enumerate(sample_values[:20], 1):
+                            f.write(f"  {i}. {val}\n")
+                    else:
+                        f.write("- **sample_values**: (no non-null values)\n")
+                    
+                    f.write("\n")
+    
+    print(f"Saved ARM/KNEE trace: {output_path}")
+
+
 def build_curated_v0(
     mapping_path: Path,
     output_path: Path,
@@ -1023,7 +1182,8 @@ def build_curated_v0(
     max_rows: Optional[int] = None,
     warnings_output_path: Optional[Path] = None,
     quality_summary_path: Optional[Path] = None,
-    header_candidates_path: Optional[Path] = None
+    header_candidates_path: Optional[Path] = None,
+    arm_knee_trace_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Build curated_v0 dataset.
@@ -1049,6 +1209,7 @@ def build_curated_v0(
     all_source_quality = {}  # source_key -> {standard_key -> quality_metrics}
     all_duplicate_headers = {}  # source_key -> {base_header -> [column_info]}
     all_header_candidates = {}  # source_key -> {standard_key -> [candidate_info]}
+    all_arm_knee_traces = {}  # source_key -> [list of trace_data dicts]
     stats = {
         "sources_processed": [],
         "total_rows": 0,
@@ -1176,7 +1337,21 @@ def build_curated_v0(
         print(f"  Loaded {len(df_raw)} rows, {len(df_raw.columns)} columns")
         
         # Extract and standardize columns
-        df_extracted = extract_columns_from_source(df_raw, df_secondary, source_key, mapping, warnings)
+        # Collect trace data if requested (for 8th_direct/8th_3d only)
+        trace_data = {}
+        if arm_knee_trace_path is not None and source_key in ['8th_direct', '8th_3d']:
+            df_extracted = extract_columns_from_source(df_raw, df_secondary, source_key, mapping, warnings, 
+                                                       collect_trace=True, trace_data=trace_data)
+            # Store traces collected during extraction
+            if 'traces' in trace_data:
+                if source_key not in all_arm_knee_traces:
+                    all_arm_knee_traces[source_key] = []
+                all_arm_knee_traces[source_key].extend(trace_data['traces'])
+                # Also add trace after preprocessing (df_extracted is already preprocessed)
+                trace_after_preprocess = collect_arm_knee_trace(df_extracted, source_key, 'after_preprocess')
+                all_arm_knee_traces[source_key].append(trace_after_preprocess)
+        else:
+            df_extracted = extract_columns_from_source(df_raw, df_secondary, source_key, mapping, warnings)
         print(f"  Extracted {len(df_extracted.columns)} standard columns")
         
         # Sample units
@@ -1185,6 +1360,11 @@ def build_curated_v0(
         
         # Apply unit canonicalization
         df_canonical = apply_unit_canonicalization(df_extracted, unit_map, warnings)
+        
+        # Collect trace after unit conversion (for 8th_direct/8th_3d only)
+        if arm_knee_trace_path is not None and source_key in ['8th_direct', '8th_3d']:
+            trace_after_unit = collect_arm_knee_trace(df_canonical, source_key, 'after_unit_conversion')
+            all_arm_knee_traces[source_key].append(trace_after_unit)
         
         # Handle missing values
         df_final = handle_missing_values(df_canonical, source_key, warnings)
@@ -1329,6 +1509,10 @@ def build_curated_v0(
     if header_candidates_path is not None and all_header_candidates:
         emit_header_candidates(all_header_candidates, header_candidates_path)
     
+    # Emit ARM/KNEE trace if requested
+    if arm_knee_trace_path is not None and all_arm_knee_traces:
+        emit_arm_knee_trace(all_arm_knee_traces, arm_knee_trace_path)
+    
     # Print summary
     print("\n=== Summary ===")
     print(f"Sources processed: {len(stats['sources_processed'])}")
@@ -1401,6 +1585,12 @@ def main():
         default=None,
         help='Path to save header candidates diagnostic markdown file (optional, for 8th_direct/8th_3d)'
     )
+    parser.add_argument(
+        '--emit-arm-knee-trace',
+        type=str,
+        default=None,
+        help='Path to save ARM_LEN_M and KNEE_HEIGHT_M trace diagnostic markdown file (optional, for 8th_direct/8th_3d)'
+    )
     
     args = parser.parse_args()
     
@@ -1409,6 +1599,7 @@ def main():
     warnings_output_path = Path(args.warnings_output) if args.warnings_output else None
     quality_summary_path = Path(args.emit_quality_summary) if args.emit_quality_summary else None
     header_candidates_path = Path(args.emit_header_candidates) if args.emit_header_candidates else None
+    arm_knee_trace_path = Path(args.emit_arm_knee_trace) if args.emit_arm_knee_trace else None
     
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")
@@ -1422,7 +1613,8 @@ def main():
         max_rows=args.max_rows,
         warnings_output_path=warnings_output_path,
         quality_summary_path=quality_summary_path,
-        header_candidates_path=header_candidates_path
+        header_candidates_path=header_candidates_path,
+        arm_knee_trace_path=arm_knee_trace_path
     )
     
     return 0
