@@ -19,6 +19,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import sys
+import re
 
 # Import canonicalization function
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -27,7 +28,7 @@ from data.ingestion import canonicalize_units_to_m
 
 # Source file mapping
 SOURCE_FILES = {
-    "7th": "data/raw/sizekorea_raw/7th_data.csv",
+    "7th": "data/raw/sizekorea_raw/7th_data.csv",  # CSV fallback, XLSX preferred
     "8th_direct": "data/raw/sizekorea_raw/8th_data_direct.csv",
     "8th_3d": "data/raw/sizekorea_raw/8th_data_3d.csv",
 }
@@ -40,76 +41,114 @@ HEADER_ROWS = {
 }
 
 
-def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'utf-8-sig', max_check: int = 20) -> int:
+def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = False, max_check: int = 20) -> tuple[int, Optional[int]]:
     """
-    Find header row by matching first column value with standard measurement terms.
+    Find primary and secondary header rows.
     
-    Priority:
-    1. First column value (after strip) exactly matches "표준 측정항목 명" (anchor row)
-    2. First column value matches any ko_term from mapping (fallback)
-    3. Default HEADER_ROWS based on file name (final fallback)
+    Primary header: First column value exactly matches "표준 측정항목 명" (for measurements).
+    Secondary header: Row containing "성별"/"SEX" or "ID"/"HUMAN_ID" tokens (for meta columns).
     
-    Returns row index.
+    Returns (primary_row, secondary_row) where secondary_row may be None.
     """
-    # Priority 1: Anchor term "표준 측정항목 명"
     anchor_term = "표준 측정항목 명"
     anchor_term_with_space = " " + anchor_term
     
-    # Priority 2: Collect all ko_terms from mapping (fallback)
-    ko_terms = set()
-    for key_info in mapping['keys']:
-        ko_term = key_info.get('ko_term', '')
-        if ko_term and ko_term != 'HUMAN_ID':
-            ko_terms.add(ko_term.strip())
-            # Also check with leading space
-            ko_terms.add(' ' + ko_term.strip())
+    # Secondary header tokens (exact match or contains)
+    secondary_tokens = ["성별", "SEX", "ID", "HUMAN_ID"]
     
-    encodings = [encoding, 'cp949', 'utf-8']
+    primary_row = None
+    secondary_row = None
     
-    for enc in encodings:
+    if is_xlsx:
+        # Read Excel file
         try:
-            # Read first max_check rows without header
-            df_sample = pd.read_csv(file_path, encoding=enc, header=None, nrows=max_check, low_memory=False)
-            
-            # Priority 1: Check for anchor term first
-            for i in range(len(df_sample)):
-                first_val = df_sample.iloc[i, 0]
-                if pd.notna(first_val):
-                    first_val_str = str(first_val).strip()
-                    # Exact match with anchor term (with or without leading space)
-                    if first_val_str == anchor_term or first_val_str == anchor_term_with_space:
-                        return i
-            
-            # Priority 2: Fallback to ko_term matching
-            for i in range(len(df_sample)):
-                first_val = df_sample.iloc[i, 0]
-                if pd.notna(first_val):
-                    first_val_str = str(first_val).strip()
-                    # Check exact match with ko_terms
-                    if first_val_str in ko_terms:
-                        return i
-                    # Also check without leading space
-                    if first_val_str.lstrip() in ko_terms:
-                        return i
-            
-            # Priority 3: Default fallback based on file name
-            if '7th' in str(file_path):
-                return HEADER_ROWS.get('7th', 6)
-            elif '8th_direct' in str(file_path):
-                return HEADER_ROWS.get('8th_direct', 6)
-            elif '8th_3d' in str(file_path):
-                return HEADER_ROWS.get('8th_3d', 6)
-            return 6  # Default fallback
-            
-        except UnicodeDecodeError:
-            continue
+            df_sample = pd.read_excel(file_path, header=None, nrows=max_check, engine='openpyxl')
         except Exception:
-            if enc == encodings[-1]:
-                # Last encoding failed, return default
-                return HEADER_ROWS.get('7th', 6)
-            continue
+            return (HEADER_ROWS.get('7th', 6), None)
+    else:
+        # Read CSV file
+        encodings = ['utf-8-sig', 'cp949', 'utf-8']
+        df_sample = None
+        for enc in encodings:
+            try:
+                df_sample = pd.read_csv(file_path, encoding=enc, header=None, nrows=max_check, low_memory=False)
+                break
+            except (UnicodeDecodeError, Exception):
+                continue
+        
+        if df_sample is None:
+            return (HEADER_ROWS.get('7th', 6), None)
     
-    return 6  # Final fallback
+    # Find primary header (anchor term)
+    for i in range(len(df_sample)):
+        first_val = df_sample.iloc[i, 0]
+        if pd.notna(first_val):
+            first_val_str = str(first_val).strip()
+            if first_val_str == anchor_term or first_val_str == anchor_term_with_space:
+                primary_row = i
+                break
+    
+    # Find secondary header (SEX/HUMAN_ID) near primary
+    if primary_row is not None:
+        search_start = max(0, primary_row - 1)
+        search_end = min(len(df_sample), primary_row + 7)  # +1~+6 range
+        
+        for i in range(search_start, search_end):
+            if i == primary_row:
+                continue  # Skip primary row
+            
+            # Check all columns for secondary tokens
+            row_values = [str(v) for v in df_sample.iloc[i].astype(str).tolist() if pd.notna(v)]
+            row_str = ' '.join(row_values)
+            
+            # Clean numeric prefix for 8th series (remove leading numbers)
+            cleaned_row_str = row_str
+            if '8th' in str(file_path):
+                # Remove leading numeric patterns (e.g., "123.0 성별" -> "성별")
+                cleaned_row_str = re.sub(r'^\d+\.?\d*\s*', '', row_str)
+            
+            # Check each column value individually for secondary tokens
+            for col_idx in range(len(df_sample.columns)):
+                if col_idx >= len(row_values):
+                    continue
+                cell_value = str(df_sample.iloc[i, col_idx]).strip() if pd.notna(df_sample.iloc[i, col_idx]) else ""
+                
+                # Clean numeric prefix if needed
+                if '8th' in str(file_path):
+                    cell_value = re.sub(r'^\d+\.?\d*\s*', '', cell_value)
+                
+                # Check for secondary tokens (contains match)
+                for token in secondary_tokens:
+                    if token in cell_value:
+                        secondary_row = i
+                        break
+                
+                if secondary_row is not None:
+                    break
+            
+            if secondary_row is not None:
+                break
+    
+    # Fallback: if primary not found, use default
+    if primary_row is None:
+        if '7th' in str(file_path):
+            primary_row = HEADER_ROWS.get('7th', 6)
+        elif '8th_direct' in str(file_path):
+            primary_row = HEADER_ROWS.get('8th_direct', 6)
+        elif '8th_3d' in str(file_path):
+            primary_row = HEADER_ROWS.get('8th_3d', 6)
+        else:
+            primary_row = 6
+    
+    return (primary_row, secondary_row)
+
+
+def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'utf-8-sig', max_check: int = 20) -> int:
+    """
+    Find header row (primary) - kept for backward compatibility.
+    """
+    primary_row, _ = find_header_rows(file_path, mapping, is_xlsx=False, max_check=max_check)
+    return primary_row
 
 
 def load_mapping_v1(mapping_path: Path) -> Dict[str, Any]:
@@ -118,27 +157,88 @@ def load_mapping_v1(mapping_path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
-def load_raw_file(file_path: Path, header_row: int, encoding: str = 'utf-8-sig') -> pd.DataFrame:
+def load_raw_file(file_path: Path, header_row: int, secondary_header_row: Optional[int] = None, 
+                  source_key: str = None, encoding: str = 'utf-8-sig', is_xlsx: bool = False) -> pd.DataFrame:
     """
-    Load raw CSV file with specified header row.
+    Load raw file (CSV or XLSX) with specified header row(s).
     
-    Tries multiple encodings if the first fails.
+    For 7th source, prefers XLSX over CSV to preserve HUMAN_ID as string.
+    For HUMAN_ID/SEX columns, uses secondary_header_row if available.
+    
+    Args:
+        file_path: Path to file
+        header_row: Primary header row (for measurements)
+        secondary_header_row: Secondary header row (for HUMAN_ID/SEX), optional
+        source_key: Source key ('7th', '8th_direct', '8th_3d')
+        encoding: Encoding for CSV (ignored for XLSX)
+        is_xlsx: Whether file is XLSX format
     """
-    encodings = [encoding, 'cp949', 'utf-8']
+    # For 7th, prefer XLSX if available
+    if source_key == '7th' and not is_xlsx:
+        xlsx_path = file_path.parent / "7th_data.xlsx"
+        if xlsx_path.exists():
+            file_path = xlsx_path
+            is_xlsx = True
     
-    for enc in encodings:
+    if is_xlsx:
+        # Load XLSX with HUMAN_ID as string
         try:
-            df = pd.read_csv(file_path, encoding=enc, header=header_row, low_memory=False)
+            # Find HUMAN_ID column index from secondary header if available
+            converters = {}
+            if secondary_header_row is not None:
+                # Read secondary header to find HUMAN_ID column
+                df_secondary_header = pd.read_excel(file_path, header=secondary_header_row, nrows=0, engine='openpyxl')
+                for col_idx, col_name in enumerate(df_secondary_header.columns):
+                    col_str = str(col_name).strip()
+                    # Check if column contains ID or HUMAN_ID token
+                    if 'ID' in col_str or 'HUMAN_ID' in col_str:
+                        # Use column name as key for converter
+                        converters[col_name] = lambda x: str(x).strip() if pd.notna(x) else ""
+            
+            # Load with primary header
+            df = pd.read_excel(file_path, header=header_row, engine='openpyxl', converters=converters)
+            
+            # Ensure HUMAN_ID is string if present
+            for col in df.columns:
+                col_str = str(col).strip()
+                if 'ID' in col_str or 'HUMAN_ID' in col_str:
+                    df[col] = df[col].astype(str).str.strip()
+                    # Remove .0 suffix if present (conservative normalization)
+                    df[col] = df[col].str.replace(r'\.0$', '', regex=True)
+            
             return df
-        except UnicodeDecodeError:
-            continue
         except Exception as e:
-            if enc == encodings[-1]:
-                # Last encoding failed, return empty DataFrame
-                return pd.DataFrame()
-            continue
-    
-    return pd.DataFrame()
+            # Fallback to CSV if XLSX load fails
+            if source_key == '7th':
+                csv_path = file_path.parent / "7th_data.csv"
+                if csv_path.exists():
+                    return load_raw_file(csv_path, header_row, secondary_header_row, source_key, encoding, is_xlsx=False)
+            return pd.DataFrame()
+    else:
+        # Load CSV
+        encodings = [encoding, 'cp949', 'utf-8']
+        
+        for enc in encodings:
+            try:
+                df = pd.read_csv(file_path, encoding=enc, header=header_row, low_memory=False)
+                
+                # Ensure HUMAN_ID is string if present (for CSV fallback)
+                for col in df.columns:
+                    col_str = str(col).strip()
+                    if 'ID' in col_str or 'HUMAN_ID' in col_str:
+                        df[col] = df[col].astype(str).str.strip()
+                        # Remove .0 suffix if present
+                        df[col] = df[col].str.replace(r'\.0$', '', regex=True)
+                
+                return df
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                if enc == encodings[-1]:
+                    return pd.DataFrame()
+                continue
+        
+        return pd.DataFrame()
 
 
 def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -270,6 +370,7 @@ def normalize_sex(df: pd.DataFrame, source_key: str, warnings: List[Dict[str, An
 
 def extract_columns_from_source(
     df: pd.DataFrame,
+    df_secondary: Optional[pd.DataFrame],
     source_key: str,
     mapping: Dict[str, Any],
     warnings: List[Dict[str, Any]]
@@ -277,11 +378,18 @@ def extract_columns_from_source(
     """
     Extract and standardize columns from raw DataFrame based on mapping.
     
+    Uses per-key header selection:
+    - HUMAN_ID/SEX: Use secondary header DataFrame if available
+    - Other keys: Use primary header DataFrame
+    
     Returns DataFrame with standard_key columns (45 keys).
     Missing columns are filled with NaN.
     """
     result_data = {}
     num_rows = len(df)
+    
+    # Keys that use secondary header
+    secondary_keys = {'HUMAN_ID', 'SEX'}
     
     for key_info in mapping['keys']:
         standard_key = key_info['standard_key']
@@ -303,7 +411,10 @@ def extract_columns_from_source(
         
         raw_column = source_info['column']
         
-        if raw_column not in df.columns:
+        # Select DataFrame based on key type
+        source_df = df_secondary if (standard_key in secondary_keys and df_secondary is not None) else df
+        
+        if raw_column not in source_df.columns:
             # Column name exists in mapping but not in DataFrame
             result_data[standard_key] = np.full(num_rows, np.nan)
             warnings.append({
@@ -318,9 +429,14 @@ def extract_columns_from_source(
             continue
         
         # Extract column values
-        result_data[standard_key] = df[raw_column].values
+        if standard_key == 'HUMAN_ID':
+            # Ensure HUMAN_ID is string
+            result_data[standard_key] = source_df[raw_column].astype(str).values
+        else:
+            result_data[standard_key] = source_df[raw_column].values
     
     # Preprocess numeric columns (comma removal, sentinel replacement)
+    # HUMAN_ID is excluded from numeric processing
     df_preprocessed = preprocess_numeric_columns(pd.DataFrame(result_data, index=df.index), source_key, warnings)
     
     # Normalize sex values
@@ -332,6 +448,10 @@ def extract_columns_from_source(
         if col in result_data:
             result_data[col] = df_preprocessed[col].values
     
+    # Ensure HUMAN_ID remains string
+    if 'HUMAN_ID' in result_data:
+        result_data['HUMAN_ID'] = pd.Series(result_data['HUMAN_ID']).astype(str).values
+    
     # Create DataFrame with all standard keys
     result_df = pd.DataFrame(result_data, index=df.index)
     
@@ -339,7 +459,10 @@ def extract_columns_from_source(
     all_keys = [k['standard_key'] for k in mapping['keys']]
     for key in all_keys:
         if key not in result_df.columns:
-            result_df[key] = np.nan
+            if key == 'HUMAN_ID':
+                result_df[key] = pd.Series([""] * num_rows, dtype=str)
+            else:
+                result_df[key] = np.nan
     
     # Reorder columns to match standard keys order
     result_df = result_df[all_keys]
@@ -423,13 +546,14 @@ def apply_unit_canonicalization(
     Apply unit canonicalization to DataFrame.
     
     Converts all measurement columns to meters (m) with 0.001m quantization.
+    HUMAN_ID is explicitly excluded from any conversion.
     """
     result_df = df.copy()
     warning_list = []  # For canonicalize_units_to_m
     
     for col in df.columns:
         if col in ['SEX', 'AGE', 'HUMAN_ID']:
-            continue  # Meta columns, no conversion
+            continue  # Meta columns, no conversion (HUMAN_ID must remain string)
         
         if col == 'WEIGHT_KG':
             # Weight is already in kg, no conversion
@@ -629,12 +753,47 @@ def build_curated_v0(
         
         print(f"Processing {source_key}: {file_path}")
         
-        # Find header row dynamically
-        header_row = find_header_row(file_path, mapping)
-        print(f"  Detected header row: {header_row}")
+        # Check if XLSX exists for 7th
+        is_xlsx = False
+        if source_key == '7th':
+            xlsx_path = file_path.parent / "7th_data.xlsx"
+            if xlsx_path.exists():
+                file_path = xlsx_path
+                is_xlsx = True
+                print(f"  Using XLSX: {file_path}")
+        
+        # Find header rows (primary and secondary)
+        primary_row, secondary_row = find_header_rows(file_path, mapping, is_xlsx=is_xlsx)
+        print(f"  Detected primary header row: {primary_row}")
+        if secondary_row is not None:
+            print(f"  Detected secondary header row: {secondary_row}")
         
         # Load raw file
-        df_raw = load_raw_file(file_path, header_row)
+        df_raw = load_raw_file(file_path, primary_row, secondary_row, source_key, is_xlsx=is_xlsx)
+        
+        # Load secondary DataFrame if secondary header exists
+        df_secondary = None
+        if secondary_row is not None and source_key == '7th':
+            try:
+                if is_xlsx:
+                    df_secondary = pd.read_excel(file_path, header=secondary_row, engine='openpyxl')
+                else:
+                    encodings = ['utf-8-sig', 'cp949', 'utf-8']
+                    for enc in encodings:
+                        try:
+                            df_secondary = pd.read_csv(file_path, encoding=enc, header=secondary_row, low_memory=False)
+                            break
+                        except (UnicodeDecodeError, Exception):
+                            continue
+                
+                # Ensure HUMAN_ID/SEX columns are string in secondary
+                for col in df_secondary.columns:
+                    col_str = str(col).strip()
+                    if 'ID' in col_str or 'HUMAN_ID' in col_str or '성별' in col_str or 'SEX' in col_str:
+                        df_secondary[col] = df_secondary[col].astype(str).str.strip()
+                        df_secondary[col] = df_secondary[col].str.replace(r'\.0$', '', regex=True)
+            except Exception:
+                df_secondary = None
         
         if df_raw.empty:
             warnings.append({
@@ -656,7 +815,7 @@ def build_curated_v0(
         print(f"  Loaded {len(df_raw)} rows, {len(df_raw.columns)} columns")
         
         # Extract and standardize columns
-        df_extracted = extract_columns_from_source(df_raw, source_key, mapping, warnings)
+        df_extracted = extract_columns_from_source(df_raw, df_secondary, source_key, mapping, warnings)
         print(f"  Extracted {len(df_extracted.columns)} standard columns")
         
         # Sample units
@@ -705,6 +864,10 @@ def build_curated_v0(
     
     # Save output
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Ensure HUMAN_ID is string before saving
+    if 'HUMAN_ID' in df_combined.columns:
+        df_combined['HUMAN_ID'] = df_combined['HUMAN_ID'].astype(str)
     
     if output_format == "parquet":
         df_combined.to_parquet(output_path, index=False)
