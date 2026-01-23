@@ -1207,49 +1207,72 @@ def collect_unit_fail_trace(
         non_null_count = col.notna().sum()
         total_rows = len(df)
         
+        # Convert to numeric (coerce errors to NaN) for safe isfinite check
+        numeric = pd.to_numeric(col, errors='coerce')
+        numeric_values = numeric.to_numpy(dtype='float64', na_value=np.nan)
+        
+        # Calculate non_finite_count: numeric values that are inf/-inf (not NaN)
+        # NaN is not considered non-finite for this count (it's missing, not invalid)
+        numeric_notna_mask = numeric.notna()
+        finite_mask = np.isfinite(numeric_values)
+        non_finite_count = (numeric_notna_mask & ~finite_mask).sum()
+        
+        # Calculate non_numeric_count: values that couldn't be converted to numeric
+        non_numeric_count = (col.notna() & numeric.isna()).sum()
+        
         # Collect sample values (prioritize non-finite/invalid values)
         sample_values = []
-        values = col.values
+        raw_sample_values = []
         
-        # First, collect non-finite values (inf, -inf, NaN)
-        non_finite_mask = ~np.isfinite(values)
-        non_finite_count = non_finite_mask.sum()
-        non_finite_values = values[non_finite_mask]
+        # Get raw string samples (first 20)
+        raw_str_values = col.astype(str).head(20).tolist()
+        raw_sample_values = raw_str_values[:20]
         
-        # Collect non-finite samples (up to 10)
-        for val in non_finite_values[:10]:
+        # Prioritize non-finite values in numeric samples
+        non_finite_indices = np.where(numeric_notna_mask & ~finite_mask)[0]
+        non_finite_raw = [str(col.iloc[i]) for i in non_finite_indices[:10]]
+        
+        # Prioritize non-numeric values (conversion failures)
+        non_numeric_indices = np.where(col.notna() & numeric.isna())[0]
+        non_numeric_raw = [str(col.iloc[i]) for i in non_numeric_indices[:10]]
+        
+        # Build sample_values: prioritize non-finite and non-numeric
+        for val in non_finite_raw[:10]:
             if len(sample_values) >= 20:
                 break
-            if pd.notna(val):  # inf/-inf (not NaN)
-                sample_values.append(str(val))
-            else:  # NaN
-                sample_values.append("NaN")
+            sample_values.append(f"non_finite:{val}")
         
-        # Then collect finite values
-        finite_mask = np.isfinite(values) & pd.notna(values)
-        finite_values = values[finite_mask]
+        for val in non_numeric_raw[:10]:
+            if len(sample_values) >= 20:
+                break
+            sample_values.append(f"non_numeric:{val}")
         
-        # Add finite samples (up to remaining slots)
-        remaining = 20 - len(sample_values)
-        for val in finite_values[:remaining]:
-            sample_values.append(str(val))
+        # Then add finite numeric samples
+        finite_indices = np.where(finite_mask)[0]
+        for i in finite_indices[:20]:
+            if len(sample_values) >= 20:
+                break
+            sample_values.append(str(numeric.iloc[i]))
         
-        # Calculate min/max for finite values only
+        # Calculate min/max for finite numeric values only
         min_val = None
         max_val = None
-        if len(finite_values) > 0:
-            min_val = float(np.min(finite_values))
-            max_val = float(np.max(finite_values))
+        finite_numeric = numeric[finite_mask]
+        if len(finite_numeric) > 0:
+            min_val = float(finite_numeric.min())
+            max_val = float(finite_numeric.max())
         
         trace_data[standard_key] = {
             "stage": stage,
             "source": source_key,
             "present": True,
             "dtype": dtype,
+            "raw_sample_values": raw_sample_values[:20],
             "sample_values": sample_values[:20],
             "non_null_count": int(non_null_count),
             "total_rows": int(total_rows),
             "non_finite_count": int(non_finite_count),
+            "non_numeric_count": int(non_numeric_count),
             "min": min_val,
             "max": max_val
         }
@@ -1311,15 +1334,25 @@ def emit_unit_fail_trace(
                     f.write(f"- total_rows: {trace.get('total_rows', 0)}\n")
                     f.write(f"- non_finite_count: {trace.get('non_finite_count', 0)}\n")
                     
+                    non_numeric_count = trace.get('non_numeric_count', 0)
+                    if non_numeric_count > 0:
+                        f.write(f"- non_numeric_count: {non_numeric_count}\n")
+                    
                     min_val = trace.get('min')
                     max_val = trace.get('max')
                     if min_val is not None and max_val is not None:
                         f.write(f"- min: {min_val}\n")
                         f.write(f"- max: {max_val}\n")
                     
+                    raw_sample_values = trace.get('raw_sample_values', [])
+                    if raw_sample_values:
+                        f.write(f"- raw_sample_values (first 20, as string):\n")
+                        for i, val in enumerate(raw_sample_values[:20], 1):
+                            f.write(f"  {i}. {val}\n")
+                    
                     sample_values = trace.get('sample_values', [])
                     if sample_values:
-                        f.write(f"- sample_values (first 20, non-finite prioritized):\n")
+                        f.write(f"- sample_values (first 20, non-finite/non-numeric prioritized):\n")
                         for i, val in enumerate(sample_values[:20], 1):
                             f.write(f"  {i}. {val}\n")
                     else:
