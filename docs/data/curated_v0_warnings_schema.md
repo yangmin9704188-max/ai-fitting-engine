@@ -14,6 +14,7 @@ Each warning is a JSON object with the following structure:
   "reason": "reason_code",
   "row_index": null_or_integer,
   "original_value": null_or_value,
+  "sentinel_value": "optional_sentinel_value_for_SENTINEL_MISSING",
   "details": "human_readable_description"
 }
 ```
@@ -26,6 +27,7 @@ Each warning is a JSON object with the following structure:
 - **reason**: Reason code (see below)
 - **row_index**: Row index (0-based) if applicable, null otherwise
 - **original_value**: Original value that caused the warning, null if not applicable
+- **sentinel_value**: (Optional) Sentinel value that was replaced (e.g., "9999" or "" for SENTINEL_MISSING)
 - **details**: Human-readable description of the warning
 
 ## Reason Codes
@@ -37,7 +39,9 @@ Each warning is a JSON object with the following structure:
 - `unit_undetermined`: Could not determine source unit for column
 - `unit_conversion_failed`: Unit conversion failed (invalid unit or conversion error)
 - `unit_conversion_applied`: Unit conversion was applied (provenance record)
-- `value_missing`: Missing values (NaN) in column
+- `value_missing`: Missing values (NaN) in column (excludes cases already recorded as SENTINEL_MISSING)
+- `SENTINEL_MISSING`: Sentinel value (9999 for 8th_direct, empty string for 7th/8th_3d) replaced with NaN
+- `numeric_parsing_failed`: Numeric parsing failed after preprocessing (e.g., comma removal in 7th)
 - `OUTLIER_RULES_NOT_FOUND`: No explicit outlier removal rules found in codebase
 - `age_filter_applied`: Age filter (20-59) was applied
 - `no_data_processed`: No data was successfully processed from any source
