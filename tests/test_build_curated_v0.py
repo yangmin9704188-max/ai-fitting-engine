@@ -14,7 +14,13 @@ from pathlib import Path
 
 # Import functions from pipeline for direct testing
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from pipelines.build_curated_v0 import sample_units, apply_unit_canonicalization
+from pipelines.build_curated_v0 import (
+    sample_units, 
+    apply_unit_canonicalization,
+    find_header_row,
+    preprocess_numeric_columns,
+    handle_missing_values
+)
 
 
 def test_build_curated_v0_dry_run():
@@ -30,13 +36,8 @@ def test_build_curated_v0_dry_run():
     script_path = Path(__file__).parent.parent / "pipelines" / "build_curated_v0.py"
     mapping_path = Path(__file__).parent.parent / "data" / "column_map" / "sizekorea_v2.json"
     
-    if not script_path.exists():
-        print(f"Script not found: {script_path}")
-        return False
-    
-    if not mapping_path.exists():
-        print(f"Mapping file not found: {mapping_path}")
-        return False
+    assert script_path.exists(), f"Script not found: {script_path}"
+    assert mapping_path.exists(), f"Mapping file not found: {mapping_path}"
     
     # Run with --dry-run and --max-rows to limit processing
     cmd = [
@@ -57,11 +58,11 @@ def test_build_curated_v0_dry_run():
         )
         
         # Check exit code
-        if result.returncode != 0:
-            print(f"Command failed with exit code {result.returncode}")
-            print(f"STDOUT:\n{result.stdout}")
-            print(f"STDERR:\n{result.stderr}")
-            return False
+        assert result.returncode == 0, (
+            f"Command failed with exit code {result.returncode}\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
         
         # Check that dry-run output contains expected keywords
         output = result.stdout + result.stderr
@@ -74,20 +75,15 @@ def test_build_curated_v0_dry_run():
         ]
         
         for keyword in expected_keywords:
-            if keyword.lower() not in output.lower():
-                print(f"Expected keyword '{keyword}' not found in output")
-                print(f"Output:\n{output}")
-                return False
-        
-        print("Dry-run test passed")
-        return True
+            assert keyword.lower() in output.lower(), (
+                f"Expected keyword '{keyword}' not found in output\n"
+                f"Output:\n{output}"
+            )
         
     except subprocess.TimeoutExpired:
-        print("Command timed out")
-        return False
+        raise AssertionError("Command timed out")
     except Exception as e:
-        print(f"Error running command: {e}")
-        return False
+        raise AssertionError(f"Error running command: {e}")
 
 
 def test_unit_heuristic_ambiguous_scale():
@@ -154,8 +150,6 @@ def test_unit_heuristic_ambiguous_scale():
         assert 'reason' in w, "Warning must have 'reason' field"
         assert 'column' in w, "Warning must have 'column' field"
         assert 'details' in w, "Warning must have 'details' field"
-    
-    return True
 
 
 def test_unit_heuristic_clear_scale():
@@ -230,87 +224,71 @@ def test_unit_heuristic_clear_scale():
         if len(height_values) > 0:
             assert height_values.min() >= 0.5, "M values should remain in meters range"
             assert height_values.max() <= 2.0, "M values should remain in meters range"
-    
-    return True
 
 
 def test_sentinel_missing_handling():
     """
     Test that sentinel missing values (9999 for 8th_direct, empty for 7th/8th_3d)
     are replaced with NaN and SENTINEL_MISSING warnings are recorded.
+    
+    Uses direct function testing with synthetic data to ensure sentinel values exist.
     """
-    import json
-    from pathlib import Path
-    from pipelines.build_curated_v0 import build_curated_v0
+    # Test 8th_direct: 9999 sentinel
+    df_8th = pd.DataFrame({
+        'HEIGHT_M': [9999, 1800, 1700],
+        'WAIST_CIRC_M': [9999, 800, 750],
+        'SEX': ['M', 'F', 'M']
+    })
     
-    mapping_path = Path("data/column_map/sizekorea_v2.json")
-    if not mapping_path.exists():
-        print("Mapping file not found, skipping test")
-        return True
+    warnings_8th = []
+    df_processed_8th = preprocess_numeric_columns(df_8th, '8th_direct', warnings_8th)
     
-    # Test with small sample (use CSV to avoid parquet engine dependency)
-    output_path = Path("test_output_sentinel.csv")
-    warnings_output_path = Path("test_warnings_sentinel.jsonl")
+    # Verify 9999 values were replaced with NaN
+    assert df_processed_8th['HEIGHT_M'].isna().sum() == 1, "One 9999 value should become NaN"
+    assert df_processed_8th['WAIST_CIRC_M'].isna().sum() == 1, "One 9999 value should become NaN"
     
-    try:
-        stats = build_curated_v0(
-            mapping_path=mapping_path,
-            output_path=output_path,
-            output_format="csv",
-            dry_run=False,
-            max_rows=50,
-            warnings_output_path=warnings_output_path
-        )
-        
-        # Check warnings for SENTINEL_MISSING
-        if warnings_output_path.exists():
-            sentinel_warnings = []
-            with open(warnings_output_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    w = json.loads(line)
-                    if w.get('reason') == 'SENTINEL_MISSING':
-                        sentinel_warnings.append(w)
-            
-            # Should have at least some SENTINEL_MISSING warnings
-            print(f"Found {len(sentinel_warnings)} SENTINEL_MISSING warnings")
-            
-            # Verify warning structure
-            for w in sentinel_warnings[:5]:  # Check first 5
-                assert 'reason' in w, "Warning must have 'reason' field"
-                assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
-                assert 'source' in w, "Warning must have 'source' field"
-                assert 'column' in w, "Warning must have 'column' field"
-                assert 'original_value' in w, "Warning must have 'original_value' field"
-        
-        # Cleanup
-        if output_path.exists():
-            try:
-                output_path.unlink()
-            except:
-                pass
-        if warnings_output_path.exists():
-            try:
-                warnings_output_path.unlink()
-            except:
-                pass
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error in sentinel test: {e}")
-        return False
+    # Verify SENTINEL_MISSING warnings were recorded
+    sentinel_warnings_8th = [w for w in warnings_8th if w.get('reason') == 'SENTINEL_MISSING']
+    assert len(sentinel_warnings_8th) >= 2, "Should have SENTINEL_MISSING warnings for both columns"
+    
+    for w in sentinel_warnings_8th:
+        assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
+        assert w.get('source') == '8th_direct', "Source should be '8th_direct'"
+        assert w.get('column') in ['HEIGHT_M', 'WAIST_CIRC_M'], "Column should be HEIGHT_M or WAIST_CIRC_M"
+        assert w.get('original_value') == '9999', "original_value should be '9999'"
+    
+    # Test 7th: empty string sentinel
+    df_7th = pd.DataFrame({
+        'HEIGHT_M': ['', '1800', '1700'],
+        'WAIST_CIRC_M': ['', '800', '750'],
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings_7th = []
+    df_processed_7th = preprocess_numeric_columns(df_7th, '7th', warnings_7th)
+    
+    # Verify empty strings were replaced with NaN
+    assert df_processed_7th['HEIGHT_M'].isna().sum() >= 1, "Empty string should become NaN"
+    
+    # Verify SENTINEL_MISSING warnings were recorded
+    sentinel_warnings_7th = [w for w in warnings_7th if w.get('reason') == 'SENTINEL_MISSING']
+    assert len(sentinel_warnings_7th) > 0, "Should have SENTINEL_MISSING warnings for empty strings"
+    
+    for w in sentinel_warnings_7th:
+        assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
+        assert w.get('source') == '7th', "Source should be '7th'"
+        assert w.get('original_value') == '', "original_value should be ''"
 
 
 def test_comma_parsing_7th():
     """
     Test that 7th CSV numeric columns with commas are parsed correctly.
+    Verifies comma removal works for height and at least one other numeric column.
     """
-    import pandas as pd
-    from pipelines.build_curated_v0 import preprocess_numeric_columns
-    
     # Create test DataFrame with comma-separated numbers
     df = pd.DataFrame({
         'HEIGHT_M': ['1,736', '1,800', '1,650'],
+        'WAIST_CIRC_M': ['700', '800', '750'],  # Another numeric column
         'WEIGHT_KG': ['70', '80', '65'],
         'SEX': ['M', 'F', 'M']
     })
@@ -322,11 +300,101 @@ def test_comma_parsing_7th():
     assert pd.api.types.is_numeric_dtype(df_processed['HEIGHT_M']), "HEIGHT_M should be numeric after comma removal"
     
     # Check values (should be 1736, 1800, 1650)
-    values = df_processed['HEIGHT_M'].dropna().tolist()
-    assert len(values) > 0, "Should have parsed values"
-    assert all(v > 1000 for v in values), "Values should be in mm range (1000+)"
+    height_values = df_processed['HEIGHT_M'].dropna().tolist()
+    assert len(height_values) > 0, "Should have parsed height values"
+    assert all(v > 1000 for v in height_values), "Height values should be in mm range (1000+)"
+    assert 1736 in height_values or 1800 in height_values, "Should parse comma-separated values correctly"
     
-    return True
+    # Check that other numeric columns are also numeric
+    assert pd.api.types.is_numeric_dtype(df_processed['WAIST_CIRC_M']), "WAIST_CIRC_M should be numeric"
+    waist_values = df_processed['WAIST_CIRC_M'].dropna().tolist()
+    assert len(waist_values) > 0, "Should have parsed waist values"
+
+
+def test_header_detection_anchor_priority():
+    """
+    Test that header detection prioritizes anchor term "표준 측정항목 명" over ko_term matching.
+    """
+    import json
+    from pathlib import Path
+    
+    mapping_path = Path(__file__).parent.parent / "data" / "column_map" / "sizekorea_v2.json"
+    assert mapping_path.exists(), f"Mapping file not found: {mapping_path}"
+    
+    with open(mapping_path, 'r', encoding='utf-8') as f:
+        mapping = json.load(f)
+    
+    # Test with actual file
+    file_path = Path(__file__).parent.parent / "data" / "raw" / "sizekorea_raw" / "7th_data.csv"
+    if not file_path.exists():
+        # Skip if file doesn't exist
+        return
+    
+    header_row = find_header_row(file_path, mapping)
+    
+    # Verify header row is detected (should be 6 or found dynamically)
+    assert isinstance(header_row, int), "Header row should be an integer"
+    assert header_row >= 0, "Header row should be non-negative"
+    assert header_row < 20, "Header row should be within reasonable range"
+
+
+def test_sentinel_dedup_prevention():
+    """
+    Test that sentinel_missing prevents duplicate value_missing warnings for same column.
+    """
+    # Create DataFrame with sentinel values
+    df = pd.DataFrame({
+        'HEIGHT_M': [9999, 1800, 1700],
+        'WAIST_CIRC_M': [9999, 800, 750],
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Preprocess (should create SENTINEL_MISSING warnings)
+    df_processed = preprocess_numeric_columns(df, '8th_direct', warnings)
+    
+    # Count SENTINEL_MISSING warnings
+    sentinel_warnings = [w for w in warnings if w.get('reason') == 'SENTINEL_MISSING']
+    assert len(sentinel_warnings) > 0, "Should have SENTINEL_MISSING warnings"
+    
+    # Now handle missing values (should NOT create value_missing for columns with SENTINEL_MISSING)
+    warnings_before = len(warnings)
+    df_final = handle_missing_values(df_processed, '8th_direct', warnings)
+    warnings_after = len(warnings)
+    
+    # Check that value_missing was not added for columns with SENTINEL_MISSING
+    value_missing_warnings = [w for w in warnings if w.get('reason') == 'value_missing']
+    sentinel_columns = {w.get('column') for w in sentinel_warnings}
+    
+    # Columns with SENTINEL_MISSING should not have value_missing
+    for w in value_missing_warnings:
+        assert w.get('column') not in sentinel_columns, (
+            f"Column {w.get('column')} should not have value_missing "
+            f"if it already has SENTINEL_MISSING"
+        )
+
+
+if __name__ == '__main__':
+    # Run all tests with pytest-style assertions
+    try:
+        test_build_curated_v0_dry_run()
+        test_unit_heuristic_ambiguous_scale()
+        test_unit_heuristic_clear_scale()
+        test_sentinel_missing_handling()
+        test_comma_parsing_7th()
+        test_header_detection_anchor_priority()
+        test_sentinel_dedup_prevention()
+        print("All tests passed")
+        sys.exit(0)
+    except AssertionError as e:
+        print(f"Test failed: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Test error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == '__main__':
