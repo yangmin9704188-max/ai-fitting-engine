@@ -40,6 +40,78 @@ HEADER_ROWS = {
 }
 
 
+def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'utf-8-sig', max_check: int = 20) -> int:
+    """
+    Find header row by matching first column value with standard measurement terms.
+    
+    Priority:
+    1. First column value (after strip) exactly matches "표준 측정항목 명" (anchor row)
+    2. First column value matches any ko_term from mapping (fallback)
+    3. Default HEADER_ROWS based on file name (final fallback)
+    
+    Returns row index.
+    """
+    # Priority 1: Anchor term "표준 측정항목 명"
+    anchor_term = "표준 측정항목 명"
+    anchor_term_with_space = " " + anchor_term
+    
+    # Priority 2: Collect all ko_terms from mapping (fallback)
+    ko_terms = set()
+    for key_info in mapping['keys']:
+        ko_term = key_info.get('ko_term', '')
+        if ko_term and ko_term != 'HUMAN_ID':
+            ko_terms.add(ko_term.strip())
+            # Also check with leading space
+            ko_terms.add(' ' + ko_term.strip())
+    
+    encodings = [encoding, 'cp949', 'utf-8']
+    
+    for enc in encodings:
+        try:
+            # Read first max_check rows without header
+            df_sample = pd.read_csv(file_path, encoding=enc, header=None, nrows=max_check, low_memory=False)
+            
+            # Priority 1: Check for anchor term first
+            for i in range(len(df_sample)):
+                first_val = df_sample.iloc[i, 0]
+                if pd.notna(first_val):
+                    first_val_str = str(first_val).strip()
+                    # Exact match with anchor term (with or without leading space)
+                    if first_val_str == anchor_term or first_val_str == anchor_term_with_space:
+                        return i
+            
+            # Priority 2: Fallback to ko_term matching
+            for i in range(len(df_sample)):
+                first_val = df_sample.iloc[i, 0]
+                if pd.notna(first_val):
+                    first_val_str = str(first_val).strip()
+                    # Check exact match with ko_terms
+                    if first_val_str in ko_terms:
+                        return i
+                    # Also check without leading space
+                    if first_val_str.lstrip() in ko_terms:
+                        return i
+            
+            # Priority 3: Default fallback based on file name
+            if '7th' in str(file_path):
+                return HEADER_ROWS.get('7th', 6)
+            elif '8th_direct' in str(file_path):
+                return HEADER_ROWS.get('8th_direct', 6)
+            elif '8th_3d' in str(file_path):
+                return HEADER_ROWS.get('8th_3d', 6)
+            return 6  # Default fallback
+            
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            if enc == encodings[-1]:
+                # Last encoding failed, return default
+                return HEADER_ROWS.get('7th', 6)
+            continue
+    
+    return 6  # Final fallback
+
+
 def load_mapping_v1(mapping_path: Path) -> Dict[str, Any]:
     """Load sizekorea column mapping (v1 or v2)."""
     with open(mapping_path, 'r', encoding='utf-8') as f:
@@ -67,6 +139,133 @@ def load_raw_file(file_path: Path, header_row: int, encoding: str = 'utf-8-sig')
             continue
     
     return pd.DataFrame()
+
+
+def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Preprocess numeric columns: remove commas (7th), replace sentinel values.
+    
+    - 7th: Remove thousand separators (commas) from numeric columns
+    - 8th_direct: Replace 9999 with NaN (sentinel missing)
+    - 7th/8th_3d: Replace empty strings with NaN
+    """
+    result_df = df.copy()
+    
+    # Identify numeric columns (exclude meta columns)
+    meta_cols = ['SEX', 'AGE', 'HUMAN_ID']
+    numeric_cols = [col for col in df.columns if col not in meta_cols]
+    
+    for col in numeric_cols:
+        if col not in df.columns:
+            continue
+        
+        original_series = df[col]
+        
+        # 7th: Remove commas from numeric strings
+        if source_key == '7th':
+            if original_series.dtype == 'object':
+                # Try to remove commas and convert to numeric
+                cleaned = original_series.astype(str).str.replace(',', '', regex=False)
+                try:
+                    numeric_series = pd.to_numeric(cleaned, errors='coerce')
+                    result_df[col] = numeric_series
+                    # Count parsing failures
+                    failed_count = numeric_series.isna().sum() - original_series.isna().sum()
+                    if failed_count > 0:
+                        warnings.append({
+                            "source": source_key,
+                            "file": SOURCE_FILES[source_key],
+                            "column": col,
+                            "reason": "numeric_parsing_failed",
+                            "row_index": None,
+                            "original_value": None,
+                            "details": f"{failed_count} values failed to parse after comma removal"
+                        })
+                except Exception:
+                    pass  # Keep original if conversion fails
+        
+        # 8th_direct: Replace 9999 with NaN (dtype-agnostic)
+        if source_key == '8th_direct':
+            # Handle both numeric and string/object types
+            if pd.api.types.is_numeric_dtype(result_df[col]):
+                sentinel_mask = result_df[col] == 9999
+            else:
+                # For object/string types, check string representation
+                sentinel_mask = (result_df[col].astype(str).str.strip() == '9999')
+            
+            sentinel_count = sentinel_mask.sum()
+            if sentinel_count > 0:
+                result_df.loc[sentinel_mask, col] = np.nan
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": col,
+                    "reason": "SENTINEL_MISSING",
+                    "row_index": None,
+                    "original_value": None,  # Aggregated warning, individual row values not tracked
+                    "sentinel_value": "9999",
+                    "sentinel_count": int(sentinel_count),
+                    "details": f"{sentinel_count} sentinel values (9999) replaced with NaN"
+                })
+        
+        # 7th/8th_3d: Replace empty strings with NaN
+        if source_key in ['7th', '8th_3d']:
+            if original_series.dtype == 'object':
+                empty_mask = (original_series.astype(str).str.strip() == '') | (original_series.isna())
+                # Count non-null empty strings
+                empty_count = ((original_series.astype(str).str.strip() == '') & (original_series.notna())).sum()
+                if empty_count > 0:
+                    result_df.loc[empty_mask, col] = np.nan
+                    warnings.append({
+                        "source": source_key,
+                        "file": SOURCE_FILES[source_key],
+                        "column": col,
+                        "reason": "SENTINEL_MISSING",
+                        "row_index": None,
+                        "original_value": None,  # Aggregated warning, individual row values not tracked
+                        "sentinel_value": "",
+                        "sentinel_count": int(empty_count),
+                        "details": f"{empty_count} empty string values replaced with NaN"
+                    })
+    
+    return result_df
+
+
+def normalize_sex(df: pd.DataFrame, source_key: str, warnings: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Normalize sex values: 남/여 → M/F.
+    
+    Contract: 남/M → M, 여/F → F
+    """
+    result_df = df.copy()
+    
+    if 'SEX' not in df.columns:
+        return result_df
+    
+    # Normalize based on source
+    if source_key == '7th':
+        # 7th uses 남/여
+        result_df['SEX'] = result_df['SEX'].astype(str).str.strip()
+        result_df['SEX'] = result_df['SEX'].replace({'남': 'M', '여': 'F'})
+    else:
+        # 8th_direct/8th_3d use M/F (already normalized)
+        result_df['SEX'] = result_df['SEX'].astype(str).str.strip().str.upper()
+        # Ensure only M/F
+        invalid_mask = ~result_df['SEX'].isin(['M', 'F'])
+        invalid_count = invalid_mask.sum()
+        if invalid_count > 0:
+            warnings.append({
+                "source": source_key,
+                "file": SOURCE_FILES[source_key],
+                "column": "SEX",
+                "reason": "value_missing",
+                "row_index": None,
+                "original_value": None,
+                "details": f"{invalid_count} invalid sex values found"
+            })
+            result_df.loc[invalid_mask, 'SEX'] = np.nan
+    
+    return result_df
 
 
 def extract_columns_from_source(
@@ -121,6 +320,18 @@ def extract_columns_from_source(
         # Extract column values
         result_data[standard_key] = df[raw_column].values
     
+    # Preprocess numeric columns (comma removal, sentinel replacement)
+    df_preprocessed = preprocess_numeric_columns(pd.DataFrame(result_data, index=df.index), source_key, warnings)
+    
+    # Normalize sex values
+    if 'SEX' in df_preprocessed.columns:
+        df_preprocessed = normalize_sex(df_preprocessed, source_key, warnings)
+    
+    # Update result_data with preprocessed values
+    for col in df_preprocessed.columns:
+        if col in result_data:
+            result_data[col] = df_preprocessed[col].values
+    
     # Create DataFrame with all standard keys
     result_df = pd.DataFrame(result_data, index=df.index)
     
@@ -142,6 +353,10 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
     
     Returns dict mapping column -> unit ("mm", "cm", or "m").
     Uses heuristics based on value ranges.
+    
+    Contract:
+    - Length/circumference: mm → m (÷1000)
+    - Weight: kg (no conversion)
     """
     unit_map = {}
     
@@ -162,6 +377,12 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
         min_val = sample_values.min()
         median_val = sample_values.median()
         
+        # Contract: Weight is in kg (no conversion)
+        if col == 'WEIGHT_KG':
+            unit_map[col] = "kg"
+            continue
+        
+        # Contract: Length/circumference are in mm (convert to m)
         # Heuristic: typical human measurements
         # Height: ~1.5-2.0m, if in mm: 1500-2000, if in cm: 150-200
         # Circumference: ~0.5-1.5m, if in mm: 500-1500, if in cm: 50-150
@@ -174,21 +395,15 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
             else:
                 unit_map[col] = "m"
         elif 'CIRC' in col or 'LEN' in col or 'WIDTH' in col or 'DEPTH' in col or 'HEIGHT' in col:
-            # Measurement columns
+            # Measurement columns (length/circumference)
             if median_val > 1000:
-                unit_map[col] = "mm"
+                unit_map[col] = "mm"  # Will be converted to m
             elif median_val > 10:
-                unit_map[col] = "cm"
+                unit_map[col] = "cm"  # Will be converted to m
             else:
                 unit_map[col] = "m"
-        elif col == 'WEIGHT_KG':
-            # Weight is typically in kg, but check if it's in g
-            if median_val > 10000:
-                unit_map[col] = "g"  # Will be handled as invalid
-            else:
-                unit_map[col] = "kg"  # Special case, no conversion needed
         else:
-            # Default: assume mm (SizeKorea standard)
+            # Default: assume mm (SizeKorea standard) for measurements
             if median_val > 1000:
                 unit_map[col] = "mm"
             elif median_val > 10:
@@ -321,20 +536,42 @@ def handle_missing_values(
     """
     Handle missing values: record warnings, keep NaN.
     
+    Refined deduplication: Exclude sentinel_count from value_missing accounting.
+    - For columns with SENTINEL_MISSING warnings, subtract sentinel_count from total missing
+    - Only record value_missing for remaining missing values (non-sentinel missing)
+    
     No exceptions raised (NaN + warnings policy).
     """
+    # Build map of columns to sentinel_count from SENTINEL_MISSING warnings
+    sentinel_counts = {}
+    for w in warnings:
+        if (w.get('reason') == 'SENTINEL_MISSING' and 
+            w.get('source') == source_key and 
+            w.get('column') != 'all'):
+            col = w.get('column')
+            sentinel_count = w.get('sentinel_count', 0)
+            if col not in sentinel_counts:
+                sentinel_counts[col] = 0
+            sentinel_counts[col] += sentinel_count
+    
     for col in df.columns:
-        missing_count = df[col].isna().sum()
-        if missing_count > 0:
-            warnings.append({
-                "source": source_key,
-                "file": SOURCE_FILES[source_key],
-                "column": col,
-                "reason": "value_missing",
-                "row_index": None,
-                "original_value": None,
-                "details": f"{missing_count} missing values in column"
-            })
+        missing_count_total = df[col].isna().sum()
+        if missing_count_total > 0:
+            # Calculate remaining missing (excluding sentinel counts)
+            sentinel_count_total = sentinel_counts.get(col, 0)
+            remaining = max(missing_count_total - sentinel_count_total, 0)
+            
+            # Only record value_missing if there are remaining non-sentinel missing values
+            if remaining > 0:
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": col,
+                    "reason": "value_missing",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"{remaining} missing values in column (excluding {sentinel_count_total} sentinel values)"
+                })
     
     return df
 
@@ -392,8 +629,12 @@ def build_curated_v0(
         
         print(f"Processing {source_key}: {file_path}")
         
+        # Find header row dynamically
+        header_row = find_header_row(file_path, mapping)
+        print(f"  Detected header row: {header_row}")
+        
         # Load raw file
-        df_raw = load_raw_file(file_path, HEADER_ROWS[source_key])
+        df_raw = load_raw_file(file_path, header_row)
         
         if df_raw.empty:
             warnings.append({
