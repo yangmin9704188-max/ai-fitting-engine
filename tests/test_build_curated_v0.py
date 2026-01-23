@@ -2440,6 +2440,136 @@ def test_7th_unit_override_heuristic_normal_cm_scale():
     assert len(override_warnings_8th) == 0, "8th_direct should not trigger 7th-specific override"
 
 
+def test_7th_unit_override_force_mm_cm_meta():
+    """
+    Test 7th unit override: force mm for unit=m keys even when unit meta is 'cm'.
+    
+    Regression test for 10x scale error prevention:
+    - source_key='7th', standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920" with unit meta 'cm' should convert to 0.92 m (not 9.2 m)
+    - 7th source forces mm for unit=m keys, overriding cm meta
+    """
+    # Create DataFrame with cm-scale value that would be detected as cm
+    # CHEST_CIRC_M_REF=920 (in mm, but median > 10 so would be detected as cm)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, would be detected as cm
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    # Unit map with cm (simulating sample_units detecting as cm)
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'cm'
+    }
+    
+    warnings = []
+    result_df = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify 7th override was applied: values should be in meters (0.92, 0.95, etc.)
+    chest_values = result_df['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_values) > 0, "CHEST_CIRC_M_REF should have non-null values"
+    # 7th override: cm meta -> forced to mm -> mm->m conversion (/1000)
+    # 920.0 mm -> 0.92 m (not 9.2 m from cm->m conversion)
+    assert abs(chest_values.iloc[0] - 0.92) < 0.01, f"CHEST_CIRC_M_REF[0] should be ~0.92 m, got {chest_values.iloc[0]}"
+    assert abs(chest_values.iloc[1] - 0.95) < 0.01, f"CHEST_CIRC_M_REF[1] should be ~0.95 m, got {chest_values.iloc[1]}"
+    
+    # Verify override warning was emitted
+    override_warnings = [w for w in warnings if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings) >= 1, f"Should have at least 1 UNIT_OVERRIDE_7TH_MM warning, got {len(override_warnings)}"
+    
+    # Verify warning structure
+    for w in override_warnings:
+        assert w.get('source') == '7th', "Warning source should be '7th'"
+        assert w.get('column') == 'CHEST_CIRC_M_REF', f"Warning column should be CHEST_CIRC_M_REF, got {w.get('column')}"
+        assert 'UNIT_OVERRIDE_7TH_MM' in w.get('details', ''), "Warning details should include UNIT_OVERRIDE_7TH_MM"
+        assert 'original_unit_meta=cm' in w.get('details', ''), "Warning should include original_unit_meta=cm"
+        assert 'forced_unit=mm' in w.get('details', ''), "Warning should include forced_unit=mm"
+    
+    # Verify WEIGHT_KG is not affected (exception)
+    df_weight = pd.DataFrame({
+        'WEIGHT_KG': [70.0, 65.0, 75.0],
+        'SEX': ['M', 'F', 'M']
+    })
+    unit_map_weight = {'WEIGHT_KG': 'kg'}
+    warnings_weight = []
+    result_weight = apply_unit_canonicalization(df_weight, unit_map_weight, warnings_weight, source_key='7th')
+    weight_values = result_weight['WEIGHT_KG'].dropna()
+    assert len(weight_values) > 0, "WEIGHT_KG should have non-null values"
+    # WEIGHT_KG should remain as kg (no conversion)
+    assert abs(weight_values.iloc[0] - 70.0) < 0.01, f"WEIGHT_KG[0] should be 70.0 kg, got {weight_values.iloc[0]}"
+    # No override warning for WEIGHT_KG
+    override_warnings_weight = [w for w in warnings_weight if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings_weight) == 0, "WEIGHT_KG should not trigger 7th unit override"
+
+
+def test_non_numeric_column_labeling():
+    """
+    Test non-numeric column labeling: HUMAN_ID/SEX should not trigger all_null sensor.
+    
+    Verifies:
+    1) Non-numeric columns (HUMAN_ID, SEX) are labeled as 'non_numeric' in completeness report
+    2) They do not trigger all_null=true sensor
+    3) Numeric columns with all null are still labeled as all_null=true
+    """
+    from pipelines.build_curated_v0 import generate_completeness_report
+    import tempfile
+    from pathlib import Path
+    
+    # Create synthetic DataFrame with non-numeric and numeric columns
+    df = pd.DataFrame({
+        'HUMAN_ID': ['ID001', 'ID002', 'ID003', 'ID004', 'ID005'],  # Non-numeric
+        'SEX': ['M', 'F', 'M', 'F', 'M'],  # Non-numeric
+        'AGE': [25, 30, 35, 40, 45],  # Numeric
+        'HEIGHT_M': [1.70, 1.65, 1.75, 1.60, 1.80],  # Numeric
+        'ALL_NULL_COL': [np.nan, np.nan, np.nan, np.nan, np.nan],  # Numeric, all null
+        'NON_NUMERIC_WITH_VALUES': ['A', 'B', 'C', 'D', 'E']  # Non-numeric with values
+    })
+    
+    # Create minimal mapping
+    mapping = {
+        'keys': [
+            {'standard_key': 'HUMAN_ID'},
+            {'standard_key': 'SEX'},
+            {'standard_key': 'AGE'},
+            {'standard_key': 'HEIGHT_M'},
+            {'standard_key': 'ALL_NULL_COL'},
+            {'standard_key': 'NON_NUMERIC_WITH_VALUES'}
+        ]
+    }
+    
+    all_source_dfs = {'test_source': df}
+    
+    # Generate completeness report to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        temp_path = Path(f.name)
+    
+    try:
+        generate_completeness_report(all_source_dfs, mapping, temp_path)
+        
+        # Read and verify report content
+        with open(temp_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify non-numeric columns are labeled as 'NON_NUMERIC' (not 'all_null=true')
+        assert 'HUMAN_ID' in content, "HUMAN_ID should be in report"
+        assert 'SEX' in content, "SEX should be in report"
+        # Check that non-numeric columns have 'NON_NUMERIC' label (not 'all_null=true')
+        assert 'HUMAN_ID' in content and 'NON_NUMERIC' in content, "HUMAN_ID should be labeled as NON_NUMERIC"
+        assert 'SEX' in content and 'NON_NUMERIC' in content, "SEX should be labeled as NON_NUMERIC"
+        assert 'NON_NUMERIC_WITH_VALUES' in content and 'NON_NUMERIC' in content, "NON_NUMERIC_WITH_VALUES should be labeled as NON_NUMERIC"
+        
+        # Verify numeric all-null column is labeled as 'all_null=true'
+        assert 'ALL_NULL_COL' in content and 'all_null=true' in content, "ALL_NULL_COL should be labeled as all_null=true"
+        
+        # Verify numeric columns with values are not labeled as all_null or non_numeric
+        assert 'HEIGHT_M' in content and 'all_null=true' not in content.split('HEIGHT_M')[1].split('\n')[0], "HEIGHT_M should not be labeled as all_null"
+        assert 'AGE' in content and 'all_null=true' not in content.split('AGE')[1].split('\n')[0], "AGE should not be labeled as all_null"
+        
+    finally:
+        # Clean up
+        if temp_path.exists():
+            temp_path.unlink()
+
+
 def test_7th_unit_inference_default_mm():
     """
     Test 7th unit inference: unit=m standard keys default to mm (no cm heuristic).
@@ -2493,5 +2623,68 @@ def test_7th_unit_inference_default_mm():
     unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
     # For 8th, median > 10 should still detect as cm
     assert unit_map_8th.get('ANKLE_MAX_CIRC_M') == 'cm', f"8th_direct: ANKLE_MAX_CIRC_M should be 'cm' (median heuristic), got {unit_map_8th.get('ANKLE_MAX_CIRC_M')}"
+
+
+def test_7th_unit_override_synthetic_regression():
+    """
+    Synthetic unit conversion regression test for 7th source.
+    
+    Verifies that 7th source-level rule forces mm for unit=m keys even when
+    unit meta says 'cm', preventing 10x scale errors.
+    
+    Test case:
+    - source_key='7th'
+    - standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920" with unit meta 'cm'
+    - Expected: final value should be 0.92 m (not 9.2 m)
+    - This ensures 7th source-level rule overrides unit meta to prevent 10x errors
+    """
+    # Create DataFrame with raw value 920 (in mm, but unit meta says 'cm')
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0],  # Raw value in mm
+        'SEX': ['M']
+    })
+    
+    # Unit map with 'cm' (simulating unit meta incorrectly saying 'cm')
+    # This would cause 10x error if not for 7th source-level override
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'cm'
+    }
+    
+    warnings = []
+    result_df = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify final value is 0.92 m (not 9.2 m)
+    # 7th override: cm meta -> forced to mm -> mm->m conversion (/1000)
+    # 920.0 mm -> 0.92 m (not 9.2 m from cm->m conversion)
+    chest_value = result_df['CHEST_CIRC_M_REF'].iloc[0]
+    assert not pd.isna(chest_value), "CHEST_CIRC_M_REF should not be NaN"
+    assert abs(chest_value - 0.92) < 0.001, f"CHEST_CIRC_M_REF should be 0.92 m, got {chest_value}"
+    
+    # Verify override warning was emitted
+    override_warnings = [w for w in warnings if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings) >= 1, f"Should have at least 1 UNIT_OVERRIDE_7TH_MM warning, got {len(override_warnings)}"
+    
+    # Verify warning structure
+    for w in override_warnings:
+        assert w.get('source') == '7th', "Warning source should be '7th'"
+        assert w.get('column') == 'CHEST_CIRC_M_REF', f"Warning column should be CHEST_CIRC_M_REF, got {w.get('column')}"
+        assert 'UNIT_OVERRIDE_7TH_MM' in w.get('details', ''), "Warning details should include UNIT_OVERRIDE_7TH_MM"
+        assert 'original_unit_meta=cm' in w.get('details', ''), "Warning should include original_unit_meta=cm"
+        assert 'forced_unit=mm' in w.get('details', ''), "Warning should include forced_unit=mm"
+    
+    # Verify this is a source-level rule (not key-specific)
+    # Test with another unit=m key to ensure rule applies broadly
+    df2 = pd.DataFrame({
+        'WAIST_CIRC_M': [800.0],  # Raw value in mm
+        'SEX': ['F']
+    })
+    unit_map2 = {'WAIST_CIRC_M': 'cm'}
+    warnings2 = []
+    result_df2 = apply_unit_canonicalization(df2, unit_map2, warnings2, source_key='7th')
+    waist_value = result_df2['WAIST_CIRC_M'].iloc[0]
+    assert abs(waist_value - 0.80) < 0.001, f"WAIST_CIRC_M should be 0.80 m, got {waist_value}"
+    override_warnings2 = [w for w in warnings2 if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings2) >= 1, "WAIST_CIRC_M should also trigger 7th override"
 
 

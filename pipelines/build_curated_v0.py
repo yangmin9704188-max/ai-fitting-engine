@@ -1087,6 +1087,28 @@ def apply_unit_canonicalization(
         
         source_unit = unit_map[col]
         
+        # 7th-specific unit override: force mm for unit=m keys (except WEIGHT_KG)
+        # Contract: 7th is "all mm-based except weight" (Facts-only contract)
+        # Force mm for unit=m keys regardless of unit meta (cm or m) to prevent 10x scale errors
+        # This is a source-level rule, not a key-specific exception
+        if source_key == "7th" and col != "WEIGHT_KG":
+            expected_unit = get_expected_unit(col)
+            if expected_unit == 'm':
+                # Force mm for all unit=m keys in 7th source, regardless of unit meta
+                # This prevents 10x scale errors when unit meta incorrectly says 'cm' or 'm'
+                original_unit_meta = source_unit
+                source_unit = "mm"
+                file_path = SOURCE_FILES.get(source_key, "unknown")
+                warnings.append({
+                    "source": source_key,
+                    "file": file_path,
+                    "column": col,
+                    "reason": "unit_conversion_applied",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"UNIT_OVERRIDE_7TH_MM: 7th source forces mm for unit=m keys (unit meta overridden), standard_key={col}, original_unit_meta={original_unit_meta}, forced_unit=mm"
+                })
+        
         if source_unit not in ["mm", "cm", "m"]:
             # Invalid unit (e.g., "kg" for measurement, "g" for weight)
             result_df[col] = np.nan
@@ -1125,41 +1147,8 @@ def apply_unit_canonicalization(
         values = numeric_series.values
         converted = canonicalize_units_to_m(values, source_unit, warning_list)
         
-        # 7th-specific unit override heuristic: check if cm->m conversion resulted in unrealistic values
-        # If p50 > 2.5 or p99 > 3.5, treat as mm scale instead (apply additional /10)
-        applied_scale_before = None
-        applied_scale_after = None
-        if source_key == "7th" and source_unit == "cm":
-            # Check if this is a unit=m key (expected_unit='m' means _M suffix)
-            expected_unit = get_expected_unit(col)
-            if expected_unit == 'm':
-                # Check distribution after cm->m conversion
-                finite_converted = converted[np.isfinite(converted)]
-                if len(finite_converted) > 0:
-                    p50 = np.median(finite_converted)
-                    p99 = np.percentile(finite_converted, 99)
-                    
-                    # If values are unrealistic in meters (p50 > 2.5 or p99 > 3.5), treat as mm
-                    if p50 > 2.5 or p99 > 3.5:
-                        # Apply additional /10 (treating as mm instead of cm)
-                        # Original: mm values -> cm conversion (/100) -> m conversion (/100) = /10000 total
-                        # Correct: mm values -> m conversion (/1000) = /1000 total
-                        # So we need to multiply by 10 to correct the scale
-                        converted = converted / 10.0
-                        applied_scale_before = 100  # cm->m scale
-                        applied_scale_after = 1000  # mm->m scale
-                        
-                        # Emit warning
-                        file_path = SOURCE_FILES.get(source_key, "unknown")
-                        warnings.append({
-                            "source": source_key,
-                            "file": file_path,
-                            "column": col,
-                            "reason": "UNIT_OVERRIDE_SUSPECTED_MM",
-                            "row_index": None,
-                            "original_value": None,
-                            "details": f"source_key={source_key}, standard_key={col}, p50={p50:.4f}, p99={p99:.4f}, applied_scale_before={applied_scale_before}, applied_scale_after={applied_scale_after}"
-                        })
+        # Note: 7th-specific unit override is applied earlier (before canonicalization)
+        # The source-level rule forces mm for unit=m keys, so no post-conversion heuristic is needed
         
         result_df[col] = converted
         
@@ -1408,12 +1397,23 @@ def generate_completeness_report(
                 non_null_count = series.notna().sum()
                 non_null_rate = non_null_count / total_rows if total_rows > 0 else 0.0
                 
+                # Check if column is numeric (to separate non-numeric columns from all_null)
+                is_numeric = pd.api.types.is_numeric_dtype(series)
+                
+                # For non-numeric columns, label as NON_NUMERIC (not all_null)
+                # This prevents false all_null sensor triggers for meta columns like HUMAN_ID/SEX
+                if not is_numeric:
+                    # Non-numeric column (e.g., HUMAN_ID, SEX, AGE as object dtype)
+                    # These should not be labeled as all_null even if they have no numeric values
+                    f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | - | - | - | - | - | NON_NUMERIC |\n")
+                    continue
+                
                 # Calculate percentiles for numeric columns only
                 numeric_series = pd.to_numeric(series, errors='coerce')
                 finite_values = numeric_series[np.isfinite(numeric_series)]
                 
                 if len(finite_values) == 0:
-                    # All null or all non-numeric
+                    # All null (numeric column with no finite values)
                     f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | - | - | - | - | - | all_null=true |\n")
                     continue
                 
