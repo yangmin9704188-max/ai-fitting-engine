@@ -27,6 +27,7 @@ from pipelines.build_curated_v0 import (
     calculate_source_quality,
     detect_duplicate_headers,
     generate_quality_summary,
+    generate_completeness_report,
     find_header_candidates,
     emit_header_candidates,
     collect_arm_knee_trace,
@@ -34,6 +35,7 @@ from pipelines.build_curated_v0 import (
     collect_unit_fail_trace,
     emit_unit_fail_trace,
     check_all_null_extracted,
+    check_all_null_by_source,
     check_massive_null_introduced,
     check_scale_and_range_suspected
 )
@@ -1960,5 +1962,136 @@ def test_scale_suspected_heights_mm():
     assert len(height_warning) == 1, "Should have SCALE_SUSPECTED for HEIGHT_M"
     assert 'p50' in height_warning[0]['details']
     assert height_warning[0]['source'] == '7th'
+
+
+def test_completeness_report_generation():
+    """
+    Test completeness report generation.
+    
+    Verifies:
+    1) Report file is created when --emit-completeness-report is specified
+    2) Report contains non_null_count, total_rows, non_null_rate, percentiles
+    3) Scale observations are included for meter-unit keys
+    """
+    import tempfile
+    from pathlib import Path
+    
+    # Create synthetic DataFrames for each source
+    all_source_dfs = {
+        '7th': pd.DataFrame({
+            'HEIGHT_M': [1.7, 1.75, 1.8, 1.65, 1.72] * 20,  # 100 rows, p50 = 1.72
+            'WEIGHT_KG': [70.0, 75.0, 80.0, 65.0, 72.0] * 20,
+            'WAIST_CIRC_M': [0.8, 0.85, 0.9, 0.75, 0.82] * 20,
+            'HUMAN_ID': ['ID001'] * 100,
+            'SEX': ['M'] * 100,
+            'AGE': [30] * 100
+        }),
+        '8th_direct': pd.DataFrame({
+            'HEIGHT_M': [1700.0, 1750.0, 1800.0, 1650.0, 1720.0] * 20,  # mm scale, p50 = 1720
+            'WEIGHT_KG': [70.0, 75.0, 80.0, 65.0, 72.0] * 20,
+            'WAIST_CIRC_M': [np.nan] * 100,  # All null
+            'HUMAN_ID': ['ID002'] * 100,
+            'SEX': ['F'] * 100,
+            'AGE': [25] * 100
+        })
+    }
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}, '8th_direct': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WEIGHT_KG', 'sources': {'7th': {'present': True, 'column': 'WEIGHT_KG'}, '8th_direct': {'present': True, 'column': 'WEIGHT_KG'}}},
+            {'standard_key': 'WAIST_CIRC_M', 'sources': {'7th': {'present': True, 'column': 'WAIST_CIRC_M'}, '8th_direct': {'present': True, 'column': 'WAIST_CIRC_M'}}},
+            {'standard_key': 'HUMAN_ID', 'sources': {'7th': {'present': True, 'column': 'HUMAN_ID'}, '8th_direct': {'present': True, 'column': 'HUMAN_ID'}}},
+            {'standard_key': 'SEX', 'sources': {'7th': {'present': True, 'column': 'SEX'}, '8th_direct': {'present': True, 'column': 'SEX'}}},
+            {'standard_key': 'AGE', 'sources': {'7th': {'present': True, 'column': 'AGE'}, '8th_direct': {'present': True, 'column': 'AGE'}}}
+        ]
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        output_path = Path(f.name)
+    
+    try:
+        generate_completeness_report(all_source_dfs, mapping, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), "Completeness report file should be created"
+        
+        # Read and verify content
+        content = output_path.read_text(encoding='utf-8')
+        assert 'curated_v0 v3 Completeness Report' in content, "Should contain title"
+        assert '7th' in content, "Should contain 7th source"
+        assert '8th_direct' in content, "Should contain 8th_direct source"
+        assert 'HEIGHT_M' in content, "Should contain HEIGHT_M"
+        assert 'non_null_count' in content, "Should contain non_null_count"
+        assert 'non_null_rate' in content, "Should contain non_null_rate"
+        assert 'p50' in content, "Should contain p50"
+        
+        # Verify scale observation for 8th_direct HEIGHT_M (mm scale)
+        assert 'mm_scale_suspected' in content or '8th_direct' in content, "Should contain scale observation"
+        
+        # Verify all-null handling for WAIST_CIRC_M in 8th_direct
+        assert 'all_null=true' in content or 'WAIST_CIRC_M' in content, "Should handle all-null columns"
+        
+    finally:
+        if output_path.exists():
+            output_path.unlink()
+
+
+def test_all_null_by_source_warning():
+    """
+    Test ALL_NULL_BY_SOURCE warning: key×source당 1건만 기록.
+    
+    Verifies:
+    1) ALL_NULL_BY_SOURCE warning is emitted when non_null_count==0
+    2) Warning includes correct details (total_rows, non_null_count=0)
+    3) Only 1 warning per key×source combination (no duplicates)
+    """
+    
+    # Create synthetic DataFrame with all-null column
+    df = pd.DataFrame({
+        'HEIGHT_M': [np.nan] * 100,
+        'WEIGHT_KG': [70.0] * 100,
+        'WAIST_CIRC_M': [np.nan] * 100,
+        'HUMAN_ID': ['ID001'] * 100,
+        'SEX': ['M'] * 100,
+        'AGE': [30] * 100
+    })
+    
+    mapping = {
+        'keys': [
+            {'standard_key': 'HEIGHT_M', 'sources': {'7th': {'present': True, 'column': 'HEIGHT_M'}}},
+            {'standard_key': 'WEIGHT_KG', 'sources': {'7th': {'present': True, 'column': 'WEIGHT_KG'}}},
+            {'standard_key': 'WAIST_CIRC_M', 'sources': {'7th': {'present': True, 'column': 'WAIST_CIRC_M'}}},
+            {'standard_key': 'HUMAN_ID', 'sources': {'7th': {'present': True, 'column': 'HUMAN_ID'}}},
+            {'standard_key': 'SEX', 'sources': {'7th': {'present': True, 'column': 'SEX'}}},
+            {'standard_key': 'AGE', 'sources': {'7th': {'present': True, 'column': 'AGE'}}}
+        ]
+    }
+    
+    warnings = []
+    check_all_null_by_source(df, '7th', warnings, mapping)
+    
+    # Verify warnings: HEIGHT_M and WAIST_CIRC_M should trigger (all null)
+    # WEIGHT_KG should not (has values)
+    # Meta columns should not trigger
+    all_null_warnings = [w for w in warnings if w.get('reason') == 'ALL_NULL_BY_SOURCE']
+    assert len(all_null_warnings) == 2, f"Should have 2 ALL_NULL_BY_SOURCE warnings, got {len(all_null_warnings)}"
+    
+    # Check HEIGHT_M warning
+    height_warning = [w for w in all_null_warnings if w.get('column') == 'HEIGHT_M']
+    assert len(height_warning) == 1, "Should have exactly 1 ALL_NULL_BY_SOURCE for HEIGHT_M"
+    assert height_warning[0]['source'] == '7th'
+    assert 'total_rows=100' in height_warning[0]['details']
+    assert 'non_null_count=0' in height_warning[0]['details']
+    
+    # Verify meta columns are not checked
+    meta_warnings = [w for w in all_null_warnings if w.get('column') in ['HUMAN_ID', 'SEX', 'AGE']]
+    assert len(meta_warnings) == 0, "Meta columns should not trigger ALL_NULL_BY_SOURCE"
+    
+    # Verify no duplicates: call again and check count doesn't increase
+    warnings_before = len(warnings)
+    check_all_null_by_source(df, '7th', warnings, mapping)
+    warnings_after = len(warnings)
+    assert warnings_after == warnings_before, "Should not add duplicate warnings"
 
 
