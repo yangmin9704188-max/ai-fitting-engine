@@ -399,6 +399,54 @@ def check_all_null_extracted(
             })
 
 
+def check_all_null_by_source(
+    df: pd.DataFrame,
+    source_key: str,
+    warnings: List[Dict[str, Any]],
+    mapping: Dict[str, Any]
+) -> None:
+    """
+    Check for ALL_NULL_BY_SOURCE: non_null_count == 0 for key×source combination.
+    
+    Distinct from ALL_NULL_EXTRACTED (which is stage-specific).
+    This checks final state after all processing.
+    Emits 1 warning per key×source combination (no duplicates).
+    """
+    all_keys = [k['standard_key'] for k in mapping['keys']]
+    
+    # Track which key×source combinations already have warnings (prevent duplicates)
+    warned_keys = set()
+    
+    for standard_key in all_keys:
+        if standard_key not in df.columns:
+            continue
+        
+        # Skip meta columns
+        if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+            continue
+        
+        # Check if already warned for this key×source
+        key_source_id = f"{source_key}:{standard_key}"
+        if key_source_id in warned_keys:
+            continue
+        
+        series = df[standard_key]
+        non_null_count = series.notna().sum()
+        total_rows = len(series)
+        
+        if non_null_count == 0 and total_rows > 0:
+            warnings.append({
+                "source": source_key,
+                "file": SOURCE_FILES[source_key],
+                "column": standard_key,
+                "reason": "ALL_NULL_BY_SOURCE",
+                "row_index": None,
+                "original_value": None,
+                "details": f"total_rows={total_rows}, non_null_count=0"
+            })
+            warned_keys.add(key_source_id)
+
+
 def check_massive_null_introduced(
     df_before: pd.DataFrame,
     df_after: pd.DataFrame,
@@ -1136,6 +1184,78 @@ def calculate_source_quality(
     return quality
 
 
+def generate_completeness_report(
+    all_source_dfs: Dict[str, pd.DataFrame],
+    mapping: Dict[str, Any],
+    output_path: Path
+) -> None:
+    """
+    Generate facts-only completeness report markdown file.
+    
+    Reports non_null_count, total_rows, non_null_rate, and percentiles (min/p1/p50/p99/max)
+    for each standard_key × source combination.
+    Also includes scale suspicion observations (facts-only) for meter-unit keys.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write("# curated_v0 v3 Completeness Report (facts-only)\n\n")
+        f.write(f"Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # Get all standard keys from mapping
+        all_keys = [k['standard_key'] for k in mapping['keys']]
+        
+        # Process each source
+        for source_key in sorted(all_source_dfs.keys()):
+            df = all_source_dfs[source_key]
+            f.write(f"## {source_key}\n\n")
+            
+            f.write("| standard_key | non_null_count | total_rows | non_null_rate | min | p1 | p50 | p99 | max | scale_observation |\n")
+            f.write("|--------------|-----------------|------------|---------------|-----|----|----|----|-----|-------------------|\n")
+            
+            for standard_key in sorted(all_keys):
+                if standard_key not in df.columns:
+                    f.write(f"| {standard_key} | - | - | - | - | - | - | - | - | column_not_present |\n")
+                    continue
+                
+                series = df[standard_key]
+                total_rows = len(series)
+                non_null_count = series.notna().sum()
+                non_null_rate = non_null_count / total_rows if total_rows > 0 else 0.0
+                
+                # Calculate percentiles for numeric columns only
+                numeric_series = pd.to_numeric(series, errors='coerce')
+                finite_values = numeric_series[np.isfinite(numeric_series)]
+                
+                if len(finite_values) == 0:
+                    # All null or all non-numeric
+                    f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | - | - | - | - | - | all_null=true |\n")
+                    continue
+                
+                # Calculate percentiles
+                min_val = float(finite_values.min())
+                p1_val = float(finite_values.quantile(0.01))
+                p50_val = float(finite_values.quantile(0.50))
+                p99_val = float(finite_values.quantile(0.99))
+                max_val = float(finite_values.max())
+                
+                # Scale suspicion observation (facts-only, for meter-unit keys)
+                scale_obs = ""
+                expected_unit = get_expected_unit(standard_key)
+                if expected_unit == 'm' and len(finite_values) > 0:
+                    if p50_val > 10.0:
+                        scale_obs = "mm_scale_suspected"
+                    elif p50_val < 0.01:
+                        scale_obs = "double_division_suspected"
+                    else:
+                        scale_obs = "normal_scale"
+                
+                f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | "
+                       f"{min_val:.3f} | {p1_val:.3f} | {p50_val:.3f} | {p99_val:.3f} | {max_val:.3f} | {scale_obs} |\n")
+            
+            f.write("\n")
+
+
 def generate_quality_summary(
     all_source_quality: Dict[str, Dict[str, Dict[str, Any]]],
     all_duplicate_headers: Dict[str, Dict[str, List[Dict[str, Any]]]],
@@ -1682,7 +1802,8 @@ def build_curated_v0(
     quality_summary_path: Optional[Path] = None,
     header_candidates_path: Optional[Path] = None,
     arm_knee_trace_path: Optional[Path] = None,
-    unit_fail_trace_path: Optional[Path] = None
+    unit_fail_trace_path: Optional[Path] = None,
+    completeness_report_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Build curated_v0 dataset.
@@ -1705,6 +1826,7 @@ def build_curated_v0(
     
     # Process each source
     all_dfs = []
+    all_source_dfs = {}  # source_key -> df_final (for completeness report)
     all_source_quality = {}  # source_key -> {standard_key -> quality_metrics}
     all_duplicate_headers = {}  # source_key -> {base_header -> [column_info]}
     all_header_candidates = {}  # source_key -> {standard_key -> [candidate_info]}
@@ -1915,6 +2037,13 @@ def build_curated_v0(
             if source_candidates:
                 all_header_candidates[source_key] = source_candidates
         
+        # Check for ALL_NULL_BY_SOURCE (after all processing, final state)
+        check_all_null_by_source(df_final, source_key, warnings, mapping)
+        
+        # Store df_final for completeness report
+        if completeness_report_path is not None:
+            all_source_dfs[source_key] = df_final
+        
         all_dfs.append(df_final)
         stats["sources_processed"].append(source_key)
         stats["total_rows"] += len(df_final)
@@ -2040,6 +2169,11 @@ def build_curated_v0(
     if unit_fail_trace_path is not None and all_unit_fail_traces:
         emit_unit_fail_trace(all_unit_fail_traces, unit_fail_trace_path)
     
+    # Generate completeness report if requested
+    if completeness_report_path is not None and all_source_dfs:
+        generate_completeness_report(all_source_dfs, mapping, completeness_report_path)
+        print(f"Saved completeness report: {completeness_report_path}")
+    
     # Print summary
     print("\n=== Summary ===")
     print(f"Sources processed: {len(stats['sources_processed'])}")
@@ -2124,6 +2258,12 @@ def main():
         default=None,
         help='Path to save unit-fail trace diagnostic markdown file (optional, for NECK_WIDTH_M, NECK_DEPTH_M, UNDERBUST_CIRC_M, CHEST_CIRC_M_REF)'
     )
+    parser.add_argument(
+        '--emit-completeness-report',
+        type=str,
+        default=None,
+        help='Path to save completeness report markdown file (optional, facts-only report with non_null_count, percentiles, and scale observations)'
+    )
     
     args = parser.parse_args()
     
@@ -2134,6 +2274,7 @@ def main():
     header_candidates_path = Path(args.emit_header_candidates) if args.emit_header_candidates else None
     arm_knee_trace_path = Path(args.emit_arm_knee_trace) if args.emit_arm_knee_trace else None
     unit_fail_trace_path = Path(args.emit_unit_fail_trace) if args.emit_unit_fail_trace else None
+    completeness_report_path = Path(args.emit_completeness_report) if args.emit_completeness_report else None
     
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")
@@ -2149,7 +2290,8 @@ def main():
         quality_summary_path=quality_summary_path,
         header_candidates_path=header_candidates_path,
         arm_knee_trace_path=arm_knee_trace_path,
-        unit_fail_trace_path=unit_fail_trace_path
+        unit_fail_trace_path=unit_fail_trace_path,
+        completeness_report_path=completeness_report_path
     )
     
     return 0
