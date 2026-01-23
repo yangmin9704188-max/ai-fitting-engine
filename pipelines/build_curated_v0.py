@@ -362,6 +362,201 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
     return result_df
 
 
+def check_all_null_extracted(
+    df: pd.DataFrame,
+    source_key: str,
+    warnings: List[Dict[str, Any]],
+    mapping: Dict[str, Any]
+) -> None:
+    """
+    Check for ALL_NULL_EXTRACTED: non_null_count == 0 after extraction.
+    
+    Emits warning if any standard_key has non_null_count == 0 after extraction.
+    """
+    all_keys = [k['standard_key'] for k in mapping['keys']]
+    
+    for standard_key in all_keys:
+        if standard_key not in df.columns:
+            continue
+        
+        # Skip meta columns
+        if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+            continue
+        
+        series = df[standard_key]
+        non_null_count = series.notna().sum()
+        total_rows = len(series)
+        
+        if non_null_count == 0 and total_rows > 0:
+            warnings.append({
+                "source": source_key,
+                "file": SOURCE_FILES[source_key],
+                "column": standard_key,
+                "reason": "ALL_NULL_EXTRACTED",
+                "row_index": None,
+                "original_value": None,
+                "details": f"rows_total={total_rows}, non_null_count={non_null_count}, stage=after_extraction_before_preprocess"
+            })
+
+
+def check_massive_null_introduced(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    source_key: str,
+    warnings: List[Dict[str, Any]],
+    mapping: Dict[str, Any]
+) -> None:
+    """
+    Check for MASSIVE_NULL_INTRODUCED: non_null drops >= 0.95 AND >= 1000.
+    
+    Compares after_preprocess vs after_unit_conversion stages.
+    """
+    all_keys = [k['standard_key'] for k in mapping['keys']]
+    
+    for standard_key in all_keys:
+        if standard_key not in df_before.columns or standard_key not in df_after.columns:
+            continue
+        
+        # Skip meta columns
+        if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+            continue
+        
+        before_series = df_before[standard_key]
+        after_series = df_after[standard_key]
+        
+        non_null_before = before_series.notna().sum()
+        non_null_after = after_series.notna().sum()
+        
+        if non_null_before == 0:
+            continue  # Already all null, skip
+        
+        drop_count = non_null_before - non_null_after
+        drop_rate = drop_count / non_null_before if non_null_before > 0 else 0.0
+        
+        # Trigger: drop_rate >= 0.95 AND drop_count >= 1000
+        if drop_rate >= 0.95 and drop_count >= 1000:
+            nan_count_after = after_series.isna().sum()
+            warnings.append({
+                "source": source_key,
+                "file": SOURCE_FILES[source_key],
+                "column": standard_key,
+                "reason": "MASSIVE_NULL_INTRODUCED",
+                "row_index": None,
+                "original_value": None,
+                "details": f"before_non_null={non_null_before}, after_non_null={non_null_after}, nan_count={nan_count_after}, drop_rate={drop_rate:.4f}"
+            })
+
+
+def get_expected_unit(standard_key: str) -> Optional[str]:
+    """
+    Get expected unit for a standard_key based on standard_keys.md contract.
+    
+    Returns 'm' for measurement keys with _M suffix, 'kg' for WEIGHT_KG, None for meta.
+    """
+    if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+        return None
+    if standard_key == 'WEIGHT_KG':
+        return 'kg'
+    if standard_key.endswith('_M'):
+        return 'm'
+    return None
+
+
+def get_physical_range(standard_key: str) -> Optional[tuple[float, float]]:
+    """
+    Get physical range for a standard_key (facts-only, minimal hardcoded set).
+    
+    Returns (min, max) tuple or None if not applicable.
+    """
+    if standard_key == 'HEIGHT_M':
+        return (0.8, 2.5)
+    elif '_CIRC_' in standard_key or '_ELLIPSIS_' in standard_key:
+        return (0.2, 2.5)
+    elif '_WIDTH_' in standard_key or '_DEPTH_' in standard_key:
+        return (0.05, 1.0)
+    elif '_LEN_' in standard_key or '_HEIGHT_' in standard_key:
+        return (0.1, 1.5)
+    return None
+
+
+def check_scale_and_range_suspected(
+    df: pd.DataFrame,
+    source_key: str,
+    warnings: List[Dict[str, Any]],
+    mapping: Dict[str, Any]
+) -> None:
+    """
+    Check for SCALE_SUSPECTED and RANGE_SUSPECTED warnings.
+    
+    SCALE_SUSPECTED: median (p50) > 10.0 or < 0.01 for expected_unit='m' keys.
+    RANGE_SUSPECTED: values outside physical range >= 50 for expected_unit='m' keys.
+    """
+    all_keys = [k['standard_key'] for k in mapping['keys']]
+    
+    for standard_key in all_keys:
+        if standard_key not in df.columns:
+            continue
+        
+        # Skip meta columns
+        if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+            continue
+        
+        expected_unit = get_expected_unit(standard_key)
+        if expected_unit != 'm':
+            continue  # Only check unit='m' keys
+        
+        series = df[standard_key]
+        numeric_series = pd.to_numeric(series, errors='coerce')
+        finite_series = numeric_series[np.isfinite(numeric_series)]
+        
+        if len(finite_series) == 0:
+            continue
+        
+        # Calculate percentiles
+        p01 = finite_series.quantile(0.01)
+        p50 = finite_series.median()
+        p99 = finite_series.quantile(0.99)
+        min_val = finite_series.min()
+        max_val = finite_series.max()
+        
+        # Check SCALE_SUSPECTED
+        scale_suspected = False
+        if p50 > 10.0:
+            scale_suspected = True
+            scale_reason = "p50 > 10.0 (mm scale suspected)"
+        elif p50 < 0.01:
+            scale_suspected = True
+            scale_reason = "p50 < 0.01 (double-division suspected)"
+        
+        if scale_suspected:
+            warnings.append({
+                "source": source_key,
+                "file": SOURCE_FILES[source_key],
+                "column": standard_key,
+                "reason": "SCALE_SUSPECTED",
+                "row_index": None,
+                "original_value": None,
+                "details": f"p01={p01:.4f}, p50={p50:.4f}, p99={p99:.4f}, min={min_val:.4f}, max={max_val:.4f}, reason={scale_reason}"
+            })
+        
+        # Check RANGE_SUSPECTED
+        physical_range = get_physical_range(standard_key)
+        if physical_range is not None:
+            range_min, range_max = physical_range
+            out_of_range = ((finite_series < range_min) | (finite_series > range_max)).sum()
+            
+            if out_of_range >= 50:
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": standard_key,
+                    "reason": "RANGE_SUSPECTED",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"p01={p01:.4f}, p50={p50:.4f}, p99={p99:.4f}, min={min_val:.4f}, max={max_val:.4f}, out_of_range_count={out_of_range}, expected_range=[{range_min}, {range_max}]"
+                })
+
+
 def normalize_sex(df: pd.DataFrame, source_key: str, warnings: List[Dict[str, Any]]) -> pd.DataFrame:
     """
     Normalize sex values: 남/여 → M/F.
@@ -486,6 +681,9 @@ def extract_columns_from_source(
     
     # Create DataFrame before preprocessing for trace
     df_before_preprocess = pd.DataFrame(result_data, index=df.index)
+    
+    # Check for ALL_NULL_EXTRACTED (after extraction, before preprocessing)
+    check_all_null_extracted(df_before_preprocess, source_key, warnings, mapping)
     
     # Collect trace before preprocessing (for ARM_LEN_M and KNEE_HEIGHT_M only)
     if collect_trace and trace_data is not None and source_key in ['8th_direct', '8th_3d']:
@@ -1656,6 +1854,12 @@ def build_curated_v0(
         
         # Apply unit canonicalization
         df_canonical = apply_unit_canonicalization(df_extracted, unit_map, warnings, source_key=source_key)
+        
+        # Check for MASSIVE_NULL_INTRODUCED (after_preprocess vs after_unit_conversion)
+        check_massive_null_introduced(df_extracted, df_canonical, source_key, warnings, mapping)
+        
+        # Check for SCALE_SUSPECTED and RANGE_SUSPECTED (after unit conversion)
+        check_scale_and_range_suspected(df_canonical, source_key, warnings, mapping)
         
         # Collect trace after unit conversion (for 8th_direct/8th_3d only)
         if arm_knee_trace_path is not None and source_key in ['8th_direct', '8th_3d']:
