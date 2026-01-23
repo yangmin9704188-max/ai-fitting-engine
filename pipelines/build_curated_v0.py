@@ -264,6 +264,8 @@ def load_raw_file(file_path: Path, header_row: int, secondary_header_row: Option
     
     if is_xlsx:
         # Load XLSX with HUMAN_ID as string
+        # For 7th source, also load numeric columns as string to preserve comma formatting
+        # (Excel may auto-convert "245,0" to numeric 2450, which breaks our parser)
         try:
             # Find HUMAN_ID column index from secondary header if available
             converters = {}
@@ -276,6 +278,20 @@ def load_raw_file(file_path: Path, header_row: int, secondary_header_row: Option
                     if 'ID' in col_str or 'HUMAN_ID' in col_str:
                         # Use column name as key for converter
                         converters[col_name] = lambda x: str(x).strip() if pd.notna(x) else ""
+            
+            # For 7th source, load all columns as string to preserve comma formatting
+            # This prevents Excel from auto-converting "245,0" to numeric 2450
+            if source_key == '7th':
+                # Read header first to get column names
+                df_header = pd.read_excel(file_path, header=header_row, nrows=0, engine='openpyxl')
+                # Create converters for all columns (except HUMAN_ID which is already handled)
+                for col_name in df_header.columns:
+                    col_str = str(col_name).strip()
+                    # Skip HUMAN_ID (already handled above)
+                    if col_name not in converters and ('ID' not in col_str and 'HUMAN_ID' not in col_str):
+                        # Convert all other columns to string to preserve comma formatting
+                        # Use a proper lambda that captures col_name correctly via default argument
+                        converters[col_name] = lambda x, col=col_name: str(x).strip() if pd.notna(x) else ""
             
             # Load with primary header
             df = pd.read_excel(file_path, header=header_row, engine='openpyxl', converters=converters)
@@ -345,34 +361,35 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         
         # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
         # Source-specific parser strategy for 7th only - uses unified parse_numeric_string_7th function
+        # CRITICAL: XLSX may auto-convert "245,0" to numeric 2450, so we must convert to string first
         if source_key == '7th':
-            if original_series.dtype == 'object':
-                # Normalize string values: strip whitespace
-                cleaned = original_series.astype(str).str.strip()
+            # Convert to string first (handles both object and numeric dtype from XLSX)
+            # This ensures parser is applied even if Excel already converted "245,0" to 2450
+            cleaned = original_series.astype(str).str.strip()
+            
+            # Apply unified 7th-specific parsing strategy
+            cleaned = cleaned.apply(parse_numeric_string_7th)
+            
+            try:
+                numeric_series = pd.to_numeric(cleaned, errors='coerce')
+                result_df[col] = numeric_series
+                # Count parsing failures (non-numeric values after parsing)
+                original_non_null = original_series.notna().sum()
+                parsed_non_null = numeric_series.notna().sum()
+                failed_count = original_non_null - parsed_non_null
                 
-                # Apply unified 7th-specific parsing strategy
-                cleaned = cleaned.apply(parse_numeric_string_7th)
-                
-                try:
-                    numeric_series = pd.to_numeric(cleaned, errors='coerce')
-                    result_df[col] = numeric_series
-                    # Count parsing failures (non-numeric values after parsing)
-                    original_non_null = original_series.notna().sum()
-                    parsed_non_null = numeric_series.notna().sum()
-                    failed_count = original_non_null - parsed_non_null
-                    
-                    if failed_count > 0:
-                        warnings.append({
-                            "source": source_key,
-                            "file": SOURCE_FILES[source_key],
-                            "column": col,
-                            "reason": "numeric_parsing_failed",
-                            "row_index": None,
-                            "original_value": None,
-                            "details": f"{failed_count} values failed to parse after 7th comma parser strategy (euro_decimal_comma vs thousands_comma disambiguation)"
-                        })
-                except Exception:
-                    pass  # Keep original if conversion fails
+                if failed_count > 0:
+                    warnings.append({
+                        "source": source_key,
+                        "file": SOURCE_FILES[source_key],
+                        "column": col,
+                        "reason": "numeric_parsing_failed",
+                        "row_index": None,
+                        "original_value": None,
+                        "details": f"{failed_count} values failed to parse after 7th comma parser strategy (euro_decimal_comma vs thousands_comma disambiguation)"
+                    })
+            except Exception:
+                pass  # Keep original if conversion fails
         
         # 8th_direct: Replace 9999 with NaN (dtype-agnostic)
         if source_key == '8th_direct':
@@ -873,7 +890,7 @@ def extract_columns_from_source(
     return result_df
 
 
-def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
+def sample_units(df: pd.DataFrame, sample_size: int = 100, source_key: Optional[str] = None) -> Dict[str, str]:
     """
     Sample values to determine source units.
     
@@ -883,11 +900,26 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
     Contract:
     - Length/circumference: mm → m (÷1000)
     - Weight: kg (no conversion)
+    - For 7th source: unit=m standard keys default to mm (no cm heuristic)
+    
+    Args:
+        df: DataFrame to sample from
+        sample_size: Number of values to sample
+        source_key: Source key ('7th', '8th_direct', '8th_3d') for source-specific logic
     """
     unit_map = {}
     
     # Sample numeric columns
     numeric_cols = df.select_dtypes(include=[np.number]).columns
+    
+    # Check if column is a unit=m standard key (ends with _CIRC_M, _LEN_M, _HEIGHT_M, _WIDTH_M, _DEPTH_M, etc.)
+    def is_unit_m_key(col: str) -> bool:
+        """Check if column is a unit=m standard key."""
+        return (
+            col.endswith("_CIRC_M") or col.endswith("_LEN_M") or 
+            col.endswith("_HEIGHT_M") or col.endswith("_WIDTH_M") or 
+            col.endswith("_DEPTH_M") or col.endswith("_M")
+        ) and col not in ['SEX', 'AGE', 'HUMAN_ID', 'WEIGHT_KG']
     
     for col in numeric_cols:
         if col in ['SEX', 'AGE', 'HUMAN_ID']:
@@ -906,6 +938,16 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
         # Contract: Weight is in kg (no conversion)
         if col == 'WEIGHT_KG':
             unit_map[col] = "kg"
+            continue
+        
+        # For 7th source: unit=m standard keys default to mm (no cm heuristic)
+        if source_key == '7th' and is_unit_m_key(col):
+            # Default to mm for unit=m keys in 7th (no cm estimation)
+            # Only check if values are already in meters (median < 1)
+            if median_val < 1:
+                unit_map[col] = "m"
+            else:
+                unit_map[col] = "mm"  # Default assumption for 7th
             continue
         
         # Contract: Length/circumference are in mm (convert to m)
@@ -965,9 +1007,9 @@ def apply_unit_canonicalization(
         
         if col not in unit_map:
             # Unit not determined
-            # For 8th_direct/8th_3d, apply mm->m fallback for expected_unit='m' keys
+            # For 7th/8th_direct/8th_3d, apply mm->m fallback for expected_unit='m' keys
             # All measurement keys with _M suffix have expected_unit='m' (per standard_keys.md)
-            if source_key in {"8th_direct", "8th_3d"}:
+            if source_key in {"7th", "8th_direct", "8th_3d"}:
                 # Check if this is a unit=m key (expected_unit='m' means _M suffix, including _REF)
                 # Per standard_keys.md, all measurement keys use unit='m'
                 is_m_unit_key = (
@@ -2134,7 +2176,7 @@ def build_curated_v0(
             all_unit_fail_traces[source_key].append(trace_after_extraction)
         
         # Sample units
-        unit_map = sample_units(df_extracted, sample_size=min(100, len(df_extracted)))
+        unit_map = sample_units(df_extracted, sample_size=min(100, len(df_extracted)), source_key=source_key)
         print(f"  Detected units: {len(unit_map)} columns")
         
         # Collect unit-fail trace after preprocessing

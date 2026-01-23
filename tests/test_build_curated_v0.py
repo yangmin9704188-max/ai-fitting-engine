@@ -2440,3 +2440,58 @@ def test_7th_unit_override_heuristic_normal_cm_scale():
     assert len(override_warnings_8th) == 0, "8th_direct should not trigger 7th-specific override"
 
 
+def test_7th_unit_inference_default_mm():
+    """
+    Test 7th unit inference: unit=m standard keys default to mm (no cm heuristic).
+    
+    Regression test for 10x scale error fix:
+    - ANKLE_MAX_CIRC_M=245, WRIST_CIRC_M=153, HIP_DEPTH_M=212 should convert to 0.245, 0.153, 0.212 m
+    - HEIGHT_M=1657 should convert to 1.657 m
+    - Values with median > 10 should be treated as mm (not cm) for 7th unit=m keys
+    """
+    # Create DataFrame with mm-scale values that would be detected as cm by median heuristic
+    # These values are in mm but median > 10, so old logic would detect as cm
+    df = pd.DataFrame({
+        'ANKLE_MAX_CIRC_M': [245.0, 250.0, 240.0, 248.0, 242.0],  # mm scale, median=245
+        'WRIST_CIRC_M': [153.0, 158.0, 150.0, 155.0, 152.0],  # mm scale, median=153
+        'HIP_DEPTH_M': [212.0, 220.0, 205.0, 215.0, 210.0],  # mm scale, median=212
+        'HEIGHT_M': [1657.0, 1700.0, 1600.0, 1680.0, 1620.0],  # mm scale, median=1657
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    # Test sample_units with 7th source_key
+    warnings = []
+    unit_map = sample_units(df, sample_size=5, source_key='7th')
+    
+    # Verify unit inference: 7th unit=m keys should default to mm (not cm)
+    assert unit_map.get('ANKLE_MAX_CIRC_M') == 'mm', f"ANKLE_MAX_CIRC_M should be 'mm', got {unit_map.get('ANKLE_MAX_CIRC_M')}"
+    assert unit_map.get('WRIST_CIRC_M') == 'mm', f"WRIST_CIRC_M should be 'mm', got {unit_map.get('WRIST_CIRC_M')}"
+    assert unit_map.get('HIP_DEPTH_M') == 'mm', f"HIP_DEPTH_M should be 'mm', got {unit_map.get('HIP_DEPTH_M')}"
+    assert unit_map.get('HEIGHT_M') == 'mm', f"HEIGHT_M should be 'mm', got {unit_map.get('HEIGHT_M')}"
+    
+    # Apply unit canonicalization
+    result_df = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end conversion: mm -> m (÷1000)
+    ankle_values = result_df['ANKLE_MAX_CIRC_M'].dropna()
+    assert len(ankle_values) > 0, "ANKLE_MAX_CIRC_M should have non-null values"
+    assert abs(ankle_values.iloc[0] - 0.245) < 0.001, f"ANKLE_MAX_CIRC_M[0] should be 0.245 m, got {ankle_values.iloc[0]}"
+    
+    wrist_values = result_df['WRIST_CIRC_M'].dropna()
+    assert len(wrist_values) > 0, "WRIST_CIRC_M should have non-null values"
+    assert abs(wrist_values.iloc[0] - 0.153) < 0.001, f"WRIST_CIRC_M[0] should be 0.153 m, got {wrist_values.iloc[0]}"
+    
+    hip_depth_values = result_df['HIP_DEPTH_M'].dropna()
+    assert len(hip_depth_values) > 0, "HIP_DEPTH_M should have non-null values"
+    assert abs(hip_depth_values.iloc[0] - 0.212) < 0.001, f"HIP_DEPTH_M[0] should be 0.212 m, got {hip_depth_values.iloc[0]}"
+    
+    height_values = result_df['HEIGHT_M'].dropna()
+    assert len(height_values) > 0, "HEIGHT_M should have non-null values"
+    assert abs(height_values.iloc[0] - 1.657) < 0.001, f"HEIGHT_M[0] should be 1.657 m, got {height_values.iloc[0]}"
+    
+    # Verify 8th sources still use cm heuristic (not affected by 7th change)
+    unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
+    # For 8th, median > 10 should still detect as cm
+    assert unit_map_8th.get('ANKLE_MAX_CIRC_M') == 'cm', f"8th_direct: ANKLE_MAX_CIRC_M should be 'cm' (median heuristic), got {unit_map_8th.get('ANKLE_MAX_CIRC_M')}"
+
+
