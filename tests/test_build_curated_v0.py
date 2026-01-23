@@ -1343,6 +1343,84 @@ def test_arm_knee_trace_generation():
             "Content should be facts-only, no action directives"
 
 
+def test_unit_fallback_mm_for_8th_unitless():
+    """
+    Test that unitless 8th_direct/8th_3d columns with unit=m keys get mm->m fallback.
+    
+    Verifies:
+    1) ARM_LEN_M and KNEE_HEIGHT_M with unit_undetermined get mm->m conversion (÷1000)
+    2) Values are correctly converted (e.g., 587 -> 0.587, 495 -> 0.495)
+    3) non_null_count remains > 0 after conversion
+    4) warnings include UNIT_DEFAULT_MM_NO_UNIT aggregated warning
+    """
+    import tempfile
+    
+    # Create synthetic DataFrame with ARM_LEN_M and KNEE_HEIGHT_M in mm (no unit metadata)
+    df = pd.DataFrame({
+        'ARM_LEN_M': [587.0, 600.0, 550.0, np.nan, 620.0],  # mm values
+        'KNEE_HEIGHT_M': [495.0, 500.0, np.nan, 480.0, 510.0],  # mm values
+        'WEIGHT_KG': [70.0, 75.0, 65.0, 80.0, 72.0],  # Should not be converted
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    # Empty unit_map (unit undetermined)
+    unit_map = {}
+    warnings = []
+    
+    # Test apply_unit_canonicalization with 8th_direct source
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='8th_direct')
+    
+    # Verify ARM_LEN_M conversion (mm->m, ÷1000)
+    assert 'ARM_LEN_M' in df_converted.columns, "ARM_LEN_M should be in converted DataFrame"
+    arm_values = df_converted['ARM_LEN_M'].values
+    assert not np.isnan(arm_values[0]), "ARM_LEN_M[0] should not be NaN after conversion"
+    assert abs(arm_values[0] - 0.587) < 0.001, f"ARM_LEN_M[0] should be ~0.587, got {arm_values[0]}"
+    assert abs(arm_values[1] - 0.600) < 0.001, f"ARM_LEN_M[1] should be ~0.600, got {arm_values[1]}"
+    
+    # Verify non_null_count > 0
+    arm_non_null = df_converted['ARM_LEN_M'].notna().sum()
+    assert arm_non_null > 0, f"ARM_LEN_M non_null_count should be > 0, got {arm_non_null}"
+    assert arm_non_null == 4, f"ARM_LEN_M non_null_count should be 4, got {arm_non_null}"
+    
+    # Verify KNEE_HEIGHT_M conversion
+    knee_values = df_converted['KNEE_HEIGHT_M'].values
+    assert not np.isnan(knee_values[0]), "KNEE_HEIGHT_M[0] should not be NaN after conversion"
+    assert abs(knee_values[0] - 0.495) < 0.001, f"KNEE_HEIGHT_M[0] should be ~0.495, got {knee_values[0]}"
+    
+    knee_non_null = df_converted['KNEE_HEIGHT_M'].notna().sum()
+    assert knee_non_null > 0, f"KNEE_HEIGHT_M non_null_count should be > 0, got {knee_non_null}"
+    assert knee_non_null == 4, f"KNEE_HEIGHT_M non_null_count should be 4, got {knee_non_null}"
+    
+    # Verify WEIGHT_KG is not converted (should remain NaN due to unit_undetermined, but it's not a unit=m key)
+    # Actually, WEIGHT_KG is excluded from conversion in apply_unit_canonicalization
+    assert 'WEIGHT_KG' in df_converted.columns, "WEIGHT_KG should be in converted DataFrame"
+    
+    # Verify warnings include UNIT_DEFAULT_MM_NO_UNIT
+    unit_default_warnings = [w for w in warnings if 'UNIT_DEFAULT_MM_NO_UNIT' in str(w.get('details', ''))]
+    assert len(unit_default_warnings) >= 2, f"Should have at least 2 UNIT_DEFAULT_MM_NO_UNIT warnings, got {len(unit_default_warnings)}"
+    
+    # Verify warning structure
+    for w in unit_default_warnings:
+        assert w.get('reason') == 'unit_conversion_applied', "Warning reason should be unit_conversion_applied"
+        assert 'assumed_unit=mm' in str(w.get('details', '')), "Warning should include assumed_unit=mm"
+        assert 'applied_scale=1000' in str(w.get('details', '')), "Warning should include applied_scale=1000"
+        assert 'non_null_before' in str(w.get('details', '')), "Warning should include non_null_before"
+        assert 'non_null_after' in str(w.get('details', '')), "Warning should include non_null_after"
+    
+    # Test with 8th_3d source
+    warnings_3d = []
+    df_converted_3d = apply_unit_canonicalization(df, unit_map, warnings_3d, source_key='8th_3d')
+    assert df_converted_3d['ARM_LEN_M'].notna().sum() > 0, "8th_3d should also apply mm fallback"
+    
+    # Test with 7th source (should not apply fallback)
+    warnings_7th = []
+    df_converted_7th = apply_unit_canonicalization(df, unit_map, warnings_7th, source_key='7th')
+    # 7th should set to NaN (no fallback)
+    assert df_converted_7th['ARM_LEN_M'].isna().all(), "7th should not apply mm fallback, should be all NaN"
+    unit_undetermined_warnings = [w for w in warnings_7th if w.get('reason') == 'unit_undetermined']
+    assert len(unit_undetermined_warnings) >= 2, "7th should have unit_undetermined warnings"
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1365,6 +1443,7 @@ if __name__ == '__main__':
         test_quality_summary_generation()
         test_header_candidates_generation()
         test_arm_knee_trace_generation()
+        test_unit_fallback_mm_for_8th_unitless()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:

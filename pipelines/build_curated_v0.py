@@ -598,7 +598,8 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100) -> Dict[str, str]:
 def apply_unit_canonicalization(
     df: pd.DataFrame,
     unit_map: Dict[str, str],
-    warnings: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]],
+    source_key: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Apply unit canonicalization to DataFrame.
@@ -618,11 +619,62 @@ def apply_unit_canonicalization(
             continue
         
         if col not in unit_map:
-            # Unit not determined, set to NaN
+            # Unit not determined
+            # For 8th_direct/8th_3d, apply mm->m fallback for unit=m keys (length/height/circumference)
+            if source_key in {"8th_direct", "8th_3d"}:
+                # Check if this is a unit=m key (standard_key ends with _M or is a measurement key)
+                is_m_unit_key = (
+                    col.endswith("_M") or 
+                    col.endswith("_CIRC_M") or 
+                    col.endswith("_LEN_M") or 
+                    col.endswith("_HEIGHT_M") or
+                    col.endswith("_WIDTH_M") or
+                    col.endswith("_DEPTH_M")
+                ) and col not in ['SEX', 'AGE', 'HUMAN_ID', 'WEIGHT_KG']
+                
+                if is_m_unit_key:
+                    # Apply mm->m fallback (÷1000)
+                    values = df[col].values
+                    non_null_before = pd.Series(values).notna().sum()
+                    
+                    # Convert mm to m
+                    converted = canonicalize_units_to_m(values, "mm", warning_list)
+                    result_df[col] = converted
+                    
+                    non_null_after = pd.Series(converted).notna().sum()
+                    
+                    # Record aggregated warning
+                    warnings.append({
+                        "source": source_key,
+                        "file": SOURCE_FILES.get(source_key, "unknown"),
+                        "column": col,
+                        "reason": "unit_conversion_applied",
+                        "row_index": None,
+                        "original_value": None,
+                        "details": f"UNIT_DEFAULT_MM_NO_UNIT: assumed_unit=mm, applied_scale=1000, non_null_before={non_null_before}, non_null_after={non_null_after}"
+                    })
+                    
+                    # Convert warning_list strings to structured warnings
+                    for w in warning_list:
+                        if "UNIT_FAIL" in w or "PROVENANCE" in w:
+                            warnings.append({
+                                "source": source_key,
+                                "file": SOURCE_FILES.get(source_key, "unknown"),
+                                "column": col,
+                                "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
+                                "row_index": None,
+                                "original_value": None,
+                                "details": w
+                            })
+                    
+                    warning_list.clear()
+                    continue
+            
+            # Default: unit not determined, set to NaN
             result_df[col] = np.nan
             warnings.append({
-                "source": "unknown",
-                "file": "unknown",
+                "source": source_key if source_key else "unknown",
+                "file": SOURCE_FILES.get(source_key, "unknown") if source_key else "unknown",
                 "column": col,
                 "reason": "unit_undetermined",
                 "row_index": None,
@@ -1359,7 +1411,7 @@ def build_curated_v0(
         print(f"  Detected units: {len(unit_map)} columns")
         
         # Apply unit canonicalization
-        df_canonical = apply_unit_canonicalization(df_extracted, unit_map, warnings)
+        df_canonical = apply_unit_canonicalization(df_extracted, unit_map, warnings, source_key=source_key)
         
         # Collect trace after unit conversion (for 8th_direct/8th_3d only)
         if arm_knee_trace_path is not None and source_key in ['8th_direct', '8th_3d']:
