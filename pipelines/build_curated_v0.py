@@ -620,22 +620,21 @@ def apply_unit_canonicalization(
         
         if col not in unit_map:
             # Unit not determined
-            # For 8th_direct/8th_3d, apply mm->m fallback for unit=m keys (length/height/circumference)
+            # For 8th_direct/8th_3d, apply mm->m fallback for expected_unit='m' keys
+            # All measurement keys with _M suffix have expected_unit='m' (per standard_keys.md)
             if source_key in {"8th_direct", "8th_3d"}:
-                # Check if this is a unit=m key (standard_key ends with _M or is a measurement key)
+                # Check if this is a unit=m key (expected_unit='m' means _M suffix, including _REF)
+                # Per standard_keys.md, all measurement keys use unit='m'
                 is_m_unit_key = (
-                    col.endswith("_M") or 
-                    col.endswith("_CIRC_M") or 
-                    col.endswith("_LEN_M") or 
-                    col.endswith("_HEIGHT_M") or
-                    col.endswith("_WIDTH_M") or
-                    col.endswith("_DEPTH_M")
+                    col.endswith("_M")  # Includes _CIRC_M, _LEN_M, _HEIGHT_M, _WIDTH_M, _DEPTH_M, _REF, etc.
                 ) and col not in ['SEX', 'AGE', 'HUMAN_ID', 'WEIGHT_KG']
                 
                 if is_m_unit_key:
                     # Apply mm->m fallback (÷1000)
-                    values = df[col].values
-                    non_null_before = pd.Series(values).notna().sum()
+                    # First coerce to numeric for safe conversion
+                    numeric_series = pd.to_numeric(df[col], errors='coerce')
+                    values = numeric_series.values
+                    non_null_before = numeric_series.notna().sum()
                     
                     # Convert mm to m
                     converted = canonicalize_units_to_m(values, "mm", warning_list)
@@ -656,13 +655,25 @@ def apply_unit_canonicalization(
                     })
                     
                     # Convert warning_list strings to structured warnings
+                    # Only emit unit_conversion_failed for inf/-inf (not NaN)
                     for w in warning_list:
-                        if "UNIT_FAIL" in w or "PROVENANCE" in w:
+                        if "PROVENANCE" in w:
                             warnings.append({
                                 "source": source_key,
                                 "file": file_path,
                                 "column": col,
-                                "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
+                                "reason": "unit_conversion_applied",
+                                "row_index": None,
+                                "original_value": None,
+                                "details": w
+                            })
+                        elif "UNIT_FAIL" in w and "inf/-inf" in w:
+                            # Only emit unit_conversion_failed for inf/-inf detected
+                            warnings.append({
+                                "source": source_key,
+                                "file": file_path,
+                                "column": col,
+                                "reason": "unit_conversion_failed",
                                 "row_index": None,
                                 "original_value": None,
                                 "details": w
@@ -711,16 +722,28 @@ def apply_unit_canonicalization(
         result_df[col] = converted
         
         # Convert warning_list strings to structured warnings
+        # Only emit unit_conversion_failed for inf/-inf (not NaN)
         # Ensure source_key is set (should not be None at this point)
         warning_source = source_key if source_key else "system"
         file_path = SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py"
         for w in warning_list:
-            if "UNIT_FAIL" in w or "PROVENANCE" in w:
+            if "PROVENANCE" in w:
                 warnings.append({
                     "source": warning_source,
                     "file": file_path,
                     "column": col,
-                    "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
+                    "reason": "unit_conversion_applied",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": w
+                })
+            elif "UNIT_FAIL" in w and "inf/-inf" in w:
+                # Only emit unit_conversion_failed for inf/-inf detected
+                warnings.append({
+                    "source": warning_source,
+                    "file": file_path,
+                    "column": col,
+                    "reason": "unit_conversion_failed",
                     "row_index": None,
                     "original_value": None,
                     "details": w
