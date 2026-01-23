@@ -44,16 +44,24 @@ def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'u
     """
     Find header row by matching first column value with standard measurement terms.
     
-    Looks for rows where first column (after strip) matches ko_term from mapping.
-    Returns row index or falls back to default HEADER_ROWS.
+    Priority:
+    1. First column value (after strip) exactly matches "표준 측정항목 명" (anchor row)
+    2. First column value matches any ko_term from mapping (fallback)
+    3. Default HEADER_ROWS based on file name (final fallback)
+    
+    Returns row index.
     """
-    # Collect all ko_terms from mapping
+    # Priority 1: Anchor term "표준 측정항목 명"
+    anchor_term = "표준 측정항목 명"
+    anchor_term_with_space = " " + anchor_term
+    
+    # Priority 2: Collect all ko_terms from mapping (fallback)
     ko_terms = set()
     for key_info in mapping['keys']:
         ko_term = key_info.get('ko_term', '')
         if ko_term and ko_term != 'HUMAN_ID':
             ko_terms.add(ko_term.strip())
-            # Also check with leading space (as per user requirement)
+            # Also check with leading space
             ko_terms.add(' ' + ko_term.strip())
     
     encodings = [encoding, 'cp949', 'utf-8']
@@ -63,7 +71,16 @@ def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'u
             # Read first max_check rows without header
             df_sample = pd.read_csv(file_path, encoding=enc, header=None, nrows=max_check, low_memory=False)
             
-            # Check each row's first column
+            # Priority 1: Check for anchor term first
+            for i in range(len(df_sample)):
+                first_val = df_sample.iloc[i, 0]
+                if pd.notna(first_val):
+                    first_val_str = str(first_val).strip()
+                    # Exact match with anchor term (with or without leading space)
+                    if first_val_str == anchor_term or first_val_str == anchor_term_with_space:
+                        return i
+            
+            # Priority 2: Fallback to ko_term matching
             for i in range(len(df_sample)):
                 first_val = df_sample.iloc[i, 0]
                 if pd.notna(first_val):
@@ -75,7 +92,7 @@ def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'u
                     if first_val_str.lstrip() in ko_terms:
                         return i
             
-            # If no match found, return default based on file name
+            # Priority 3: Default fallback based on file name
             if '7th' in str(file_path):
                 return HEADER_ROWS.get('7th', 6)
             elif '8th_direct' in str(file_path):
@@ -510,11 +527,26 @@ def handle_missing_values(
     """
     Handle missing values: record warnings, keep NaN.
     
+    Deduplication: Skip value_missing warning if SENTINEL_MISSING was already recorded
+    for the same column (to avoid duplicate warnings for same root cause).
+    
     No exceptions raised (NaN + warnings policy).
     """
+    # Build set of columns that already have SENTINEL_MISSING warnings
+    sentinel_columns = set()
+    for w in warnings:
+        if (w.get('reason') == 'SENTINEL_MISSING' and 
+            w.get('source') == source_key and 
+            w.get('column') != 'all'):
+            sentinel_columns.add(w.get('column'))
+    
     for col in df.columns:
         missing_count = df[col].isna().sum()
         if missing_count > 0:
+            # Skip if this column already has SENTINEL_MISSING warning (deduplication)
+            if col in sentinel_columns:
+                continue
+            
             warnings.append({
                 "source": source_key,
                 "file": SOURCE_FILES[source_key],
