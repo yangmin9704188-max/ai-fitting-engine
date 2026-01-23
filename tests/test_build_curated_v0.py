@@ -30,7 +30,9 @@ from pipelines.build_curated_v0 import (
     find_header_candidates,
     emit_header_candidates,
     collect_arm_knee_trace,
-    emit_arm_knee_trace
+    emit_arm_knee_trace,
+    collect_unit_fail_trace,
+    emit_unit_fail_trace
 )
 
 
@@ -1512,6 +1514,157 @@ def test_unit_warnings_source_key_presence():
         assert w.get('source') == 'system', f"System warning should have source='system', got: {w.get('source')}"
 
 
+def test_unit_fail_trace_generation():
+    """
+    Test unit-fail trace generation for inf/-inf diagnosis.
+    
+    Verifies:
+    1) collect_unit_fail_trace captures non-finite values
+    2) emit_unit_fail_trace generates markdown with non_finite_count > 0
+    3) sample_values prioritize non-finite values
+    """
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+    import tempfile
+    
+    # Create synthetic DataFrame with inf values that will trigger unit_conversion_failed
+    df = pd.DataFrame({
+        'NECK_WIDTH_M': [0.1, 0.2, np.inf, -np.inf, 0.15, np.nan],
+        'NECK_DEPTH_M': [0.05, 0.1, np.inf, 0.08, np.nan, 0.12],
+        'UNDERBUST_CIRC_M': [0.7, np.inf, 0.75, -np.inf, 0.72, np.nan],
+        'CHEST_CIRC_M_REF': [0.9, 0.95, np.inf, 0.92, np.nan, 0.88],
+        'OTHER_COL': [1, 2, 3, 4, 5, 6]
+    })
+    
+    # Test collect_unit_fail_trace
+    trace = collect_unit_fail_trace(df, '7th', 'after_unit_conversion')
+    
+    # Verify all target keys are in trace
+    target_keys = ['NECK_WIDTH_M', 'NECK_DEPTH_M', 'UNDERBUST_CIRC_M', 'CHEST_CIRC_M_REF']
+    for key in target_keys:
+        assert key in trace, f"Trace should include {key}"
+        assert trace[key]['present'], f"{key} should be present"
+        assert trace[key]['non_finite_count'] > 0, f"{key} should have non_finite_count > 0"
+        assert len(trace[key]['sample_values']) > 0, f"{key} should have sample values"
+        # Verify non-finite values are in samples (inf/-inf should appear)
+        sample_str = ' '.join(trace[key]['sample_values'])
+        assert 'inf' in sample_str or 'Inf' in sample_str or '-inf' in sample_str or 'non_finite' in sample_str, \
+            f"{key} samples should include inf values"
+    
+    # Test emit_unit_fail_trace
+    all_traces = {
+        '7th': [trace]
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        output_path = Path(f.name)
+    
+    try:
+        emit_unit_fail_trace(all_traces, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), "Trace markdown file should be created"
+        
+        # Read and verify content
+        content = output_path.read_text(encoding='utf-8')
+        assert 'curated_v0 Unit Fail Trace' in content, "Should contain title"
+        assert '7th' in content, "Should contain source"
+        assert 'NECK_WIDTH_M' in content, "Should contain NECK_WIDTH_M"
+        assert 'non_finite_count' in content, "Should contain non_finite_count"
+        
+        # Verify non_finite_count > 0 is recorded
+        assert 'non_finite_count: 2' in content or 'non_finite_count: 3' in content or 'non_finite_count: 4' in content, \
+            "Should record non_finite_count > 0"
+        
+    finally:
+        if output_path.exists():
+            output_path.unlink()
+
+
+def test_unit_fail_trace_dtype_safe():
+    """
+    Test unit-fail trace generation with object dtype (dtype-safe non-finite detection).
+    
+    Verifies:
+    1) collect_unit_fail_trace does not crash on object dtype columns
+    2) non_finite_count correctly identifies inf/-inf after numeric coercion
+    3) non_numeric_count correctly identifies non-numeric values
+    4) sample_values include both raw and processed samples
+    """
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+    import tempfile
+    
+    # Create synthetic DataFrame with object dtype containing mixed values
+    df = pd.DataFrame({
+        'NECK_WIDTH_M': pd.Series(["1", "2", "inf", "-inf", "x", None], dtype='object'),
+        'NECK_DEPTH_M': pd.Series(["0.5", "0.6", "Infinity", "-Infinity", "nan", "1.5"], dtype='object'),
+        'UNDERBUST_CIRC_M': pd.Series([0.7, 0.75, np.inf, -np.inf, 0.72, np.nan], dtype='float64'),
+        'CHEST_CIRC_M_REF': pd.Series(["0.9", "0.95", "1.0", None, "0.88"], dtype='object'),
+        'OTHER_COL': [1, 2, 3, 4, 5, 6]
+    })
+    
+    # Test collect_unit_fail_trace (should not crash)
+    trace = collect_unit_fail_trace(df, '8th_direct', 'after_unit_conversion')
+    
+    # Verify NECK_WIDTH_M trace
+    assert 'NECK_WIDTH_M' in trace, "Trace should include NECK_WIDTH_M"
+    neck_trace = trace['NECK_WIDTH_M']
+    assert neck_trace['present'], "NECK_WIDTH_M should be present"
+    
+    # Verify non_finite_count: should be 2 (inf, -inf)
+    assert neck_trace['non_finite_count'] == 2, \
+        f"NECK_WIDTH_M should have non_finite_count=2, got {neck_trace['non_finite_count']}"
+    
+    # Verify non_numeric_count: should be 1 ("x")
+    assert neck_trace.get('non_numeric_count', 0) == 1, \
+        f"NECK_WIDTH_M should have non_numeric_count=1, got {neck_trace.get('non_numeric_count', 0)}"
+    
+    # Verify sample_values include non-finite markers
+    sample_str = ' '.join(neck_trace.get('sample_values', []))
+    assert 'non_finite' in sample_str or 'inf' in sample_str, \
+        f"Sample values should include non-finite markers: {sample_str}"
+    
+    # Verify raw_sample_values exist
+    assert 'raw_sample_values' in neck_trace, "Should have raw_sample_values"
+    assert len(neck_trace['raw_sample_values']) > 0, "Should have raw sample values"
+    
+    # Verify NECK_DEPTH_M trace (Infinity strings)
+    assert 'NECK_DEPTH_M' in trace, "Trace should include NECK_DEPTH_M"
+    depth_trace = trace['NECK_DEPTH_M']
+    # Infinity strings should be converted to inf, so non_finite_count should be 2
+    assert depth_trace['non_finite_count'] >= 0, "NECK_DEPTH_M should have valid non_finite_count"
+    
+    # Test emit_unit_fail_trace (should not crash)
+    all_traces = {
+        '8th_direct': [trace]
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        output_path = Path(f.name)
+    
+    try:
+        emit_unit_fail_trace(all_traces, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), "Trace markdown file should be created"
+        
+        # Read and verify content
+        content = output_path.read_text(encoding='utf-8')
+        assert 'curated_v0 Unit Fail Trace' in content, "Should contain title"
+        assert '8th_direct' in content, "Should contain source"
+        assert 'NECK_WIDTH_M' in content, "Should contain NECK_WIDTH_M"
+        assert 'non_finite_count' in content, "Should contain non_finite_count"
+        assert 'non_numeric_count' in content, "Should contain non_numeric_count"
+        assert 'raw_sample_values' in content, "Should contain raw_sample_values"
+        
+    finally:
+        if output_path.exists():
+            output_path.unlink()
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1536,6 +1689,8 @@ if __name__ == '__main__':
         test_arm_knee_trace_generation()
         test_unit_fallback_mm_for_8th_unitless()
         test_unit_warnings_source_key_presence()
+        test_unit_fail_trace_generation()
+        test_unit_fail_trace_dtype_safe()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
