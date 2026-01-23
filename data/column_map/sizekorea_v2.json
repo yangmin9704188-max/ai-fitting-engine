@@ -61,15 +61,15 @@
       "ko_term": "키",
       "sources": {
         "7th": {
-          "column": "S-STa-H-[FL01-HD01]-DM_키",
+          "column": "키",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-H-[FL01-HD01]-DM_002. 키",
+          "column": "키",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-H-[FL01-HD01]-DM_432. 키",
+          "column": "키",
           "present": true
         }
       }
@@ -79,15 +79,15 @@
       "ko_term": "몸무게",
       "sources": {
         "7th": {
-          "column": "S-STa-B-[BM01]-DM_몸무게",
+          "column": "체중(몸무게)",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-B-[BM01]-DM_125. 몸무게",
+          "column": "체중(몸무게)",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-B-[BM01]-DM_503. 몸무게",
+          "column": "체중(몸무게)",
           "present": true
         }
       }
@@ -169,16 +169,16 @@
       "ko_term": "어깨너비",
       "sources": {
         "7th": {
-          "column": "S-SIb-W-[SD01L-SD01R]-DM_어깨너비",
+          "column": "어깨너비",
           "present": true
         },
         "8th_direct": {
-          "column": null,
-          "present": false
+          "column": "어깨너비",
+          "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "어깨너비",
+          "present": true
         }
       }
     },
@@ -205,15 +205,15 @@
       "ko_term": "젖가슴둘레",
       "sources": {
         "7th": {
-          "column": "S-STa-C-[CH01]-DM_젖가슴둘레",
+          "column": "젖가슴둘레",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-C-[CH01]-DM_042. 젖가슴둘레",
+          "column": "젖가슴둘레",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-C-[CH01]-DM_460. 젖가슴둘레",
+          "column": "젖가슴둘레",
           "present": true
         }
       }
@@ -223,15 +223,15 @@
       "ko_term": "젖가슴아래둘레(여)",
       "sources": {
         "7th": {
-          "column": "S-STa-C-[CH10]-DM_젖가슴아래둘레(여)",
+          "column": "젖가슴아래둘레(여)",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-C-[CH10]-DM_043. 젖가슴아래둘레(여)",
+          "column": "젖가슴아래둘레",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-C-[CH10]-DM_461. 젖가슴아래둘레(여)",
+          "column": "젖가슴아래둘레",
           "present": true
         }
       }
@@ -313,15 +313,15 @@
       "ko_term": "허리둘레",
       "sources": {
         "7th": {
-          "column": "S-STa-C-[WS11]-DM_허리둘레",
+          "column": "허리둘레",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-C-[WS11]-DM_045. 허리둘레",
+          "column": "허리둘레",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-C-[WS11]-DM_463. 허리둘레",
+          "column": "허리둘레",
           "present": true
         }
       }
@@ -331,15 +331,15 @@
       "ko_term": "배꼽수준허리둘레",
       "sources": {
         "7th": {
-          "column": "S-STa-C-[WS30]-DM_배꼽수준허리둘레",
+          "column": "배꼽수준허리둘레",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-C-[WS30]-DM_046. 배꼽수준허리둘레",
+          "column": "배꼽수준허리둘레",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-C-[WS30]-DM_464. 배꼽수준허리둘레",
+          "column": "배꼽수준허리둘레",
           "present": true
         }
       }
@@ -439,15 +439,15 @@
       "ko_term": "엉덩이둘레",
       "sources": {
         "7th": {
-          "column": "S-STa-C-[HP40]-DM_엉덩이둘레",
+          "column": "엉덩이둘레",
           "present": true
         },
         "8th_direct": {
-          "column": "S-STa-C-[HP40]-DM_048. 엉덩이둘레",
+          "column": "엉덩이둘레",
           "present": true
         },
         "8th_3d": {
-          "column": "S-STa-C-[HP40]-DM_465. 엉덩이둘레",
+          "column": "엉덩이둘레",
           "present": true
         }
       }
