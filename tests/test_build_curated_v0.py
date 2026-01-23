@@ -26,7 +26,9 @@ from pipelines.build_curated_v0 import (
     build_curated_v0,
     calculate_source_quality,
     detect_duplicate_headers,
-    generate_quality_summary
+    generate_quality_summary,
+    find_header_candidates,
+    emit_header_candidates
 )
 
 
@@ -1185,6 +1187,87 @@ def test_quality_summary_generation():
         assert 'HEIGHT_M' in content, "HEIGHT_M should be in completeness summary"
 
 
+def test_header_candidates_generation():
+    """
+    Test that header candidates are found and emitted correctly.
+    
+    Verifies:
+    1) find_header_candidates finds columns matching search patterns
+    2) Candidates include non_null_count, missing_count, total_rows
+    3) emit_header_candidates generates facts-only markdown
+    """
+    import tempfile
+    
+    # Create synthetic DataFrame with candidate columns
+    df = pd.DataFrame({
+        '팔길이': [1.7, 1.8, np.nan, 1.65, 1.75],  # 4 non-null, 1 missing
+        '팔길이.1': [np.nan, np.nan, np.nan, np.nan, np.nan],  # 0 non-null, 5 missing
+        '팔길이.2': [1.6, np.nan, 1.7, np.nan, 1.8],  # 3 non-null, 2 missing
+        '앉은무릎높이': [0.4, 0.45, np.nan, 0.42, 0.43],  # 4 non-null, 1 missing
+        '무릎높이': [0.5, np.nan, np.nan, 0.48, 0.49],  # 3 non-null, 2 missing
+        'other_col': [1, 2, 3, 4, 5]  # Not a candidate
+    })
+    
+    # Test find_header_candidates
+    candidates = find_header_candidates(df, '8th_direct', ['ARM_LEN_M', 'KNEE_HEIGHT_M'], primary_row=4)
+    
+    # Verify ARM_LEN_M candidates
+    assert 'ARM_LEN_M' in candidates, "ARM_LEN_M should be in candidates"
+    arm_candidates = candidates['ARM_LEN_M']
+    assert len(arm_candidates) == 3, f"Should find 3 ARM_LEN_M candidates, found {len(arm_candidates)}"
+    
+    # Verify candidates are sorted by non_null_count descending
+    assert arm_candidates[0]['non_null_count'] == 4, "First candidate should have 4 non-null"
+    assert arm_candidates[0]['column_name'] == '팔길이', "First candidate should be '팔길이'"
+    assert arm_candidates[1]['non_null_count'] == 3, "Second candidate should have 3 non-null"
+    assert arm_candidates[1]['column_name'] == '팔길이.2', "Second candidate should be '팔길이.2'"
+    assert arm_candidates[2]['non_null_count'] == 0, "Third candidate should have 0 non-null"
+    assert arm_candidates[2]['column_name'] == '팔길이.1', "Third candidate should be '팔길이.1'"
+    
+    # Verify candidate structure
+    for candidate in arm_candidates:
+        assert 'column_name' in candidate, "Candidate should have column_name"
+        assert 'non_null_count' in candidate, "Candidate should have non_null_count"
+        assert 'missing_count' in candidate, "Candidate should have missing_count"
+        assert 'total_rows' in candidate, "Candidate should have total_rows"
+        assert 'non_null_rate' in candidate, "Candidate should have non_null_rate"
+        assert candidate['total_rows'] == 5, "Total rows should be 5"
+        assert candidate['non_null_count'] + candidate['missing_count'] == 5, "non_null + missing should equal total"
+    
+    # Verify KNEE_HEIGHT_M candidates
+    assert 'KNEE_HEIGHT_M' in candidates, "KNEE_HEIGHT_M should be in candidates"
+    knee_candidates = candidates['KNEE_HEIGHT_M']
+    assert len(knee_candidates) == 2, f"Should find 2 KNEE_HEIGHT_M candidates, found {len(knee_candidates)}"
+    
+    # Verify emit_header_candidates
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "header_candidates.md"
+        all_candidates = {
+            '8th_direct': candidates
+        }
+        emit_header_candidates(all_candidates, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), f"Header candidates file should be created at {output_path}"
+        
+        # Read and verify content
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify facts-only content
+        assert '8th_direct' in content, "Content should include source '8th_direct'"
+        assert 'ARM_LEN_M' in content, "Content should include ARM_LEN_M"
+        assert 'KNEE_HEIGHT_M' in content, "Content should include KNEE_HEIGHT_M"
+        assert '팔길이' in content, "Content should include candidate '팔길이'"
+        assert '앉은무릎높이' in content, "Content should include candidate '앉은무릎높이'"
+        assert 'Non-Null Count' in content, "Content should include non-null count header"
+        assert 'Missing Count' in content, "Content should include missing count header"
+        
+        # Verify no action directives (facts-only)
+        assert 'should' not in content.lower() or ('should' in content.lower() and 'should be' not in content.lower()), \
+            "Content should be facts-only, no action directives"
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1205,6 +1288,7 @@ if __name__ == '__main__':
         test_weight_kg_mixed_dtype_parquet_cast()
         test_non_finite_normalization()
         test_quality_summary_generation()
+        test_header_candidates_generation()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
