@@ -2095,3 +2095,87 @@ def test_all_null_by_source_warning():
     assert warnings_after == warnings_before, "Should not add duplicate warnings"
 
 
+def test_parse_decimal_comma_vs_thousands_comma():
+    """
+    Test 7th comma parsing: distinguish decimal comma vs thousands separator.
+    
+    Verifies:
+    1) "79,5" -> 79.5 (decimal comma)
+    2) "377,0" -> 377.0 (decimal comma)
+    3) "1,736" -> 1736 (thousands separator)
+    4) "12,345" -> 12345 (thousands separator)
+    5) "1,234.56" -> 1234.56 (dot exists, comma is thousands separator)
+    """
+    # Create synthetic DataFrame with mixed comma patterns
+    df = pd.DataFrame({
+        'WAIST_CIRC_M': pd.Series(["79,5", "377,0", "1,736", "12,345", "1,234.56", "800"], dtype='object'),
+        'SHOULDER_WIDTH_M': pd.Series(["40,5", "450", "1,200", "50,0"], dtype='object'),
+        'HEIGHT_M': pd.Series(["1,700", "175", "1,800"], dtype='object')
+    })
+    
+    warnings = []
+    result_df = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify decimal comma parsing
+    waist_values = result_df['WAIST_CIRC_M'].dropna()
+    assert 79.5 in waist_values.values or abs(waist_values.values - 79.5).min() < 0.1, "79,5 should parse to 79.5"
+    assert 377.0 in waist_values.values or abs(waist_values.values - 377.0).min() < 0.1, "377,0 should parse to 377.0"
+    
+    # Verify thousands separator parsing
+    assert 1736 in waist_values.values or abs(waist_values.values - 1736).min() < 0.1, "1,736 should parse to 1736"
+    assert 12345 in waist_values.values or abs(waist_values.values - 12345).min() < 0.1, "12,345 should parse to 12345"
+    
+    # Verify dot+comma case (comma is thousands separator)
+    assert 1234.56 in waist_values.values or abs(waist_values.values - 1234.56).min() < 0.1, "1,234.56 should parse to 1234.56"
+    
+    # Verify normal values still work
+    assert 800 in waist_values.values or abs(waist_values.values - 800).min() < 0.1, "800 should remain 800"
+
+
+def test_unit_fail_counts_do_not_treat_nan_as_inf():
+    """
+    Test that unit_conversion_failed only counts inf/-inf, not NaN.
+    
+    Verifies:
+    1) NaN-only series does not trigger unit_conversion_failed
+    2) inf/-inf values are correctly detected and counted
+    3) Mixed NaN and inf/-inf: only inf/-inf count toward unit_conversion_failed
+    """
+    import numpy as np
+    from pipelines.build_curated_v0 import collect_unit_fail_trace
+    
+    # Test case 1: NaN-only series
+    df_nan_only = pd.DataFrame({
+        'NECK_WIDTH_M': [np.nan] * 100,
+        'NECK_DEPTH_M': [np.nan] * 100
+    })
+    
+    trace_nan = collect_unit_fail_trace(df_nan_only, '7th', 'after_unit_conversion')
+    
+    # Verify non_finite_count is 0 for NaN-only columns
+    assert trace_nan['NECK_WIDTH_M']['non_finite_count'] == 0, "NaN-only column should have non_finite_count=0"
+    assert trace_nan['NECK_DEPTH_M']['non_finite_count'] == 0, "NaN-only column should have non_finite_count=0"
+    
+    # Test case 2: inf/-inf values
+    df_inf = pd.DataFrame({
+        'NECK_WIDTH_M': [0.1, 0.2, np.inf, -np.inf, 0.15, np.nan],
+        'NECK_DEPTH_M': [0.05, 0.1, np.inf, 0.08, np.nan, 0.12]
+    })
+    
+    trace_inf = collect_unit_fail_trace(df_inf, '7th', 'after_unit_conversion')
+    
+    # Verify inf/-inf are counted
+    assert trace_inf['NECK_WIDTH_M']['non_finite_count'] == 2, "Should count 2 inf/-inf values (not NaN)"
+    assert trace_inf['NECK_DEPTH_M']['non_finite_count'] == 1, "Should count 1 inf value (not NaN)"
+    
+    # Test case 3: Mixed NaN and inf/-inf
+    df_mixed = pd.DataFrame({
+        'UNDERBUST_CIRC_M': [0.7, np.inf, np.nan, -np.inf, np.nan, 0.72]
+    })
+    
+    trace_mixed = collect_unit_fail_trace(df_mixed, '7th', 'after_unit_conversion')
+    
+    # Verify only inf/-inf are counted (2 inf/-inf, 2 NaN -> non_finite_count should be 2)
+    assert trace_mixed['UNDERBUST_CIRC_M']['non_finite_count'] == 2, "Should count only 2 inf/-inf values, not NaN"
+
+
