@@ -255,7 +255,9 @@ def test_sentinel_missing_handling():
         assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
         assert w.get('source') == '8th_direct', "Source should be '8th_direct'"
         assert w.get('column') in ['HEIGHT_M', 'WAIST_CIRC_M'], "Column should be HEIGHT_M or WAIST_CIRC_M"
-        assert w.get('original_value') == '9999', "original_value should be '9999'"
+        assert w.get('sentinel_value') == '9999', "sentinel_value should be '9999'"
+        assert 'sentinel_count' in w, "sentinel_count should be present"
+        assert w.get('sentinel_count') > 0, "sentinel_count should be positive"
     
     # Test 7th: empty string sentinel
     df_7th = pd.DataFrame({
@@ -277,7 +279,9 @@ def test_sentinel_missing_handling():
     for w in sentinel_warnings_7th:
         assert w['reason'] == 'SENTINEL_MISSING', "Warning reason should be 'SENTINEL_MISSING'"
         assert w.get('source') == '7th', "Source should be '7th'"
-        assert w.get('original_value') == '', "original_value should be ''"
+        assert w.get('sentinel_value') == '', "sentinel_value should be ''"
+        assert 'sentinel_count' in w, "sentinel_count should be present"
+        assert w.get('sentinel_count') > 0, "sentinel_count should be positive"
 
 
 def test_comma_parsing_7th():
@@ -314,65 +318,90 @@ def test_comma_parsing_7th():
 def test_header_detection_anchor_priority():
     """
     Test that header detection prioritizes anchor term "표준 측정항목 명" over ko_term matching.
+    Uses synthetic CSV to ensure deterministic testing.
     """
+    import tempfile
     import json
-    from pathlib import Path
     
-    mapping_path = Path(__file__).parent.parent / "data" / "column_map" / "sizekorea_v2.json"
-    assert mapping_path.exists(), f"Mapping file not found: {mapping_path}"
+    # Create synthetic mapping with ko_term for fallback
+    mapping = {
+        'keys': [
+            {
+                'standard_key': 'HEIGHT_M',
+                'ko_term': '키',
+                'sources': {
+                    '7th': {'present': True, 'column': 'HEIGHT_M'}
+                }
+            }
+        ]
+    }
     
-    with open(mapping_path, 'r', encoding='utf-8') as f:
-        mapping = json.load(f)
+    # Create temporary CSV with anchor term in row 3 (0-indexed)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig') as f:
+        temp_path = Path(f.name)
+        # Row 0: code
+        f.write('CODE,COL1,COL2\n')
+        # Row 1: label
+        f.write('Label,COL1,COL2\n')
+        # Row 2: some other row
+        f.write('Other,VAL1,VAL2\n')
+        # Row 3: anchor term (should be detected as header)
+        f.write(' 표준 측정항목 명,키,몸무게\n')
+        # Row 4: data row
+        f.write('DATA,1700,70\n')
     
-    # Test with actual file
-    file_path = Path(__file__).parent.parent / "data" / "raw" / "sizekorea_raw" / "7th_data.csv"
-    if not file_path.exists():
-        # Skip if file doesn't exist
-        return
-    
-    header_row = find_header_row(file_path, mapping)
-    
-    # Verify header row is detected (should be 6 or found dynamically)
-    assert isinstance(header_row, int), "Header row should be an integer"
-    assert header_row >= 0, "Header row should be non-negative"
-    assert header_row < 20, "Header row should be within reasonable range"
+    try:
+        header_row = find_header_row(temp_path, mapping)
+        # Should detect row 3 (0-indexed) as header due to anchor priority
+        assert header_row == 3, f"Expected header row 3 (anchor term), got {header_row}"
+    finally:
+        # Cleanup
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def test_sentinel_dedup_prevention():
     """
-    Test that sentinel_missing prevents duplicate value_missing warnings for same column.
+    Test that sentinel_missing accounting excludes sentinel_count from value_missing.
+    Verifies refined deduplication: remaining = total_missing - sentinel_count.
     """
-    # Create DataFrame with sentinel values
+    # Create DataFrame with sentinel values and additional missing
     df = pd.DataFrame({
-        'HEIGHT_M': [9999, 1800, 1700],
-        'WAIST_CIRC_M': [9999, 800, 750],
-        'SEX': ['M', 'F', 'M']
+        'HEIGHT_M': [9999, 1800, np.nan, 1700],  # 1 sentinel + 1 other missing
+        'WAIST_CIRC_M': [9999, 800, 750, np.nan],  # 1 sentinel + 1 other missing
+        'SEX': ['M', 'F', 'M', 'F']
     })
     
     warnings = []
     
-    # Preprocess (should create SENTINEL_MISSING warnings)
+    # Preprocess (should create SENTINEL_MISSING warnings with sentinel_count)
     df_processed = preprocess_numeric_columns(df, '8th_direct', warnings)
     
     # Count SENTINEL_MISSING warnings
     sentinel_warnings = [w for w in warnings if w.get('reason') == 'SENTINEL_MISSING']
-    assert len(sentinel_warnings) > 0, "Should have SENTINEL_MISSING warnings"
+    assert len(sentinel_warnings) >= 2, "Should have SENTINEL_MISSING warnings for both columns"
     
-    # Now handle missing values (should NOT create value_missing for columns with SENTINEL_MISSING)
-    warnings_before = len(warnings)
+    # Verify sentinel_count is recorded
+    for w in sentinel_warnings:
+        assert 'sentinel_count' in w, "SENTINEL_MISSING warning should have sentinel_count"
+        assert w.get('sentinel_count') == 1, "Each column should have 1 sentinel value"
+    
+    # Now handle missing values (should create value_missing only for remaining missing)
     df_final = handle_missing_values(df_processed, '8th_direct', warnings)
-    warnings_after = len(warnings)
     
-    # Check that value_missing was not added for columns with SENTINEL_MISSING
+    # Check value_missing warnings
     value_missing_warnings = [w for w in warnings if w.get('reason') == 'value_missing']
-    sentinel_columns = {w.get('column') for w in sentinel_warnings}
     
-    # Columns with SENTINEL_MISSING should not have value_missing
+    # Each column has 2 total missing (1 sentinel + 1 other), so value_missing should record remaining = 1
     for w in value_missing_warnings:
-        assert w.get('column') not in sentinel_columns, (
-            f"Column {w.get('column')} should not have value_missing "
-            f"if it already has SENTINEL_MISSING"
+        assert 'remaining' in w.get('details', '') or '1 missing' in w.get('details', ''), (
+            f"value_missing should account for remaining (non-sentinel) missing values"
         )
+    
+    # Verify that value_missing count matches remaining (total - sentinel)
+    # HEIGHT_M: 2 total missing, 1 sentinel -> 1 remaining
+    # WAIST_CIRC_M: 2 total missing, 1 sentinel -> 1 remaining
+    assert len(value_missing_warnings) >= 2, "Should have value_missing for remaining non-sentinel missing"
 
 
 if __name__ == '__main__':
@@ -395,12 +424,3 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
-
-if __name__ == '__main__':
-    success1 = test_build_curated_v0_dry_run()
-    success2 = test_unit_heuristic_ambiguous_scale()
-    success3 = test_unit_heuristic_clear_scale()
-    success4 = test_sentinel_missing_handling()
-    success5 = test_comma_parsing_7th()
-    sys.exit(0 if (success1 and success2 and success3 and success4 and success5) else 1)
