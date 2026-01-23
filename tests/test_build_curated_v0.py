@@ -22,7 +22,8 @@ from pipelines.build_curated_v0 import (
     preprocess_numeric_columns,
     handle_missing_values,
     load_raw_file,
-    extract_columns_from_source
+    extract_columns_from_source,
+    build_curated_v0
 )
 
 
@@ -519,7 +520,7 @@ def test_per_key_header_selection():
     
     try:
         # Find headers
-        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='7th')
+        primary_row, code_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='7th')
         
         assert primary_row == 5, f"Expected primary row 5 (anchor term), got {primary_row}"
         # Secondary should be found at row 7 (primary+2)
@@ -637,7 +638,7 @@ def test_primary_header_anchor_in_non_first_cell():
     
     try:
         # Find headers
-        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
+        primary_row, code_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
         
         # Primary should be row 4 (where anchor term is in col1)
         assert primary_row == 4, f"Expected primary row 4 (anchor in col1), got {primary_row}"
@@ -717,9 +718,10 @@ def test_per_key_header_policy_with_age():
     
     try:
         # Find headers
-        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
+        primary_row, code_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
         
         assert primary_row == 4, f"Expected primary row 4, got {primary_row}"
+        assert code_row == 5, f"Expected code row 5, got {code_row}"
         assert secondary_row == 6, f"Expected secondary row 6, got {secondary_row}"
         
         # Load primary and secondary DataFrames
@@ -803,6 +805,140 @@ def test_xlsx_human_id_string_loading():
             assert all(isinstance(v, str) for v in values), "All HUMAN_ID values should be strings"
 
 
+def test_data_start_row_cutoff():
+    """
+    Test that header/code/meta rows are dropped from data to prevent numeric_parsing_failed.
+    
+    Creates synthetic CSV with:
+    - Row 4: primary header (표준 측정항목 명)
+    - Row 5: code row (표준 측정항목 코드)
+    - Row 6: secondary header (HUMAN_ID/성별/나이)
+    - Row 7+: actual data rows
+    
+    Verifies:
+    1) data_start_row = max(primary, code, secondary) + 1 = 7
+    2) Rows before data_start_row are dropped
+    3) Header/code/meta row values (strings) do not cause numeric_parsing_failed
+    """
+    import tempfile
+    import json
+    
+    # Create synthetic mapping
+    mapping = {
+        'keys': [
+            {
+                'standard_key': 'HUMAN_ID',
+                'ko_term': 'HUMAN_ID',
+                'sources': {
+                    '7th': {'present': True, 'column': 'HUMAN ID'}
+                }
+            },
+            {
+                'standard_key': 'SEX',
+                'ko_term': '성별',
+                'sources': {
+                    '7th': {'present': True, 'column': '성별'}
+                }
+            },
+            {
+                'standard_key': 'HEIGHT_M',
+                'ko_term': '키',
+                'sources': {
+                    '7th': {'present': True, 'column': '키'}
+                }
+            },
+            {
+                'standard_key': 'WEIGHT_KG',
+                'ko_term': '체중(몸무게)',
+                'sources': {
+                    '7th': {'present': True, 'column': '체중(몸무게)'}
+                }
+            }
+        ]
+    }
+    
+    # Create synthetic CSV matching 7th structure
+    # All rows must have same number of columns (5 columns)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig') as f:
+        temp_path = Path(f.name)
+        # Rows 0-3: metadata/empty (5 columns)
+        for i in range(4):
+            f.write(',,,,\n')
+        # Row 4: primary header (표준 측정항목 명)
+        f.write(',표준 측정항목 명,,키,체중(몸무게)\n')
+        # Row 5: code row (표준 측정항목 코드) - this should be dropped
+        f.write(',표준 측정항목 코드,,S-STa-H-[FL01-HD01]-DM,S-STa-B-[BM01]-DM\n')
+        # Row 6: secondary header (HUMAN_ID/성별) - this should be dropped
+        f.write(',HUMAN ID,성별,,\n')
+        # Row 7: first data row
+        f.write(',211606300001,남,1736,72.1\n')
+        # Row 8: second data row
+        f.write(',211606300002,여,1650,58.5\n')
+    
+    try:
+        # Find headers
+        primary_row, code_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='7th')
+        
+        assert primary_row == 4, f"Expected primary row 4, got {primary_row}"
+        assert code_row == 5, f"Expected code row 5, got {code_row}"
+        assert secondary_row == 6, f"Expected secondary row 6, got {secondary_row}"
+        
+        # Calculate data_start_row
+        header_rows_list = [primary_row]
+        if code_row is not None:
+            header_rows_list.append(code_row)
+        if secondary_row is not None:
+            header_rows_list.append(secondary_row)
+        data_start_row = max(header_rows_list) + 1
+        assert data_start_row == 7, f"Expected data_start_row 7, got {data_start_row}"
+        
+        # Load raw file
+        df_raw = load_raw_file(temp_path, primary_row, secondary_row, '7th', is_xlsx=False)
+        
+        # Drop header/code/meta rows
+        df_start_idx = data_start_row - primary_row - 1
+        assert df_start_idx == 2, f"Expected DataFrame start index 2, got {df_start_idx}"
+        
+        if len(df_raw) > 0:
+            df_raw_dropped = df_raw.iloc[df_start_idx:].copy().reset_index(drop=True)
+            assert len(df_raw_dropped) == 2, f"Expected 2 data rows after dropping, got {len(df_raw_dropped)}"
+            
+            # Verify header/code/meta row values are not in DataFrame
+            # Check '키' column (HEIGHT_M)
+            if '키' in df_raw_dropped.columns:
+                height_values = df_raw_dropped['키'].astype(str).tolist()
+                # Should not contain code row value or header name
+                assert 'S-STa-H-[FL01-HD01]-DM' not in height_values, "Code row value should be dropped"
+                assert '키' not in height_values, "Header name should be dropped"
+                # Should contain actual data
+                assert '1736' in height_values or 1736 in df_raw_dropped['키'].values, "Data row value should be present"
+        
+        # Test that numeric_parsing_failed does not occur
+        # Load secondary DataFrame
+        df_secondary = None
+        if secondary_row is not None:
+            df_secondary = pd.read_csv(temp_path, encoding='utf-8-sig', header=secondary_row, low_memory=False)
+            if len(df_secondary) > 0:
+                sec_df_start_idx = data_start_row - secondary_row - 1
+                if sec_df_start_idx > 0:
+                    df_secondary = df_secondary.iloc[sec_df_start_idx:].copy().reset_index(drop=True)
+        
+        # Extract columns
+        warnings = []
+        df_result = extract_columns_from_source(df_raw_dropped, df_secondary, '7th', mapping, warnings)
+        
+        # Preprocess numeric columns (this is where numeric_parsing_failed would occur)
+        df_preprocessed = preprocess_numeric_columns(df_result, '7th', warnings)
+        
+        # Check for numeric_parsing_failed warnings
+        numeric_parsing_failed = [w for w in warnings if w.get('reason') == 'numeric_parsing_failed']
+        assert len(numeric_parsing_failed) == 0, \
+            f"Expected no numeric_parsing_failed warnings, got {len(numeric_parsing_failed)}: {numeric_parsing_failed}"
+        
+    finally:
+        temp_path.unlink()
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -819,6 +955,7 @@ if __name__ == '__main__':
         test_xlsx_human_id_string_loading()
         test_primary_header_anchor_in_non_first_cell()
         test_per_key_header_policy_with_age()
+        test_data_start_row_cutoff()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
