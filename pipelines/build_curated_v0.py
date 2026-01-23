@@ -293,21 +293,26 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         original_series = df[col]
         
         # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
+        # Source-specific parser strategy for 7th only
         if source_key == '7th':
             if original_series.dtype == 'object':
                 # Normalize string values: strip whitespace
                 cleaned = original_series.astype(str).str.strip()
                 
                 # Helper function to parse numeric strings with comma handling
-                # Order: decimal comma first, then thousands separator
-                def parse_numeric_str(s: str) -> str:
-                    """Parse numeric string with comma handling.
+                # Priority order: (a) European decimal comma, (b) thousands separator, (c) ambiguous cases
+                def parse_numeric_str_7th(s: str) -> str:
+                    """Parse numeric string with 7th-specific comma handling strategy.
                     
-                    Order of processing:
-                    A. Decimal comma pattern first: ^\d{1,4},\d{1,2}$ (e.g., "79,5" -> 79.5, "245,0" -> 245.0)
-                    B. Thousands separator: remove comma (e.g., "1,736" -> "1736")
+                    Priority order:
+                    (a) European decimal comma pattern: ^\d+,\d{1,2}$ 
+                        -> Replace ',' with '.' (e.g., "79,5" -> "79.5", "245,0" -> "245.0")
+                    (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
+                        -> Remove ',' (e.g., "1,736" -> "1736", "12,345" -> "12345")
+                    (c) If dot exists, comma is thousands separator -> Remove ','
+                    (d) Ambiguous cases: fallback to comma removal, will be recorded as parsing failures
                     
-                    This order prevents decimal comma values from being incorrectly treated as thousands.
+                    This strategy prevents decimal comma values from being incorrectly treated as thousands.
                     """
                     if pd.isna(s) or s == '' or s == 'nan':
                         return s
@@ -318,30 +323,42 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                     if ',' not in s:
                         return s
                     
-                    # Check if dot exists (if dot exists, comma is thousands separator)
+                    import re
+                    
+                    # (a) European decimal comma pattern: ^\d+,\d{1,2}$
+                    # Matches: "79,5", "245,0", "1234,56" (any digits before comma, 1-2 digits after)
+                    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+                    if re.match(decimal_comma_pattern, s):
+                        # Decimal comma: replace with dot
+                        return s.replace(',', '.')
+                    
+                    # (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
+                    # Matches: "1,736", "12,345", "1,234,567" (1-3 digits, then groups of 3 digits)
+                    thousands_pattern = r'^\d{1,3}(,\d{3})+$'
+                    if re.match(thousands_pattern, s):
+                        # Thousands separator: remove comma
+                        return s.replace(',', '')
+                    
+                    # (c) If dot exists, comma is thousands separator
                     if '.' in s:
                         # Remove comma (thousands separator)
                         return s.replace(',', '')
                     
-                    # No dot: check decimal comma pattern first (1-4 digits, comma, 1-2 digits)
-                    # This must be checked BEFORE thousands separator removal
-                    import re
-                    decimal_comma_pattern = r'^\d{1,4},\d{1,2}$'
-                    if re.match(decimal_comma_pattern, s):
-                        # Decimal comma: replace with dot
-                        return s.replace(',', '.')
-                    else:
-                        # Thousands separator: remove comma
-                        return s.replace(',', '')
+                    # (d) Ambiguous case: fallback to comma removal
+                    # This will be recorded as parsing failure if conversion fails
+                    return s.replace(',', '')
                 
-                # Apply parsing (decimal comma first, then thousands separator)
-                cleaned = cleaned.apply(parse_numeric_str)
+                # Apply 7th-specific parsing strategy
+                cleaned = cleaned.apply(parse_numeric_str_7th)
                 
                 try:
                     numeric_series = pd.to_numeric(cleaned, errors='coerce')
                     result_df[col] = numeric_series
-                    # Count parsing failures
-                    failed_count = numeric_series.isna().sum() - original_series.isna().sum()
+                    # Count parsing failures (non-numeric values after parsing)
+                    original_non_null = original_series.notna().sum()
+                    parsed_non_null = numeric_series.notna().sum()
+                    failed_count = original_non_null - parsed_non_null
+                    
                     if failed_count > 0:
                         warnings.append({
                             "source": source_key,
@@ -350,7 +367,7 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                             "reason": "numeric_parsing_failed",
                             "row_index": None,
                             "original_value": None,
-                            "details": f"{failed_count} values failed to parse after comma normalization"
+                            "details": f"{failed_count} values failed to parse after 7th comma parser strategy (euro_decimal_comma vs thousands_comma disambiguation)"
                         })
                 except Exception:
                     pass  # Keep original if conversion fails

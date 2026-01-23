@@ -43,7 +43,7 @@ Each warning is a JSON object with the following structure:
 - `unit_conversion_applied`: Unit conversion was applied (provenance record)
 - `value_missing`: Missing values (NaN) in column (excludes cases already recorded as SENTINEL_MISSING)
 - `SENTINEL_MISSING`: Sentinel value (9999 for 8th_direct, empty string for 7th/8th_3d) replaced with NaN
-- `numeric_parsing_failed`: Numeric parsing failed after preprocessing (e.g., comma removal in 7th)
+- `numeric_parsing_failed`: Numeric parsing failed after preprocessing (e.g., comma removal in 7th; includes euro_decimal_comma vs thousands_comma disambiguation for 7th source)
 - `OUTLIER_RULES_NOT_FOUND`: No explicit outlier removal rules found in codebase
 - `age_filter_applied`: Age filter (20-59) was applied
 - `no_data_processed`: No data was successfully processed from any source

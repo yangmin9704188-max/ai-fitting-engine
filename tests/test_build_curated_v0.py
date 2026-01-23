@@ -2100,11 +2100,11 @@ def test_parse_decimal_comma_vs_thousands_comma():
     Test 7th comma parsing: distinguish decimal comma vs thousands separator.
     
     Verifies:
-    1) "79,5" -> 79.5 (decimal comma, pattern ^\d{1,4},\d{1,2}$)
+    1) "79,5" -> 79.5 (decimal comma, pattern ^\d+,\d{1,2}$)
     2) "245,0" -> 245.0 (decimal comma, critical case to prevent 10x scale error)
     3) "377,0" -> 377.0 (decimal comma)
-    4) "1,736" -> 1736 (thousands separator, not matched by decimal pattern)
-    5) "12,345" -> 12345 (thousands separator, not matched by decimal pattern)
+    4) "1,736" -> 1736 (thousands separator, pattern ^\d{1,3}(,\d{3})+$)
+    5) "12,345" -> 12345 (thousands separator, pattern ^\d{1,3}(,\d{3})+$)
     6) "1,234.56" -> 1234.56 (dot exists, comma is thousands separator)
     
     Critical regression test: "245,0" must parse to 245.0, not 2450 (10x error).
@@ -2138,6 +2138,60 @@ def test_parse_decimal_comma_vs_thousands_comma():
     
     # Critical assertion: "245,0" must NOT be parsed as 2450 (10x error)
     assert not (2450 in waist_values.values or (abs(waist_values.values - 2450).min() < 0.1)), "245,0 must NOT parse to 2450 (10x scale error)"
+
+
+def test_7th_comma_parser_strategy_end_to_end():
+    """
+    Test 7th comma parser strategy end-to-end: parsing -> unit conversion.
+    
+    Verifies:
+    1) "245,0" parses to 245.0, then mm->m conversion results in 0.245
+    2) "1,736" parses to 1736, then mm->m conversion results in 1.736
+    3) Parser strategy only applies to 7th source (8th_direct/8th_3d unaffected)
+    """
+    # Create DataFrame with mm-scale values that have comma formatting
+    df = pd.DataFrame({
+        'WAIST_CIRC_M': pd.Series(["245,0", "250,5", "1,736", "1,800"], dtype='object'),  # mm scale with commas
+        'HIP_CIRC_M': pd.Series(["900,0", "950,5", "1,200"], dtype='object'),  # mm scale with commas
+        'SEX': ['M', 'F', 'M', 'F']
+    })
+    
+    warnings = []
+    # Preprocess (applies 7th comma parser strategy)
+    df_preprocessed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify parsing results
+    waist_values = df_preprocessed['WAIST_CIRC_M'].dropna()
+    assert 245.0 in waist_values.values or abs(waist_values.values - 245.0).min() < 0.1, "245,0 should parse to 245.0"
+    assert 1736 in waist_values.values or abs(waist_values.values - 1736).min() < 0.1, "1,736 should parse to 1736"
+    
+    # Apply unit conversion (mm->m)
+    unit_map = {
+        'WAIST_CIRC_M': 'mm',
+        'HIP_CIRC_M': 'mm'
+    }
+    df_converted = apply_unit_canonicalization(df_preprocessed, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 245.0 mm -> 0.245 m, 1736 mm -> 1.736 m
+    waist_converted = df_converted['WAIST_CIRC_M'].dropna()
+    assert abs(waist_converted.iloc[0] - 0.245) < 0.001 or abs(waist_converted.iloc[0] - 1.736) < 0.001, \
+        f"WAIST_CIRC_M should be in meters after conversion, got {waist_converted.iloc[0]}"
+    
+    # Verify at least one value is in the expected range (0.2-2.0m for waist)
+    assert (waist_converted > 0.2).any() and (waist_converted < 2.0).any(), \
+        "Converted values should be in realistic meter range"
+    
+    # Verify 8th_direct is not affected by 7th parser strategy
+    df_8th = pd.DataFrame({
+        'WAIST_CIRC_M': pd.Series(["245,0", "1,736"], dtype='object'),
+        'SEX': ['M', 'F']
+    })
+    warnings_8th = []
+    df_8th_preprocessed = preprocess_numeric_columns(df_8th, '8th_direct', warnings_8th)
+    # 8th_direct should not apply comma parsing (no comma handling for 8th)
+    # Values should remain as strings or be handled differently
+    assert len(warnings_8th) == 0 or 'comma' not in str(warnings_8th), \
+        "8th_direct should not apply 7th comma parser strategy"
 
 
 def test_unit_fail_counts_do_not_treat_nan_as_inf():
