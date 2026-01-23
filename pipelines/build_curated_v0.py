@@ -1321,13 +1321,13 @@ def build_curated_v0(
     stats["warnings_count"] = len(warnings)
     
     # Generate quality summary if requested
-        if quality_summary_path is not None and all_source_quality:
-            generate_quality_summary(all_source_quality, all_duplicate_headers, quality_summary_path)
-            print(f"Saved quality summary: {quality_summary_path}")
-        
-        # Emit header candidates if requested
-        if header_candidates_path is not None and all_header_candidates:
-            emit_header_candidates(all_header_candidates, header_candidates_path)
+    if quality_summary_path is not None and all_source_quality:
+        generate_quality_summary(all_source_quality, all_duplicate_headers, quality_summary_path)
+        print(f"Saved quality summary: {quality_summary_path}")
+    
+    # Emit header candidates if requested
+    if header_candidates_path is not None and all_header_candidates:
+        emit_header_candidates(all_header_candidates, header_candidates_path)
     
     # Print summary
     print("\n=== Summary ===")
