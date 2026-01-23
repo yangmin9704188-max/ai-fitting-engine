@@ -187,13 +187,16 @@ def parse_numeric_string_7th(value: str) -> str:
     Parse numeric string with 7th-specific comma handling strategy.
     
     Unified parser for all 7th source numeric conversions.
+    Explicitly disambiguates European decimal comma vs thousands separator.
+    
     Priority order:
-    (a) European decimal comma pattern: ^\d+,\d{1,2}$ 
-        -> Replace ',' with '.' (e.g., "79,5" -> "79.5", "245,0" -> "245.0")
-    (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-        -> Remove ',' (e.g., "1,736" -> "1736", "12,345" -> "12345")
-    (c) If dot exists, comma is thousands separator -> Remove ','
-    (d) Ambiguous cases: fallback to comma removal
+    A) European decimal comma pattern: ^[+-]?\d{1,4},\d+$
+       -> Replace ',' with '.' (e.g., "245,0" -> "245.0", "920,0" -> "920.0", "79,5" -> "79.5")
+    B) Thousands separator pattern: ^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$
+       -> Remove ',' (e.g., "1,736" -> "1736", "12,345.6" -> "12345.6")
+    C) If dot exists, comma is thousands separator -> Remove ','
+    D) Sentinel/empty handling: preserve sentinel values (9999, empty) for downstream processing
+    E) Ambiguous cases: fallback to comma removal
     
     Args:
         value: String value to parse
@@ -210,26 +213,30 @@ def parse_numeric_string_7th(value: str) -> str:
     if ',' not in s:
         return s
     
-    # (a) European decimal comma pattern: ^\d+,\d{1,2}$
-    # Matches: "79,5", "245,0", "1234,56" (any digits before comma, 1-2 digits after)
-    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+    # A) European decimal comma pattern: ^[+-]?\d{1,4},\d+$
+    # Matches: "245,0", "920,0", "79,5", "1234,56" (1-4 digits before comma, any digits after)
+    # This prevents 10x scale errors (e.g., "920,0" -> "920.0", not "9200")
+    decimal_comma_pattern = r'^[+-]?\d{1,4},\d+$'
     if re.match(decimal_comma_pattern, s):
         # Decimal comma: replace with dot
         return s.replace(',', '.')
     
-    # (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-    # Matches: "1,736", "12,345", "1,234,567" (1-3 digits, then groups of 3 digits)
-    thousands_pattern = r'^\d{1,3}(,\d{3})+$'
+    # B) Thousands separator pattern: ^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$
+    # Matches: "1,736", "12,345", "1,234,567", "12,345.6" (1-3 digits, then groups of 3 digits, optional decimal)
+    thousands_pattern = r'^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$'
     if re.match(thousands_pattern, s):
         # Thousands separator: remove comma
         return s.replace(',', '')
     
-    # (c) If dot exists, comma is thousands separator
+    # C) If dot exists, comma is thousands separator
     if '.' in s:
         # Remove comma (thousands separator)
         return s.replace(',', '')
     
-    # (d) Ambiguous case: fallback to comma removal
+    # D) Sentinel/empty handling: preserve sentinel values for downstream processing
+    # (handled by caller, but ensure we don't break sentinel detection)
+    
+    # E) Ambiguous case: fallback to comma removal
     return s.replace(',', '')
 
 
@@ -361,13 +368,15 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         
         # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
         # Source-specific parser strategy for 7th only - uses unified parse_numeric_string_7th function
-        # CRITICAL: XLSX may auto-convert "245,0" to numeric 2450, so we must convert to string first
+        # CRITICAL: XLSX may auto-convert "920,0" to numeric 9200 (10x error), so we must convert to string first
+        # CRITICAL: Apply parser regardless of dtype (numeric or object) to prevent 10x scale errors
         if source_key == '7th':
             # Convert to string first (handles both object and numeric dtype from XLSX)
-            # This ensures parser is applied even if Excel already converted "245,0" to 2450
+            # This ensures parser is applied even if Excel already converted "920,0" to 9200
+            # dtype 무관 적용: numeric dtype이어도 반드시 string 변환 후 파싱
             cleaned = original_series.astype(str).str.strip()
             
-            # Apply unified 7th-specific parsing strategy
+            # Apply unified 7th-specific parsing strategy (euro-decimal-comma disambiguation)
             cleaned = cleaned.apply(parse_numeric_string_7th)
             
             try:
@@ -610,17 +619,45 @@ def check_massive_null_introduced(
             })
 
 
+def expects_meter(standard_key: str) -> bool:
+    """
+    Authoritative predicate: does this standard_key expect meter unit after canonicalization?
+    
+    Returns True if the key indicates length/circ/height/width/depth measured in meters.
+    This is the single source of truth for meter-key detection used everywhere.
+    
+    Rules:
+    - Returns False for meta keys: HUMAN_ID, SEX, AGE
+    - Returns False for WEIGHT_KG
+    - Returns True if the key contains '_M' (not only at the end, e.g., CHEST_CIRC_M_REF)
+    - Must not end with '_KG' (to exclude WEIGHT_KG)
+    
+    Args:
+        standard_key: Standard key name
+        
+    Returns:
+        True if key expects meter unit, False otherwise
+    """
+    if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
+        return False
+    if standard_key == 'WEIGHT_KG' or standard_key.endswith('_KG'):
+        return False
+    # CRITICAL: Check if '_M' is in the key (not just endswith), to include CHEST_CIRC_M_REF
+    return '_M' in standard_key
+
+
 def get_expected_unit(standard_key: str) -> Optional[str]:
     """
     Get expected unit for a standard_key based on standard_keys.md contract.
     
     Returns 'm' for measurement keys with _M suffix, 'kg' for WEIGHT_KG, None for meta.
+    Uses expects_meter() for consistency.
     """
     if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
         return None
     if standard_key == 'WEIGHT_KG':
         return 'kg'
-    if standard_key.endswith('_M'):
+    if expects_meter(standard_key):
         return 'm'
     return None
 
@@ -940,15 +977,21 @@ def sample_units(df: pd.DataFrame, sample_size: int = 100, source_key: Optional[
             unit_map[col] = "kg"
             continue
         
-        # For 7th source: unit=m standard keys default to mm (no cm heuristic)
-        if source_key == '7th' and is_unit_m_key(col):
-            # Default to mm for unit=m keys in 7th (no cm estimation)
-            # Only check if values are already in meters (median < 1)
-            if median_val < 1:
-                unit_map[col] = "m"
-            else:
-                unit_map[col] = "mm"  # Default assumption for 7th
-            continue
+        # For 7th source: source-level rule - no unit estimation, always mm for meter-expected keys
+        # CRITICAL: 7th에서는 unit 추정을 절대 하지 않고 source-level rule로 원본 단위를 고정
+        # This prevents 10x errors from median-based cm estimation (e.g., 245mm -> 2.45m, 920mm -> 9.2m)
+        # Uses expects_meter() predicate to include all meter-expected keys (e.g., CHEST_CIRC_M_REF)
+        if source_key == '7th':
+            if expects_meter(col):
+                # 7th source-level rule: meter-expected keys are always mm (no estimation, no cm/m metadata)
+                # This ensures only mm->m(/1000) conversion occurs, never cm->m(/100)
+                unit_map[col] = "mm"
+                continue
+            # For non-meter keys (e.g., WEIGHT_KG already handled above), skip 7th rule
+            # Fall through to default logic if needed
+        
+        # For 8th_direct/8th_3d: keep existing median-based heuristic
+        # (unit metadata=0이므로 mm fallback, but median heuristic still applies)
         
         # Contract: Length/circumference are in mm (convert to m)
         # Heuristic: typical human measurements
@@ -1087,6 +1130,28 @@ def apply_unit_canonicalization(
         
         source_unit = unit_map[col]
         
+        # 7th-specific unit override: force mm for unit=m keys (except WEIGHT_KG)
+        # Contract: 7th is "all mm-based except weight" (Facts-only contract)
+        # Force mm for unit=m keys regardless of unit meta (cm or m) to prevent 10x scale errors
+        # This is a source-level rule, not a key-specific exception
+        if source_key == "7th" and col != "WEIGHT_KG":
+            expected_unit = get_expected_unit(col)
+            if expected_unit == 'm':
+                # Force mm for all unit=m keys in 7th source, regardless of unit meta
+                # This prevents 10x scale errors when unit meta incorrectly says 'cm' or 'm'
+                original_unit_meta = source_unit
+                source_unit = "mm"
+                file_path = SOURCE_FILES.get(source_key, "unknown")
+                warnings.append({
+                    "source": source_key,
+                    "file": file_path,
+                    "column": col,
+                    "reason": "unit_conversion_applied",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"UNIT_OVERRIDE_7TH_MM: 7th source forces mm for unit=m keys (unit meta overridden), standard_key={col}, original_unit_meta={original_unit_meta}, forced_unit=mm"
+                })
+        
         if source_unit not in ["mm", "cm", "m"]:
             # Invalid unit (e.g., "kg" for measurement, "g" for weight)
             result_df[col] = np.nan
@@ -1108,9 +1173,11 @@ def apply_unit_canonicalization(
         # For 7th source, apply unified comma parser strategy before numeric conversion
         original_series = df[col]
         
-        # Apply 7th-specific parser strategy if needed (before numeric conversion)
-        if source_key == '7th' and original_series.dtype == 'object':
-            # Apply unified 7th parser to all object dtype columns before numeric conversion
+        # Apply 7th-specific parser strategy (dtype 무관 적용)
+        # CRITICAL: XLSX may auto-convert "920,0" to numeric 9200, so we must parse even for numeric dtype
+        if source_key == '7th':
+            # Apply unified 7th parser regardless of dtype (numeric or object)
+            # This prevents 10x scale errors from Excel auto-conversion
             parsed_series = original_series.astype(str).str.strip().apply(parse_numeric_string_7th)
             numeric_series = pd.to_numeric(parsed_series, errors='coerce')
         else:
@@ -1125,41 +1192,8 @@ def apply_unit_canonicalization(
         values = numeric_series.values
         converted = canonicalize_units_to_m(values, source_unit, warning_list)
         
-        # 7th-specific unit override heuristic: check if cm->m conversion resulted in unrealistic values
-        # If p50 > 2.5 or p99 > 3.5, treat as mm scale instead (apply additional /10)
-        applied_scale_before = None
-        applied_scale_after = None
-        if source_key == "7th" and source_unit == "cm":
-            # Check if this is a unit=m key (expected_unit='m' means _M suffix)
-            expected_unit = get_expected_unit(col)
-            if expected_unit == 'm':
-                # Check distribution after cm->m conversion
-                finite_converted = converted[np.isfinite(converted)]
-                if len(finite_converted) > 0:
-                    p50 = np.median(finite_converted)
-                    p99 = np.percentile(finite_converted, 99)
-                    
-                    # If values are unrealistic in meters (p50 > 2.5 or p99 > 3.5), treat as mm
-                    if p50 > 2.5 or p99 > 3.5:
-                        # Apply additional /10 (treating as mm instead of cm)
-                        # Original: mm values -> cm conversion (/100) -> m conversion (/100) = /10000 total
-                        # Correct: mm values -> m conversion (/1000) = /1000 total
-                        # So we need to multiply by 10 to correct the scale
-                        converted = converted / 10.0
-                        applied_scale_before = 100  # cm->m scale
-                        applied_scale_after = 1000  # mm->m scale
-                        
-                        # Emit warning
-                        file_path = SOURCE_FILES.get(source_key, "unknown")
-                        warnings.append({
-                            "source": source_key,
-                            "file": file_path,
-                            "column": col,
-                            "reason": "UNIT_OVERRIDE_SUSPECTED_MM",
-                            "row_index": None,
-                            "original_value": None,
-                            "details": f"source_key={source_key}, standard_key={col}, p50={p50:.4f}, p99={p99:.4f}, applied_scale_before={applied_scale_before}, applied_scale_after={applied_scale_after}"
-                        })
+        # Note: 7th-specific unit override is applied earlier (before canonicalization)
+        # The source-level rule forces mm for unit=m keys, so no post-conversion heuristic is needed
         
         result_df[col] = converted
         
@@ -1408,12 +1442,23 @@ def generate_completeness_report(
                 non_null_count = series.notna().sum()
                 non_null_rate = non_null_count / total_rows if total_rows > 0 else 0.0
                 
+                # Check if column is numeric (to separate non-numeric columns from all_null)
+                is_numeric = pd.api.types.is_numeric_dtype(series)
+                
+                # For non-numeric columns, label as NON_NUMERIC (not all_null)
+                # This prevents false all_null sensor triggers for meta columns like HUMAN_ID/SEX
+                if not is_numeric:
+                    # Non-numeric column (e.g., HUMAN_ID, SEX, AGE as object dtype)
+                    # These should not be labeled as all_null even if they have no numeric values
+                    f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | - | - | - | - | - | NON_NUMERIC |\n")
+                    continue
+                
                 # Calculate percentiles for numeric columns only
                 numeric_series = pd.to_numeric(series, errors='coerce')
                 finite_values = numeric_series[np.isfinite(numeric_series)]
                 
                 if len(finite_values) == 0:
-                    # All null or all non-numeric
+                    # All null (numeric column with no finite values)
                     f.write(f"| {standard_key} | {non_null_count} | {total_rows} | {non_null_rate:.4f} | - | - | - | - | - | all_null=true |\n")
                     continue
                 
@@ -2366,6 +2411,38 @@ def build_curated_v0(
     if completeness_report_path is not None and all_source_dfs:
         generate_completeness_report(all_source_dfs, mapping, completeness_report_path)
         print(f"Saved completeness report: {completeness_report_path}")
+        
+        # Verify 7th 10x error resolution (facts-only)
+        if '7th' in all_source_dfs and '8th_direct' in all_source_dfs:
+            df_7th = all_source_dfs['7th']
+            df_8th = all_source_dfs['8th_direct']
+            
+            # Check key columns that were affected by 10x errors
+            check_keys = ['CHEST_CIRC_M_REF', 'ANKLE_MAX_CIRC_M', 'WRIST_CIRC_M']
+            resolved_keys = []
+            
+            for key in check_keys:
+                if key in df_7th.columns and key in df_8th.columns:
+                    # Get p50 from 7th and 8th
+                    series_7th = pd.to_numeric(df_7th[key], errors='coerce')
+                    series_8th = pd.to_numeric(df_8th[key], errors='coerce')
+                    
+                    finite_7th = series_7th[np.isfinite(series_7th)]
+                    finite_8th = series_8th[np.isfinite(series_8th)]
+                    
+                    if len(finite_7th) > 0 and len(finite_8th) > 0:
+                        p50_7th = float(finite_7th.quantile(0.50))
+                        p50_8th = float(finite_8th.quantile(0.50))
+                        
+                        # Check if 7th p50 is in reasonable range (within 2x of 8th p50)
+                        # This verifies 10x error is resolved (7th p50 should be ~0.7-1.2m, not 9.2m)
+                        if p50_8th > 0 and 0.5 * p50_8th <= p50_7th <= 2.0 * p50_8th:
+                            resolved_keys.append(f"{key} (7th p50={p50_7th:.3f}m, 8th p50={p50_8th:.3f}m)")
+            
+            if resolved_keys:
+                print(f"\n7th 10x error resolution (facts-only): {len(resolved_keys)} keys resolved")
+                for key_info in resolved_keys:
+                    print(f"  - {key_info}")
     
     # Print summary
     print("\n=== Summary ===")

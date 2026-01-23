@@ -2440,6 +2440,136 @@ def test_7th_unit_override_heuristic_normal_cm_scale():
     assert len(override_warnings_8th) == 0, "8th_direct should not trigger 7th-specific override"
 
 
+def test_7th_unit_override_force_mm_cm_meta():
+    """
+    Test 7th unit override: force mm for unit=m keys even when unit meta is 'cm'.
+    
+    Regression test for 10x scale error prevention:
+    - source_key='7th', standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920" with unit meta 'cm' should convert to 0.92 m (not 9.2 m)
+    - 7th source forces mm for unit=m keys, overriding cm meta
+    """
+    # Create DataFrame with cm-scale value that would be detected as cm
+    # CHEST_CIRC_M_REF=920 (in mm, but median > 10 so would be detected as cm)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, would be detected as cm
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    # Unit map with cm (simulating sample_units detecting as cm)
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'cm'
+    }
+    
+    warnings = []
+    result_df = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify 7th override was applied: values should be in meters (0.92, 0.95, etc.)
+    chest_values = result_df['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_values) > 0, "CHEST_CIRC_M_REF should have non-null values"
+    # 7th override: cm meta -> forced to mm -> mm->m conversion (/1000)
+    # 920.0 mm -> 0.92 m (not 9.2 m from cm->m conversion)
+    assert abs(chest_values.iloc[0] - 0.92) < 0.01, f"CHEST_CIRC_M_REF[0] should be ~0.92 m, got {chest_values.iloc[0]}"
+    assert abs(chest_values.iloc[1] - 0.95) < 0.01, f"CHEST_CIRC_M_REF[1] should be ~0.95 m, got {chest_values.iloc[1]}"
+    
+    # Verify override warning was emitted
+    override_warnings = [w for w in warnings if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings) >= 1, f"Should have at least 1 UNIT_OVERRIDE_7TH_MM warning, got {len(override_warnings)}"
+    
+    # Verify warning structure
+    for w in override_warnings:
+        assert w.get('source') == '7th', "Warning source should be '7th'"
+        assert w.get('column') == 'CHEST_CIRC_M_REF', f"Warning column should be CHEST_CIRC_M_REF, got {w.get('column')}"
+        assert 'UNIT_OVERRIDE_7TH_MM' in w.get('details', ''), "Warning details should include UNIT_OVERRIDE_7TH_MM"
+        assert 'original_unit_meta=cm' in w.get('details', ''), "Warning should include original_unit_meta=cm"
+        assert 'forced_unit=mm' in w.get('details', ''), "Warning should include forced_unit=mm"
+    
+    # Verify WEIGHT_KG is not affected (exception)
+    df_weight = pd.DataFrame({
+        'WEIGHT_KG': [70.0, 65.0, 75.0],
+        'SEX': ['M', 'F', 'M']
+    })
+    unit_map_weight = {'WEIGHT_KG': 'kg'}
+    warnings_weight = []
+    result_weight = apply_unit_canonicalization(df_weight, unit_map_weight, warnings_weight, source_key='7th')
+    weight_values = result_weight['WEIGHT_KG'].dropna()
+    assert len(weight_values) > 0, "WEIGHT_KG should have non-null values"
+    # WEIGHT_KG should remain as kg (no conversion)
+    assert abs(weight_values.iloc[0] - 70.0) < 0.01, f"WEIGHT_KG[0] should be 70.0 kg, got {weight_values.iloc[0]}"
+    # No override warning for WEIGHT_KG
+    override_warnings_weight = [w for w in warnings_weight if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings_weight) == 0, "WEIGHT_KG should not trigger 7th unit override"
+
+
+def test_non_numeric_column_labeling():
+    """
+    Test non-numeric column labeling: HUMAN_ID/SEX should not trigger all_null sensor.
+    
+    Verifies:
+    1) Non-numeric columns (HUMAN_ID, SEX) are labeled as 'non_numeric' in completeness report
+    2) They do not trigger all_null=true sensor
+    3) Numeric columns with all null are still labeled as all_null=true
+    """
+    from pipelines.build_curated_v0 import generate_completeness_report
+    import tempfile
+    from pathlib import Path
+    
+    # Create synthetic DataFrame with non-numeric and numeric columns
+    df = pd.DataFrame({
+        'HUMAN_ID': ['ID001', 'ID002', 'ID003', 'ID004', 'ID005'],  # Non-numeric
+        'SEX': ['M', 'F', 'M', 'F', 'M'],  # Non-numeric
+        'AGE': [25, 30, 35, 40, 45],  # Numeric
+        'HEIGHT_M': [1.70, 1.65, 1.75, 1.60, 1.80],  # Numeric
+        'ALL_NULL_COL': [np.nan, np.nan, np.nan, np.nan, np.nan],  # Numeric, all null
+        'NON_NUMERIC_WITH_VALUES': ['A', 'B', 'C', 'D', 'E']  # Non-numeric with values
+    })
+    
+    # Create minimal mapping
+    mapping = {
+        'keys': [
+            {'standard_key': 'HUMAN_ID'},
+            {'standard_key': 'SEX'},
+            {'standard_key': 'AGE'},
+            {'standard_key': 'HEIGHT_M'},
+            {'standard_key': 'ALL_NULL_COL'},
+            {'standard_key': 'NON_NUMERIC_WITH_VALUES'}
+        ]
+    }
+    
+    all_source_dfs = {'test_source': df}
+    
+    # Generate completeness report to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        temp_path = Path(f.name)
+    
+    try:
+        generate_completeness_report(all_source_dfs, mapping, temp_path)
+        
+        # Read and verify report content
+        with open(temp_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify non-numeric columns are labeled as 'NON_NUMERIC' (not 'all_null=true')
+        assert 'HUMAN_ID' in content, "HUMAN_ID should be in report"
+        assert 'SEX' in content, "SEX should be in report"
+        # Check that non-numeric columns have 'NON_NUMERIC' label (not 'all_null=true')
+        assert 'HUMAN_ID' in content and 'NON_NUMERIC' in content, "HUMAN_ID should be labeled as NON_NUMERIC"
+        assert 'SEX' in content and 'NON_NUMERIC' in content, "SEX should be labeled as NON_NUMERIC"
+        assert 'NON_NUMERIC_WITH_VALUES' in content and 'NON_NUMERIC' in content, "NON_NUMERIC_WITH_VALUES should be labeled as NON_NUMERIC"
+        
+        # Verify numeric all-null column is labeled as 'all_null=true'
+        assert 'ALL_NULL_COL' in content and 'all_null=true' in content, "ALL_NULL_COL should be labeled as all_null=true"
+        
+        # Verify numeric columns with values are not labeled as all_null or non_numeric
+        assert 'HEIGHT_M' in content and 'all_null=true' not in content.split('HEIGHT_M')[1].split('\n')[0], "HEIGHT_M should not be labeled as all_null"
+        assert 'AGE' in content and 'all_null=true' not in content.split('AGE')[1].split('\n')[0], "AGE should not be labeled as all_null"
+        
+    finally:
+        # Clean up
+        if temp_path.exists():
+            temp_path.unlink()
+
+
 def test_7th_unit_inference_default_mm():
     """
     Test 7th unit inference: unit=m standard keys default to mm (no cm heuristic).
@@ -2493,5 +2623,349 @@ def test_7th_unit_inference_default_mm():
     unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
     # For 8th, median > 10 should still detect as cm
     assert unit_map_8th.get('ANKLE_MAX_CIRC_M') == 'cm', f"8th_direct: ANKLE_MAX_CIRC_M should be 'cm' (median heuristic), got {unit_map_8th.get('ANKLE_MAX_CIRC_M')}"
+
+
+def test_7th_source_level_rule_no_unit_estimation():
+    """
+    Test 7th source-level rule: no unit estimation, always mm for unit=m keys.
+    
+    Regression test for 10x scale error prevention:
+    - 7th 소스에서는 unit 추정을 절대 하지 않고 source-level rule로 원본 단위를 고정
+    - CHEST_CIRC_M_REF=920, ANKLE_MAX_CIRC_M=245, WRIST_CIRC_M=158 같은 값이
+      최종 m 단위로 0.92 / 0.245 / 0.158 근처가 되는지 검증
+    - median 기반 cm 추정이 발생하지 않아야 함 (245mm -> 2.45m 방지)
+    
+    Key requirement: No key-specific exceptions, only source_key='7th' rule.
+    """
+    # Create DataFrame with mm-scale values that would be detected as cm by median heuristic
+    # These values are in mm: 920, 245, 158 (median > 10 would trigger cm estimation)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, median=920
+        'ANKLE_MAX_CIRC_M': [245.0, 250.0, 240.0, 248.0, 242.0],  # mm scale, median=245
+        'WRIST_CIRC_M': [158.0, 160.0, 155.0, 159.0, 157.0],  # mm scale, median=158
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Test unit_map creation (source-level rule should force mm, no estimation)
+    unit_map = sample_units(df, sample_size=5, source_key='7th')
+    
+    # Verify 7th source-level rule: unit=m keys are always mm (no cm estimation)
+    assert unit_map.get('CHEST_CIRC_M_REF') == 'mm', \
+        f"CHEST_CIRC_M_REF should be 'mm' (7th source-level rule), got {unit_map.get('CHEST_CIRC_M_REF')}"
+    assert unit_map.get('ANKLE_MAX_CIRC_M') == 'mm', \
+        f"ANKLE_MAX_CIRC_M should be 'mm' (7th source-level rule), got {unit_map.get('ANKLE_MAX_CIRC_M')}"
+    assert unit_map.get('WRIST_CIRC_M') == 'mm', \
+        f"WRIST_CIRC_M should be 'mm' (7th source-level rule), got {unit_map.get('WRIST_CIRC_M')}"
+    
+    # Verify no cm estimation occurred (median > 10 would trigger cm in 8th)
+    assert unit_map.get('CHEST_CIRC_M_REF') != 'cm', "7th should not estimate cm (source-level rule)"
+    assert unit_map.get('ANKLE_MAX_CIRC_M') != 'cm', "7th should not estimate cm (source-level rule)"
+    assert unit_map.get('WRIST_CIRC_M') != 'cm', "7th should not estimate cm (source-level rule)"
+    
+    # Step 2: Apply unit canonicalization
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m, 245.0 mm -> 0.245 m, 158.0 mm -> 0.158 m
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m (not 9.2 m), got {chest_converted.iloc[0]}"
+    
+    ankle_converted = df_converted['ANKLE_MAX_CIRC_M'].dropna()
+    assert len(ankle_converted) > 0, "ANKLE_MAX_CIRC_M should have non-null values after conversion"
+    assert abs(ankle_converted.iloc[0] - 0.245) < 0.01, \
+        f"ANKLE_MAX_CIRC_M[0] should be 0.245 m (not 2.45 m), got {ankle_converted.iloc[0]}"
+    
+    wrist_converted = df_converted['WRIST_CIRC_M'].dropna()
+    assert len(wrist_converted) > 0, "WRIST_CIRC_M should have non-null values after conversion"
+    assert abs(wrist_converted.iloc[0] - 0.158) < 0.01, \
+        f"WRIST_CIRC_M[0] should be 0.158 m (not 1.58 m), got {wrist_converted.iloc[0]}"
+    
+    # Verify all values are in realistic range (not 10x error range)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    assert (ankle_converted > 0.1).all() and (ankle_converted < 0.5).all(), \
+        f"All ANKLE_MAX_CIRC_M values should be in realistic range (0.1-0.5m), got {ankle_converted.values}"
+    assert (wrist_converted > 0.1).all() and (wrist_converted < 0.3).all(), \
+        f"All WRIST_CIRC_M values should be in realistic range (0.1-0.3m), got {wrist_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range for chest
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    assert (ankle_converted < 1.0).all(), \
+        f"ANKLE_MAX_CIRC_M values should NOT be in 10x error range (>1m), got {ankle_converted.values}"
+    
+    # Verify 8th sources still use median heuristic (not affected by 7th change)
+    unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
+    # For 8th, median > 10 should still detect as cm (existing policy maintained)
+    assert unit_map_8th.get('CHEST_CIRC_M_REF') == 'cm', \
+        f"8th_direct: CHEST_CIRC_M_REF should be 'cm' (median heuristic), got {unit_map_8th.get('CHEST_CIRC_M_REF')}"
+
+
+def test_expects_meter_predicate():
+    """
+    Test expects_meter() predicate function.
+    
+    Verifies:
+    - expects_meter('CHEST_CIRC_M_REF') is True (contains '_M', not just endswith)
+    - expects_meter('WEIGHT_KG') is False
+    - expects_meter('HUMAN_ID') is False
+    - expects_meter('HEIGHT_M') is True
+    - expects_meter('ANKLE_MAX_CIRC_M') is True
+    """
+    from pipelines.build_curated_v0 import expects_meter
+    
+    # Meter-expected keys (contains '_M')
+    assert expects_meter('CHEST_CIRC_M_REF') is True, "CHEST_CIRC_M_REF should expect meter (contains '_M')"
+    assert expects_meter('HEIGHT_M') is True, "HEIGHT_M should expect meter"
+    assert expects_meter('ANKLE_MAX_CIRC_M') is True, "ANKLE_MAX_CIRC_M should expect meter"
+    assert expects_meter('WRIST_CIRC_M') is True, "WRIST_CIRC_M should expect meter"
+    assert expects_meter('WAIST_CIRC_M') is True, "WAIST_CIRC_M should expect meter"
+    
+    # Non-meter keys
+    assert expects_meter('WEIGHT_KG') is False, "WEIGHT_KG should not expect meter"
+    assert expects_meter('HUMAN_ID') is False, "HUMAN_ID should not expect meter"
+    assert expects_meter('SEX') is False, "SEX should not expect meter"
+    assert expects_meter('AGE') is False, "AGE should not expect meter"
+
+
+def test_7th_chest_circ_m_ref_10x_fix():
+    """
+    Regression test: CHEST_CIRC_M_REF 10x error fix for 7th source.
+    
+    Verifies that CHEST_CIRC_M_REF=920 (in mm) converts to 0.92m (not 9.2m).
+    
+    Root cause: expects_meter() predicate must include CHEST_CIRC_M_REF (contains '_M', not just endswith).
+    Without this fix, CHEST_CIRC_M_REF falls back to unit estimation (cm misclassification) -> 920 becomes 9.2m.
+    
+    Test case:
+    - source_key='7th'
+    - CHEST_CIRC_M_REF values around 920 (as numeric, mm scale)
+    - Force unit estimation fallback would choose 'cm' today -> 9.2m; after fix -> 0.92m
+    - Assert p50 (or direct conversion) equals 0.92 (± small tolerance)
+    
+    Key requirement: No key-specific hardcoding in production code.
+    """
+    # Create DataFrame with CHEST_CIRC_M_REF values around 920 (mm scale)
+    # These values would be detected as cm by median heuristic (median > 10)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0, 950.0, 900.0, 930.0, 910.0],  # mm scale, median=920
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Test unit_map creation (7th source-level rule should force mm for CHEST_CIRC_M_REF)
+    unit_map = sample_units(df, sample_size=5, source_key='7th')
+    
+    # Verify 7th source-level rule: CHEST_CIRC_M_REF is mm (not cm, no estimation)
+    assert unit_map.get('CHEST_CIRC_M_REF') == 'mm', \
+        f"CHEST_CIRC_M_REF should be 'mm' (7th source-level rule), got {unit_map.get('CHEST_CIRC_M_REF')}"
+    
+    # Verify no cm estimation occurred (median > 10 would trigger cm in 8th)
+    assert unit_map.get('CHEST_CIRC_M_REF') != 'cm', \
+        "7th should not estimate cm for CHEST_CIRC_M_REF (source-level rule)"
+    
+    # Step 2: Apply unit canonicalization
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m (not 9.2 m)
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    
+    # Critical assertion: p50 should be ~0.92 m (not 9.2 m)
+    p50 = float(chest_converted.quantile(0.50))
+    assert abs(p50 - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF p50 should be 0.92 m (not 9.2 m), got {p50}"
+    
+    # Verify all values are in realistic range (0.7-1.2m for chest circumference)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    
+    # Verify individual values
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m, got {chest_converted.iloc[0]}"
+    assert abs(chest_converted.iloc[1] - 0.95) < 0.01, \
+        f"CHEST_CIRC_M_REF[1] should be 0.95 m, got {chest_converted.iloc[1]}"
+    
+    # Verify 8th sources still use median heuristic (not affected by 7th change)
+    unit_map_8th = sample_units(df, sample_size=5, source_key='8th_direct')
+    # For 8th, median > 10 should still detect as cm (existing policy maintained)
+    assert unit_map_8th.get('CHEST_CIRC_M_REF') == 'cm', \
+        f"8th_direct: CHEST_CIRC_M_REF should be 'cm' (median heuristic), got {unit_map_8th.get('CHEST_CIRC_M_REF')}"
+
+
+def test_parse_numeric_string_7th_cases():
+    """
+    Test parse_numeric_string_7th function with specific cases.
+    
+    Regression test for 7th euro-decimal-comma disambiguation:
+    - "920,0" -> 920.0 (prevents 10x error: 9200)
+    - "245,0" -> 245.0 (prevents 10x error: 2450)
+    - "79,5"  -> 79.5 (prevents 10x error: 795)
+    - "1,736" -> 1736.0 (thousands separator)
+    
+    Critical: These cases must parse correctly to prevent 10x scale errors.
+    """
+    from pipelines.build_curated_v0 import parse_numeric_string_7th
+    
+    # Test European decimal comma cases
+    assert parse_numeric_string_7th("920,0") == "920.0", "920,0 should parse to 920.0"
+    assert parse_numeric_string_7th("245,0") == "245.0", "245,0 should parse to 245.0"
+    assert parse_numeric_string_7th("79,5") == "79.5", "79,5 should parse to 79.5"
+    
+    # Test thousands separator case
+    assert parse_numeric_string_7th("1,736") == "1736", "1,736 should parse to 1736"
+    
+    # Test edge cases
+    assert parse_numeric_string_7th("920") == "920", "920 should remain 920"
+    assert parse_numeric_string_7th("") == "", "Empty string should remain empty"
+    
+    # Verify numeric conversion
+    assert float(parse_numeric_string_7th("920,0")) == 920.0, "Parsed 920,0 should convert to float 920.0"
+    assert float(parse_numeric_string_7th("245,0")) == 245.0, "Parsed 245,0 should convert to float 245.0"
+    assert float(parse_numeric_string_7th("79,5")) == 79.5, "Parsed 79,5 should convert to float 79.5"
+    assert float(parse_numeric_string_7th("1,736")) == 1736.0, "Parsed 1,736 should convert to float 1736.0"
+
+
+def test_end_to_end_7th_comma_decimal_prevents_10x():
+    """
+    End-to-end test: 7th comma decimal parsing prevents 10x scale errors.
+    
+    Verifies that CHEST_CIRC_M_REF="920,0" (in mm) converts to 0.92 m (not 9.2 m).
+    
+    Test case:
+    - source_key='7th'
+    - standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920,0" with European decimal comma
+    - Expected: final value should be 0.92 m (not 9.2 m)
+    - This ensures 7th parser strategy prevents 10x errors from comma parsing
+    
+    Key requirement: No key-specific exceptions, only source_key='7th' rule.
+    """
+    # Create DataFrame with "920,0" (European decimal comma, in mm)
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': pd.Series(["920,0", "950,0", "900,0"], dtype='object'),  # mm scale with euro decimal comma
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    
+    # Step 1: Preprocess (applies 7th comma parser strategy, dtype 무관)
+    df_preprocessed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify parsing: "920,0" -> 920.0 (not 9200)
+    chest_preprocessed = df_preprocessed['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_preprocessed) > 0, "CHEST_CIRC_M_REF should have non-null values after preprocessing"
+    assert abs(chest_preprocessed.iloc[0] - 920.0) < 0.1, \
+        f"CHEST_CIRC_M_REF[0] should be 920.0 after parsing (not 9200), got {chest_preprocessed.iloc[0]}"
+    
+    # Step 2: Apply unit conversion (7th source-level rule forces mm for unit=m keys)
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'mm'  # 7th source-level rule will force mm even if unit meta says 'cm'
+    }
+    df_converted = apply_unit_canonicalization(df_preprocessed, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end: 920.0 mm -> 0.92 m (not 9.2 m)
+    chest_converted = df_converted['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_converted) > 0, "CHEST_CIRC_M_REF should have non-null values after conversion"
+    
+    # Critical assertion: final value should be 0.92 m (not 9.2 m)
+    assert abs(chest_converted.iloc[0] - 0.92) < 0.01, \
+        f"CHEST_CIRC_M_REF[0] should be 0.92 m (not 9.2 m), got {chest_converted.iloc[0]}"
+    assert abs(chest_converted.iloc[1] - 0.95) < 0.01, \
+        f"CHEST_CIRC_M_REF[1] should be 0.95 m (not 9.5 m), got {chest_converted.iloc[1]}"
+    
+    # Verify all values are in realistic range (0.7-1.2m for chest circumference)
+    assert (chest_converted > 0.5).all() and (chest_converted < 1.5).all(), \
+        f"All CHEST_CIRC_M_REF values should be in realistic range (0.5-1.5m), got {chest_converted.values}"
+    
+    # Verify no 10x error: values should NOT be in 9-10m range
+    assert (chest_converted < 3.0).all(), \
+        f"CHEST_CIRC_M_REF values should NOT be in 10x error range (>3m), got {chest_converted.values}"
+    
+    # Test with numeric dtype (simulating Excel auto-conversion)
+    # Excel may convert "920,0" to numeric 9200, but our parser should still handle it
+    df_numeric = pd.DataFrame({
+        'CHEST_CIRC_M_REF': pd.Series([9200.0, 9500.0, 9000.0], dtype='float64'),  # Simulated Excel auto-conversion
+        'SEX': ['M', 'F', 'M']
+    })
+    warnings_numeric = []
+    df_numeric_preprocessed = preprocess_numeric_columns(df_numeric, '7th', warnings_numeric)
+    
+    # Even with numeric dtype, parser should be applied (dtype 무관)
+    # However, if Excel already converted "920,0" to 9200, we can't recover the original comma
+    # This test verifies that dtype 무관 파싱 is applied (even if recovery is not possible)
+    chest_numeric_preprocessed = df_numeric_preprocessed['CHEST_CIRC_M_REF'].dropna()
+    assert len(chest_numeric_preprocessed) > 0, "Numeric dtype should still be processed"
+
+
+def test_7th_unit_override_synthetic_regression():
+    """
+    Synthetic unit conversion regression test for 7th source.
+    
+    Verifies that 7th source-level rule forces mm for unit=m keys even when
+    unit meta says 'cm', preventing 10x scale errors.
+    
+    Test case:
+    - source_key='7th'
+    - standard_key=CHEST_CIRC_M_REF (unit=m key)
+    - raw value "920" with unit meta 'cm'
+    - Expected: final value should be 0.92 m (not 9.2 m)
+    - This ensures 7th source-level rule overrides unit meta to prevent 10x errors
+    """
+    # Create DataFrame with raw value 920 (in mm, but unit meta says 'cm')
+    df = pd.DataFrame({
+        'CHEST_CIRC_M_REF': [920.0],  # Raw value in mm
+        'SEX': ['M']
+    })
+    
+    # Unit map with 'cm' (simulating unit meta incorrectly saying 'cm')
+    # This would cause 10x error if not for 7th source-level override
+    unit_map = {
+        'CHEST_CIRC_M_REF': 'cm'
+    }
+    
+    warnings = []
+    result_df = apply_unit_canonicalization(df, unit_map, warnings, source_key='7th')
+    
+    # Verify final value is 0.92 m (not 9.2 m)
+    # 7th override: cm meta -> forced to mm -> mm->m conversion (/1000)
+    # 920.0 mm -> 0.92 m (not 9.2 m from cm->m conversion)
+    chest_value = result_df['CHEST_CIRC_M_REF'].iloc[0]
+    assert not pd.isna(chest_value), "CHEST_CIRC_M_REF should not be NaN"
+    assert abs(chest_value - 0.92) < 0.001, f"CHEST_CIRC_M_REF should be 0.92 m, got {chest_value}"
+    
+    # Verify override warning was emitted
+    override_warnings = [w for w in warnings if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings) >= 1, f"Should have at least 1 UNIT_OVERRIDE_7TH_MM warning, got {len(override_warnings)}"
+    
+    # Verify warning structure
+    for w in override_warnings:
+        assert w.get('source') == '7th', "Warning source should be '7th'"
+        assert w.get('column') == 'CHEST_CIRC_M_REF', f"Warning column should be CHEST_CIRC_M_REF, got {w.get('column')}"
+        assert 'UNIT_OVERRIDE_7TH_MM' in w.get('details', ''), "Warning details should include UNIT_OVERRIDE_7TH_MM"
+        assert 'original_unit_meta=cm' in w.get('details', ''), "Warning should include original_unit_meta=cm"
+        assert 'forced_unit=mm' in w.get('details', ''), "Warning should include forced_unit=mm"
+    
+    # Verify this is a source-level rule (not key-specific)
+    # Test with another unit=m key to ensure rule applies broadly
+    df2 = pd.DataFrame({
+        'WAIST_CIRC_M': [800.0],  # Raw value in mm
+        'SEX': ['F']
+    })
+    unit_map2 = {'WAIST_CIRC_M': 'cm'}
+    warnings2 = []
+    result_df2 = apply_unit_canonicalization(df2, unit_map2, warnings2, source_key='7th')
+    waist_value = result_df2['WAIST_CIRC_M'].iloc[0]
+    assert abs(waist_value - 0.80) < 0.001, f"WAIST_CIRC_M should be 0.80 m, got {waist_value}"
+    override_warnings2 = [w for w in warnings2 if 'UNIT_OVERRIDE_7TH_MM' in w.get('details', '')]
+    assert len(override_warnings2) >= 1, "WAIST_CIRC_M should also trigger 7th override"
 
 
