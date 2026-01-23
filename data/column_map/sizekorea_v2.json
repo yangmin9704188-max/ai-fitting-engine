@@ -483,8 +483,8 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "엉덩이두께",
+          "present": true
         }
       }
     },
@@ -789,8 +789,8 @@
           "present": true
         },
         "8th_3d": {
-          "column": null,
-          "present": false
+          "column": "종아리최소둘레",
+          "present": true
         }
       }
     },
