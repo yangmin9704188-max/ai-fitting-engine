@@ -133,8 +133,20 @@ def main():
     parser.add_argument(
         '--dataset',
         type=str,
-        default='data/processed/curated_v0/curated_v0.csv',
-        help='Path to curated dataset (CSV or parquet)'
+        default=None,
+        help='Path to curated dataset (CSV or parquet) - deprecated, use --dataset-csv or --dataset-parquet'
+    )
+    parser.add_argument(
+        '--dataset-csv',
+        type=str,
+        default=None,
+        help='Path to curated dataset (CSV format)'
+    )
+    parser.add_argument(
+        '--dataset-parquet',
+        type=str,
+        default='data/processed/curated_v0/curated_v0.parquet',
+        help='Path to curated dataset (parquet format)'
     )
     parser.add_argument(
         '--output',
@@ -146,8 +158,29 @@ def main():
     args = parser.parse_args()
     
     warnings_path = Path(args.warnings)
-    dataset_path = Path(args.dataset)
     output_path = Path(args.output)
+    
+    # Determine dataset path (prefer explicit args, fallback to --dataset for backward compatibility)
+    dataset_path = None
+    dataset_format = None
+    
+    if args.dataset_csv:
+        dataset_path = Path(args.dataset_csv)
+        dataset_format = 'csv'
+    elif args.dataset_parquet:
+        dataset_path = Path(args.dataset_parquet)
+        dataset_format = 'parquet'
+    elif args.dataset:
+        # Backward compatibility: auto-detect from extension
+        dataset_path = Path(args.dataset)
+        if dataset_path.suffix == '.parquet':
+            dataset_format = 'parquet'
+        else:
+            dataset_format = 'csv'
+    else:
+        # Default: try parquet
+        dataset_path = Path(args.dataset_parquet)
+        dataset_format = 'parquet'
     
     # Load warnings
     print(f"Loading warnings from: {warnings_path}")
@@ -158,31 +191,40 @@ def main():
     print("Aggregating warnings...")
     warning_stats = aggregate_warnings(warnings)
     
-    # Load dataset (try CSV first, then parquet)
-    print(f"Loading dataset from: {dataset_path}")
+    # Load dataset
+    print(f"Loading dataset from: {dataset_path} (format: {dataset_format})")
     df = None
-    try:
-        if dataset_path.suffix == '.csv' or not dataset_path.exists():
-            # Try CSV first
-            csv_path = dataset_path.with_suffix('.csv')
-            if csv_path.exists():
-                df = pd.read_csv(csv_path, encoding='utf-8-sig')
-            elif dataset_path.suffix == '.parquet' and dataset_path.exists():
-                # Try parquet
-                try:
-                    df = pd.read_parquet(dataset_path)
-                except ImportError:
-                    print("Warning: Cannot read parquet (pyarrow/fastparquet not available). Skipping dataset analysis.")
-                    df = None
-        else:
+    
+    if dataset_format == 'csv':
+        if dataset_path.exists():
             try:
-                df = pd.read_parquet(dataset_path)
-            except ImportError:
-                print("Warning: Cannot read parquet (pyarrow/fastparquet not available). Skipping dataset analysis.")
+                print(f"  Reading CSV file...")
+                df = pd.read_csv(dataset_path, encoding='utf-8-sig')
+            except Exception as e:
+                print(f"Warning: Error reading CSV file: {type(e).__name__}: {e}")
+                print("  Skipping dataset analysis.")
                 df = None
-    except Exception as e:
-        print(f"Warning: Could not load dataset: {e}. Skipping dataset analysis.")
-        df = None
+        else:
+            print(f"Warning: CSV file not found: {dataset_path}")
+            print("  Skipping dataset analysis.")
+            df = None
+    elif dataset_format == 'parquet':
+        if dataset_path.exists():
+            try:
+                print(f"  Reading parquet file...")
+                df = pd.read_parquet(dataset_path)
+            except ImportError as e:
+                print(f"Warning: Cannot read parquet (pyarrow/fastparquet not available): {e}")
+                print("  Skipping dataset analysis.")
+                df = None
+            except Exception as e:
+                print(f"Warning: Error reading parquet file: {type(e).__name__}: {e}")
+                print("  Skipping dataset analysis.")
+                df = None
+        else:
+            print(f"Warning: Parquet file not found: {dataset_path}")
+            print("  Skipping dataset analysis.")
+            df = None
     
     null_stats = None
     source_patterns = None
