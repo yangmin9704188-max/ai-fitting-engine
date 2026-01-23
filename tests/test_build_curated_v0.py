@@ -2194,6 +2194,113 @@ def test_7th_comma_parser_strategy_end_to_end():
         "8th_direct should not apply 7th comma parser strategy"
 
 
+def test_7th_euro_decimal_comma_regression():
+    """
+    Test 7th euro-decimal comma regression: specific keys that were showing 10x scale.
+    
+    Verifies:
+    1) ANKLE_MAX_CIRC_M: "245,0" -> 245.0 -> 0.245 (mm->m)
+    2) WRIST_CIRC_M: "158,0" -> 158.0 -> 0.158 (mm->m)
+    3) HIP_DEPTH_M: "249,0" -> 249.0 -> 0.249 (mm->m)
+    """
+    # Import unified parser function
+    from pipelines.build_curated_v0 import parse_numeric_string_7th
+    
+    # Test individual parsing
+    assert parse_numeric_string_7th("245,0") == "245.0", "245,0 should parse to 245.0"
+    assert parse_numeric_string_7th("158,0") == "158.0", "158,0 should parse to 158.0"
+    assert parse_numeric_string_7th("249,0") == "249.0", "249,0 should parse to 249.0"
+    
+    # Test end-to-end: DataFrame -> preprocessing -> unit conversion
+    df = pd.DataFrame({
+        'ANKLE_MAX_CIRC_M': pd.Series(["245,0", "250,0", "240,0"], dtype='object'),
+        'WRIST_CIRC_M': pd.Series(["158,0", "160,0", "155,0"], dtype='object'),
+        'HIP_DEPTH_M': pd.Series(["249,0", "250,0", "248,0"], dtype='object'),
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    # Preprocess (applies unified 7th parser)
+    df_preprocessed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify parsing: should be 245.0, 158.0, 249.0 (not 2450, 1580, 2490)
+    ankle_values = df_preprocessed['ANKLE_MAX_CIRC_M'].dropna()
+    assert abs(ankle_values.iloc[0] - 245.0) < 0.1, f"ANKLE_MAX_CIRC_M should be 245.0, got {ankle_values.iloc[0]}"
+    assert not (abs(ankle_values.iloc[0] - 2450.0) < 0.1), "ANKLE_MAX_CIRC_M must NOT be 2450 (10x error)"
+    
+    wrist_values = df_preprocessed['WRIST_CIRC_M'].dropna()
+    assert abs(wrist_values.iloc[0] - 158.0) < 0.1, f"WRIST_CIRC_M should be 158.0, got {wrist_values.iloc[0]}"
+    
+    hip_depth_values = df_preprocessed['HIP_DEPTH_M'].dropna()
+    assert abs(hip_depth_values.iloc[0] - 249.0) < 0.1, f"HIP_DEPTH_M should be 249.0, got {hip_depth_values.iloc[0]}"
+    
+    # Apply unit conversion (mm->m)
+    unit_map = {
+        'ANKLE_MAX_CIRC_M': 'mm',
+        'WRIST_CIRC_M': 'mm',
+        'HIP_DEPTH_M': 'mm'
+    }
+    df_converted = apply_unit_canonicalization(df_preprocessed, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end conversion: 245.0 mm -> 0.245 m
+    ankle_converted = df_converted['ANKLE_MAX_CIRC_M'].dropna()
+    assert abs(ankle_converted.iloc[0] - 0.245) < 0.001, \
+        f"ANKLE_MAX_CIRC_M should be 0.245 m after conversion, got {ankle_converted.iloc[0]}"
+    
+    wrist_converted = df_converted['WRIST_CIRC_M'].dropna()
+    assert abs(wrist_converted.iloc[0] - 0.158) < 0.001, \
+        f"WRIST_CIRC_M should be 0.158 m after conversion, got {wrist_converted.iloc[0]}"
+    
+    hip_depth_converted = df_converted['HIP_DEPTH_M'].dropna()
+    assert abs(hip_depth_converted.iloc[0] - 0.249) < 0.001, \
+        f"HIP_DEPTH_M should be 0.249 m after conversion, got {hip_depth_converted.iloc[0]}"
+
+
+def test_7th_thousands_comma_regression():
+    """
+    Test 7th thousands comma regression: "1,736" -> 1736 parsing.
+    
+    Verifies:
+    1) "1,736" parses to 1736 (not 1.736)
+    2) "12,345" parses to 12345
+    3) End-to-end: 1736 mm -> 1.736 m
+    """
+    # Import unified parser function
+    from pipelines.build_curated_v0 import parse_numeric_string_7th
+    
+    # Test individual parsing
+    assert parse_numeric_string_7th("1,736") == "1736", "1,736 should parse to 1736"
+    assert parse_numeric_string_7th("12,345") == "12345", "12,345 should parse to 12345"
+    
+    # Test end-to-end: DataFrame -> preprocessing -> unit conversion
+    df = pd.DataFrame({
+        'HEIGHT_M': pd.Series(["1,736", "1,800", "1,650"], dtype='object'),
+        'SEX': ['M', 'F', 'M']
+    })
+    
+    warnings = []
+    # Preprocess (applies unified 7th parser)
+    df_preprocessed = preprocess_numeric_columns(df, '7th', warnings)
+    
+    # Verify parsing: should be 1736, 1800, 1650 (not 1.736, 1.800, 1.650)
+    height_values = df_preprocessed['HEIGHT_M'].dropna()
+    assert 1736 in height_values.values or abs(height_values.values - 1736).min() < 0.1, \
+        "HEIGHT_M should be 1736, not 1.736"
+    assert not (1.736 in height_values.values or abs(height_values.values - 1.736).min() < 0.1), \
+        "HEIGHT_M must NOT be 1.736 (should be 1736)"
+    
+    # Apply unit conversion (mm->m)
+    unit_map = {
+        'HEIGHT_M': 'mm'
+    }
+    df_converted = apply_unit_canonicalization(df_preprocessed, unit_map, warnings, source_key='7th')
+    
+    # Verify end-to-end conversion: 1736 mm -> 1.736 m
+    height_converted = df_converted['HEIGHT_M'].dropna()
+    assert abs(height_converted.iloc[0] - 1.736) < 0.001, \
+        f"HEIGHT_M should be 1.736 m after conversion, got {height_converted.iloc[0]}"
+
+
 def test_unit_fail_counts_do_not_treat_nan_as_inf():
     """
     Test that unit_conversion_failed only counts inf/-inf, not NaN.
