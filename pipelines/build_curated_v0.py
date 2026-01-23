@@ -956,6 +956,34 @@ def build_curated_v0(
     if 'HUMAN_ID' in df_combined.columns:
         df_combined['HUMAN_ID'] = df_combined['HUMAN_ID'].astype(str)
     
+    # Force WEIGHT_KG to numeric before parquet write to avoid pyarrow conversion failure
+    # when mixed string/float values exist
+    if 'WEIGHT_KG' in df_combined.columns:
+        # Count NaN before conversion
+        nan_before = df_combined['WEIGHT_KG'].isna().sum()
+        
+        # Convert to string, remove commas, strip, then convert to numeric
+        df_combined['WEIGHT_KG'] = pd.to_numeric(
+            df_combined['WEIGHT_KG'].astype(str).str.replace(',', '', regex=False).str.strip(),
+            errors='coerce'
+        )
+        
+        # Count NaN after conversion
+        nan_after = df_combined['WEIGHT_KG'].isna().sum()
+        new_nan_count = nan_after - nan_before
+        
+        # Record warning if new NaN values were created
+        if new_nan_count > 0:
+            warnings.append({
+                "source": "system",
+                "file": "build_curated_v0.py",
+                "column": "WEIGHT_KG",
+                "reason": "numeric_parsing_failed",
+                "row_index": None,
+                "original_value": None,
+                "details": f"{new_nan_count} WEIGHT_KG values failed to convert to numeric during parquet write preparation"
+            })
+    
     if output_format == "parquet":
         df_combined.to_parquet(output_path, index=False)
     else:
