@@ -184,22 +184,29 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                 except Exception:
                     pass  # Keep original if conversion fails
         
-        # 8th_direct: Replace 9999 with NaN
+        # 8th_direct: Replace 9999 with NaN (dtype-agnostic)
         if source_key == '8th_direct':
+            # Handle both numeric and string/object types
             if pd.api.types.is_numeric_dtype(result_df[col]):
                 sentinel_mask = result_df[col] == 9999
-                sentinel_count = sentinel_mask.sum()
-                if sentinel_count > 0:
-                    result_df.loc[sentinel_mask, col] = np.nan
-                    warnings.append({
-                        "source": source_key,
-                        "file": SOURCE_FILES[source_key],
-                        "column": col,
-                        "reason": "SENTINEL_MISSING",
-                        "row_index": None,
-                        "original_value": "9999",
-                        "details": f"{sentinel_count} sentinel values (9999) replaced with NaN"
-                    })
+            else:
+                # For object/string types, check string representation
+                sentinel_mask = (result_df[col].astype(str).str.strip() == '9999')
+            
+            sentinel_count = sentinel_mask.sum()
+            if sentinel_count > 0:
+                result_df.loc[sentinel_mask, col] = np.nan
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": col,
+                    "reason": "SENTINEL_MISSING",
+                    "row_index": None,
+                    "original_value": None,  # Aggregated warning, individual row values not tracked
+                    "sentinel_value": "9999",
+                    "sentinel_count": int(sentinel_count),
+                    "details": f"{sentinel_count} sentinel values (9999) replaced with NaN"
+                })
         
         # 7th/8th_3d: Replace empty strings with NaN
         if source_key in ['7th', '8th_3d']:
@@ -215,7 +222,9 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                         "column": col,
                         "reason": "SENTINEL_MISSING",
                         "row_index": None,
-                        "original_value": "",
+                        "original_value": None,  # Aggregated warning, individual row values not tracked
+                        "sentinel_value": "",
+                        "sentinel_count": int(empty_count),
                         "details": f"{empty_count} empty string values replaced with NaN"
                     })
     
@@ -527,35 +536,42 @@ def handle_missing_values(
     """
     Handle missing values: record warnings, keep NaN.
     
-    Deduplication: Skip value_missing warning if SENTINEL_MISSING was already recorded
-    for the same column (to avoid duplicate warnings for same root cause).
+    Refined deduplication: Exclude sentinel_count from value_missing accounting.
+    - For columns with SENTINEL_MISSING warnings, subtract sentinel_count from total missing
+    - Only record value_missing for remaining missing values (non-sentinel missing)
     
     No exceptions raised (NaN + warnings policy).
     """
-    # Build set of columns that already have SENTINEL_MISSING warnings
-    sentinel_columns = set()
+    # Build map of columns to sentinel_count from SENTINEL_MISSING warnings
+    sentinel_counts = {}
     for w in warnings:
         if (w.get('reason') == 'SENTINEL_MISSING' and 
             w.get('source') == source_key and 
             w.get('column') != 'all'):
-            sentinel_columns.add(w.get('column'))
+            col = w.get('column')
+            sentinel_count = w.get('sentinel_count', 0)
+            if col not in sentinel_counts:
+                sentinel_counts[col] = 0
+            sentinel_counts[col] += sentinel_count
     
     for col in df.columns:
-        missing_count = df[col].isna().sum()
-        if missing_count > 0:
-            # Skip if this column already has SENTINEL_MISSING warning (deduplication)
-            if col in sentinel_columns:
-                continue
+        missing_count_total = df[col].isna().sum()
+        if missing_count_total > 0:
+            # Calculate remaining missing (excluding sentinel counts)
+            sentinel_count_total = sentinel_counts.get(col, 0)
+            remaining = max(missing_count_total - sentinel_count_total, 0)
             
-            warnings.append({
-                "source": source_key,
-                "file": SOURCE_FILES[source_key],
-                "column": col,
-                "reason": "value_missing",
-                "row_index": None,
-                "original_value": None,
-                "details": f"{missing_count} missing values in column"
-            })
+            # Only record value_missing if there are remaining non-sentinel missing values
+            if remaining > 0:
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": col,
+                    "reason": "value_missing",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"{remaining} missing values in column (excluding {sentinel_count_total} sentinel values)"
+                })
     
     return df
 
