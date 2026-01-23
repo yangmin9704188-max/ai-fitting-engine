@@ -599,6 +599,165 @@ def test_human_id_string_preservation():
     assert '00123' in final_values, "HUMAN_ID '00123' should be preserved in final output"
 
 
+def test_primary_header_anchor_in_non_first_cell():
+    """
+    Test that primary header detection finds '표준 측정항목 명' in any cell (not just first column).
+    For 8th data, anchor is in col1, not col0.
+    """
+    import tempfile
+    
+    # Create synthetic mapping
+    mapping = {
+        'keys': [
+            {
+                'standard_key': 'HEIGHT_M',
+                'ko_term': '키',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': '키'}
+                }
+            }
+        ]
+    }
+    
+    # Create synthetic CSV where col0 is empty/blank, col1 has '표준 측정항목 명'
+    # All rows must have same number of columns
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig') as f:
+        temp_path = Path(f.name)
+        # Rows 0-3: metadata/empty (4 columns to match other rows)
+        for i in range(4):
+            f.write(',,,\n')
+        # Row 4: primary header - col0 is blank, col1 has anchor term
+        f.write(',표준 측정항목 명,키,체중(몸무게)\n')
+        # Row 5: code row (should not be selected)
+        f.write(',표준 측정항목 코드,S-STa-H-[FL01-HD01]-DM,S-STa-B-[BM01]-DM\n')
+        # Row 6: secondary header (HUMAN_ID, 성별, 나이)
+        f.write('인체 데이터 ID,HUMAN_ID,성별,나이\n')
+        # Row 7: data
+        f.write('8_DM_000001,20_M_1417,M,41\n')
+    
+    try:
+        # Find headers
+        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
+        
+        # Primary should be row 4 (where anchor term is in col1)
+        assert primary_row == 4, f"Expected primary row 4 (anchor in col1), got {primary_row}"
+        # Secondary should be row 6 (where HUMAN_ID/성별/나이 are)
+        assert secondary_row == 6, f"Expected secondary row 6, got {secondary_row}"
+        
+    finally:
+        temp_path.unlink()
+
+
+def test_per_key_header_policy_with_age():
+    """
+    Test per-key header policy: HEIGHT_M/WEIGHT_KG from primary (row4),
+    HUMAN_ID/SEX/AGE from secondary (row6).
+    Simulates 8th_direct structure.
+    """
+    import tempfile
+    
+    # Create synthetic mapping
+    mapping = {
+        'keys': [
+            {
+                'standard_key': 'HUMAN_ID',
+                'ko_term': 'HUMAN_ID',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': 'HUMAN_ID'}
+                }
+            },
+            {
+                'standard_key': 'SEX',
+                'ko_term': '성별',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': '성별'}
+                }
+            },
+            {
+                'standard_key': 'AGE',
+                'ko_term': '나이',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': '나이'}
+                }
+            },
+            {
+                'standard_key': 'HEIGHT_M',
+                'ko_term': '키',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': '키'}
+                }
+            },
+            {
+                'standard_key': 'WEIGHT_KG',
+                'ko_term': '체중(몸무게)',
+                'sources': {
+                    '8th_direct': {'present': True, 'column': '체중(몸무게)'}
+                }
+            }
+        ]
+    }
+    
+    # Create synthetic CSV matching 8th_direct structure
+    # All rows must have same number of columns (5 columns)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig') as f:
+        temp_path = Path(f.name)
+        # Rows 0-3: metadata/empty (5 columns)
+        for i in range(4):
+            f.write(',,,,\n')
+        # Row 4: primary header (col1 has anchor, col3+ have measurement names)
+        f.write(',표준 측정항목 명,,키,체중(몸무게)\n')
+        # Row 5: code row
+        f.write(',표준 측정항목 코드,,S-STa-H-[FL01-HD01]-DM,S-STa-B-[BM01]-DM\n')
+        # Row 6: secondary header (HUMAN_ID, 성별, 나이)
+        f.write('인체 데이터 ID,HUMAN_ID,성별,나이,\n')
+        # Row 7: data row 1
+        f.write('8_DM_000001,20_M_1417,M,41,\n')
+        # Row 8: data row 2
+        f.write('8_DM_000002,20_M_1455,M,41,\n')
+    
+    try:
+        # Find headers
+        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='8th_direct')
+        
+        assert primary_row == 4, f"Expected primary row 4, got {primary_row}"
+        assert secondary_row == 6, f"Expected secondary row 6, got {secondary_row}"
+        
+        # Load primary and secondary DataFrames
+        df_primary = load_raw_file(temp_path, primary_row, None, '8th_direct', is_xlsx=False)
+        df_secondary = load_raw_file(temp_path, secondary_row, None, '8th_direct', is_xlsx=False)
+        
+        # Verify DataFrames loaded correctly
+        assert not df_primary.empty, "Primary DataFrame should not be empty"
+        assert not df_secondary.empty, "Secondary DataFrame should not be empty"
+        
+        # Extract columns
+        warnings = []
+        df_result = extract_columns_from_source(df_primary, df_secondary, '8th_direct', mapping, warnings)
+        
+        # Verify HEIGHT_M/WEIGHT_KG came from primary (row 4)
+        assert 'HEIGHT_M' in df_result.columns, "HEIGHT_M should be extracted from primary"
+        assert 'WEIGHT_KG' in df_result.columns, "WEIGHT_KG should be extracted from primary"
+        # Note: Since we don't have actual data values in the test CSV (empty cells),
+        # we just verify that the columns exist and were extracted from primary header
+        # The actual data extraction logic is tested in other tests
+        
+        # Verify HUMAN_ID/SEX/AGE came from secondary (row 6)
+        assert 'HUMAN_ID' in df_result.columns, "HUMAN_ID should be extracted from secondary"
+        human_id_values = df_result['HUMAN_ID'].dropna().astype(str).tolist()
+        assert '20_M_1417' in human_id_values or '20_M_1455' in human_id_values, "HUMAN_ID should come from secondary header"
+        
+        assert 'SEX' in df_result.columns, "SEX should be extracted from secondary"
+        sex_values = df_result['SEX'].dropna().astype(str).tolist()
+        assert 'M' in sex_values, "SEX should come from secondary header"
+        
+        assert 'AGE' in df_result.columns, "AGE should be extracted from secondary"
+        age_values = df_result['AGE'].dropna().tolist()
+        assert 41 in age_values, "AGE should come from secondary header"
+        
+    finally:
+        temp_path.unlink()
+
+
 def test_xlsx_human_id_string_loading():
     """
     Test that XLSX loading preserves HUMAN_ID as string.
@@ -658,6 +817,8 @@ if __name__ == '__main__':
         test_per_key_header_selection()
         test_human_id_string_preservation()
         test_xlsx_human_id_string_loading()
+        test_primary_header_anchor_in_non_first_cell()
+        test_per_key_header_policy_with_age()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
