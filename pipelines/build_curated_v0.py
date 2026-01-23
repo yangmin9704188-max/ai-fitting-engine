@@ -59,7 +59,7 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
     anchor_term_with_space = " " + anchor_term
     
     # Secondary header tokens (exact match or contains)
-    secondary_tokens = ["성별", "SEX", "ID", "HUMAN_ID"]
+    secondary_tokens = ["성별", "SEX", "ID", "HUMAN_ID", "HUMAN ID", "나이"]
     
     primary_row = None
     secondary_row = None
@@ -85,13 +85,19 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
             return (HEADER_ROWS.get('7th', 6), None)
     
     # Find primary header (anchor term)
+    # Search for "표준 측정항목 명" in ANY cell of the row (not just first column)
+    # For 8th data, anchor is in col1, not col0
     for i in range(len(df_sample)):
-        first_val = df_sample.iloc[i, 0]
-        if pd.notna(first_val):
-            first_val_str = str(first_val).strip()
-            if first_val_str == anchor_term or first_val_str == anchor_term_with_space:
-                primary_row = i
-                break
+        # Check all columns in this row
+        for col_idx in range(len(df_sample.columns)):
+            cell_val = df_sample.iloc[i, col_idx]
+            if pd.notna(cell_val):
+                cell_val_str = str(cell_val).strip()
+                if cell_val_str == anchor_term or cell_val_str == anchor_term_with_space:
+                    primary_row = i
+                    break
+        if primary_row is not None:
+            break
     
     # Find secondary header (SEX/HUMAN_ID) near primary
     # Search range: primary+1 to primary+6 (typically row 7 for 7th when primary is row 5)
@@ -395,7 +401,7 @@ def extract_columns_from_source(
     num_rows = len(df)
     
     # Keys that use secondary header
-    secondary_keys = {'HUMAN_ID', 'SEX'}
+    secondary_keys = {'HUMAN_ID', 'SEX', 'AGE'}
     
     for key_info in mapping['keys']:
         standard_key = key_info['standard_key']
