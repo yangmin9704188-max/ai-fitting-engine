@@ -30,7 +30,9 @@ from pipelines.build_curated_v0 import (
     find_header_candidates,
     emit_header_candidates,
     collect_arm_knee_trace,
-    emit_arm_knee_trace
+    emit_arm_knee_trace,
+    collect_unit_fail_trace,
+    emit_unit_fail_trace
 )
 
 

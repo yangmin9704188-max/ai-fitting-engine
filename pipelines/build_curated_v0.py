@@ -1435,6 +1435,7 @@ def build_curated_v0(
     all_duplicate_headers = {}  # source_key -> {base_header -> [column_info]}
     all_header_candidates = {}  # source_key -> {standard_key -> [candidate_info]}
     all_arm_knee_traces = {}  # source_key -> [list of trace_data dicts]
+    all_unit_fail_traces = {}  # source_key -> [list of trace_data dicts]
     stats = {
         "sources_processed": [],
         "total_rows": 0,
@@ -1755,6 +1756,10 @@ def build_curated_v0(
     if arm_knee_trace_path is not None and all_arm_knee_traces:
         emit_arm_knee_trace(all_arm_knee_traces, arm_knee_trace_path)
     
+    # Emit unit-fail trace if requested
+    if unit_fail_trace_path is not None and all_unit_fail_traces:
+        emit_unit_fail_trace(all_unit_fail_traces, unit_fail_trace_path)
+    
     # Print summary
     print("\n=== Summary ===")
     print(f"Sources processed: {len(stats['sources_processed'])}")
@@ -1863,7 +1868,8 @@ def main():
         warnings_output_path=warnings_output_path,
         quality_summary_path=quality_summary_path,
         header_candidates_path=header_candidates_path,
-        arm_knee_trace_path=arm_knee_trace_path
+        arm_knee_trace_path=arm_knee_trace_path,
+        unit_fail_trace_path=unit_fail_trace_path
     )
     
     return 0
