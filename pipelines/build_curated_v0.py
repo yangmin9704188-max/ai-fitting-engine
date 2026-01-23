@@ -672,9 +672,11 @@ def apply_unit_canonicalization(
             
             # Default: unit not determined, set to NaN
             result_df[col] = np.nan
+            # Ensure source_key is set (should not be None at this point)
+            warning_source = source_key if source_key else "system"
             warnings.append({
-                "source": source_key if source_key else "unknown",
-                "file": SOURCE_FILES.get(source_key, "unknown") if source_key else "unknown",
+                "source": warning_source,
+                "file": SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py",
                 "column": col,
                 "reason": "unit_undetermined",
                 "row_index": None,
@@ -688,9 +690,11 @@ def apply_unit_canonicalization(
         if source_unit not in ["mm", "cm", "m"]:
             # Invalid unit (e.g., "kg" for measurement, "g" for weight)
             result_df[col] = np.nan
+            # Ensure source_key is set (should not be None at this point)
+            warning_source = source_key if source_key else "system"
             warnings.append({
-                "source": "unknown",
-                "file": "unknown",
+                "source": warning_source,
+                "file": SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py",
                 "column": col,
                 "reason": "unit_conversion_failed",
                 "row_index": None,
@@ -705,11 +709,13 @@ def apply_unit_canonicalization(
         result_df[col] = converted
         
         # Convert warning_list strings to structured warnings
+        # Ensure source_key is set (should not be None at this point)
+        warning_source = source_key if source_key else "system"
         for w in warning_list:
             if "UNIT_FAIL" in w or "PROVENANCE" in w:
                 warnings.append({
-                    "source": "unknown",
-                    "file": "unknown",
+                    "source": warning_source,
+                    "file": SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py",
                     "column": col,
                     "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
                     "row_index": None,
