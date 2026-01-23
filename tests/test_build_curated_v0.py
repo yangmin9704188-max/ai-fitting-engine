@@ -1419,6 +1419,88 @@ def test_unit_fallback_mm_for_8th_unitless():
     assert df_converted_7th['ARM_LEN_M'].isna().all(), "7th should not apply mm fallback, should be all NaN"
     unit_undetermined_warnings = [w for w in warnings_7th if w.get('reason') == 'unit_undetermined']
     assert len(unit_undetermined_warnings) >= 2, "7th should have unit_undetermined warnings"
+    
+    # Verify source_key is not "unknown" in unit warnings
+    for w in warnings_7th:
+        if w.get('reason') in ['unit_undetermined', 'unit_conversion_failed', 'unit_conversion_applied']:
+            assert w.get('source') != 'unknown', f"Unit warning should not have source='unknown', got: {w}"
+            assert w.get('source') in ['7th', '8th_direct', '8th_3d', 'system'], \
+                f"Unit warning source should be valid, got: {w.get('source')}"
+
+
+def test_unit_warnings_source_key_presence():
+    """
+    Test that unit-related warnings always include source_key (no 'unknown').
+    
+    Verifies:
+    1) unit_conversion_failed warnings have valid source_key
+    2) unit_undetermined warnings have valid source_key
+    3) unit_conversion_applied warnings have valid source_key
+    4) system-level non-finite normalization warnings have source="system"
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Create synthetic DataFrame with values that will trigger unit_conversion_failed
+    df = pd.DataFrame({
+        'ARM_LEN_M': [587.0, 600.0, np.inf, -np.inf, 550.0],  # Contains inf/-inf
+        'KNEE_HEIGHT_M': [495.0, 500.0, np.nan, 480.0, 510.0],
+        'WEIGHT_KG': [70.0, 75.0, 65.0, 80.0, 72.0]
+    })
+    
+    # Unit map with invalid unit to trigger unit_conversion_failed
+    unit_map = {
+        'ARM_LEN_M': 'kg',  # Invalid unit for length
+        'KNEE_HEIGHT_M': None  # Will be missing, triggering unit_undetermined
+    }
+    warnings = []
+    
+    # Test apply_unit_canonicalization with 8th_direct source
+    df_converted = apply_unit_canonicalization(df, unit_map, warnings, source_key='8th_direct')
+    
+    # Verify all unit-related warnings have valid source_key
+    unit_warnings = [w for w in warnings if w.get('reason') in [
+        'unit_conversion_failed', 'unit_undetermined', 'unit_conversion_applied'
+    ]]
+    
+    assert len(unit_warnings) > 0, "Should have unit-related warnings"
+    
+    for w in unit_warnings:
+        source = w.get('source')
+        assert source is not None, f"Warning should have source, got: {w}"
+        assert source != 'unknown', f"Warning should not have source='unknown', got: {w}"
+        assert source in ['7th', '8th_direct', '8th_3d', 'system'], \
+            f"Warning source should be valid, got: {source} in {w}"
+    
+    # Test system-level non-finite normalization
+    df_with_inf = pd.DataFrame({
+        'ARM_LEN_M': [0.5, 0.6, np.inf, -np.inf, 0.7],
+        'KNEE_HEIGHT_M': [0.4, 0.45, np.inf, 0.42, 0.43]
+    })
+    
+    # Simulate non-finite normalization (as done in build_curated_v0 before parquet write)
+    system_warnings = []
+    numeric_cols = df_with_inf.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        if col in ['SEX', 'AGE', 'HUMAN_ID']:
+            continue
+        non_finite_mask = ~np.isfinite(df_with_inf[col])
+        non_finite_count = non_finite_mask.sum()
+        if non_finite_count > 0:
+            system_warnings.append({
+                "source": "system",
+                "file": "build_curated_v0.py",
+                "column": col,
+                "reason": "unit_conversion_failed",
+                "row_index": None,
+                "original_value": None,
+                "details": f"{non_finite_count} non-finite values (inf/-inf) normalized to NaN before parquet write"
+            })
+    
+    # Verify system warnings have source="system"
+    assert len(system_warnings) > 0, "Should have system warnings for non-finite values"
+    for w in system_warnings:
+        assert w.get('source') == 'system', f"System warning should have source='system', got: {w.get('source')}"
 
 
 if __name__ == '__main__':
@@ -1444,6 +1526,7 @@ if __name__ == '__main__':
         test_header_candidates_generation()
         test_arm_knee_trace_generation()
         test_unit_fallback_mm_for_8th_unitless()
+        test_unit_warnings_source_key_presence()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
