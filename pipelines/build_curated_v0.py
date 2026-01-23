@@ -182,6 +182,57 @@ def find_header_row(file_path: Path, mapping: Dict[str, Any], encoding: str = 'u
     return primary_row
 
 
+def parse_numeric_string_7th(value: str) -> str:
+    """
+    Parse numeric string with 7th-specific comma handling strategy.
+    
+    Unified parser for all 7th source numeric conversions.
+    Priority order:
+    (a) European decimal comma pattern: ^\d+,\d{1,2}$ 
+        -> Replace ',' with '.' (e.g., "79,5" -> "79.5", "245,0" -> "245.0")
+    (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
+        -> Remove ',' (e.g., "1,736" -> "1736", "12,345" -> "12345")
+    (c) If dot exists, comma is thousands separator -> Remove ','
+    (d) Ambiguous cases: fallback to comma removal
+    
+    Args:
+        value: String value to parse
+        
+    Returns:
+        Parsed string (comma handled according to pattern)
+    """
+    if pd.isna(value) or value == '' or str(value).strip() == 'nan':
+        return str(value) if not pd.isna(value) else value
+    
+    s = str(value).strip()
+    
+    # Check if comma exists
+    if ',' not in s:
+        return s
+    
+    # (a) European decimal comma pattern: ^\d+,\d{1,2}$
+    # Matches: "79,5", "245,0", "1234,56" (any digits before comma, 1-2 digits after)
+    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+    if re.match(decimal_comma_pattern, s):
+        # Decimal comma: replace with dot
+        return s.replace(',', '.')
+    
+    # (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
+    # Matches: "1,736", "12,345", "1,234,567" (1-3 digits, then groups of 3 digits)
+    thousands_pattern = r'^\d{1,3}(,\d{3})+$'
+    if re.match(thousands_pattern, s):
+        # Thousands separator: remove comma
+        return s.replace(',', '')
+    
+    # (c) If dot exists, comma is thousands separator
+    if '.' in s:
+        # Remove comma (thousands separator)
+        return s.replace(',', '')
+    
+    # (d) Ambiguous case: fallback to comma removal
+    return s.replace(',', '')
+
+
 def load_mapping_v1(mapping_path: Path) -> Dict[str, Any]:
     """Load sizekorea column mapping (v1 or v2)."""
     with open(mapping_path, 'r', encoding='utf-8') as f:
@@ -293,63 +344,14 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         original_series = df[col]
         
         # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
-        # Source-specific parser strategy for 7th only
+        # Source-specific parser strategy for 7th only - uses unified parse_numeric_string_7th function
         if source_key == '7th':
             if original_series.dtype == 'object':
                 # Normalize string values: strip whitespace
                 cleaned = original_series.astype(str).str.strip()
                 
-                # Helper function to parse numeric strings with comma handling
-                # Priority order: (a) European decimal comma, (b) thousands separator, (c) ambiguous cases
-                def parse_numeric_str_7th(s: str) -> str:
-                    """Parse numeric string with 7th-specific comma handling strategy.
-                    
-                    Priority order:
-                    (a) European decimal comma pattern: ^\d+,\d{1,2}$ 
-                        -> Replace ',' with '.' (e.g., "79,5" -> "79.5", "245,0" -> "245.0")
-                    (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-                        -> Remove ',' (e.g., "1,736" -> "1736", "12,345" -> "12345")
-                    (c) If dot exists, comma is thousands separator -> Remove ','
-                    (d) Ambiguous cases: fallback to comma removal, will be recorded as parsing failures
-                    
-                    This strategy prevents decimal comma values from being incorrectly treated as thousands.
-                    """
-                    if pd.isna(s) or s == '' or s == 'nan':
-                        return s
-                    
-                    s = str(s).strip()
-                    
-                    # Check if comma exists
-                    if ',' not in s:
-                        return s
-                    
-                    import re
-                    
-                    # (a) European decimal comma pattern: ^\d+,\d{1,2}$
-                    # Matches: "79,5", "245,0", "1234,56" (any digits before comma, 1-2 digits after)
-                    decimal_comma_pattern = r'^\d+,\d{1,2}$'
-                    if re.match(decimal_comma_pattern, s):
-                        # Decimal comma: replace with dot
-                        return s.replace(',', '.')
-                    
-                    # (b) Thousands separator pattern: ^\d{1,3}(,\d{3})+$
-                    # Matches: "1,736", "12,345", "1,234,567" (1-3 digits, then groups of 3 digits)
-                    thousands_pattern = r'^\d{1,3}(,\d{3})+$'
-                    if re.match(thousands_pattern, s):
-                        # Thousands separator: remove comma
-                        return s.replace(',', '')
-                    
-                    # (c) If dot exists, comma is thousands separator
-                    if '.' in s:
-                        # Remove comma (thousands separator)
-                        return s.replace(',', '')
-                    
-                    # (d) Ambiguous case: fallback to comma removal
-                    # This will be recorded as parsing failure if conversion fails
-                    return s.replace(',', '')
-                
-                # Apply 7th-specific parsing strategy
-                cleaned = cleaned.apply(parse_numeric_str_7th)
+                # Apply unified 7th-specific parsing strategy
+                cleaned = cleaned.apply(parse_numeric_string_7th)
                 
                 try:
                     numeric_series = pd.to_numeric(cleaned, errors='coerce')
@@ -436,13 +438,32 @@ def check_all_null_extracted(
         if standard_key not in df.columns:
             continue
         
-        # Skip meta columns
+        # Skip meta columns (non-numeric columns should not trigger ALL_NULL_EXTRACTED)
         if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
             continue
         
         series = df[standard_key]
         non_null_count = series.notna().sum()
         total_rows = len(series)
+        
+        # Check if column is numeric (to avoid false positives for non-numeric columns)
+        is_numeric = pd.api.types.is_numeric_dtype(series)
+        if not is_numeric:
+            # For non-numeric columns, check if they can be converted to numeric
+            numeric_attempt = pd.to_numeric(series, errors='coerce')
+            non_numeric_count = (series.notna() & numeric_attempt.isna()).sum()
+            if non_null_count == 0 and total_rows > 0:
+                # Record as non-numeric values, not ALL_NULL_EXTRACTED
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": standard_key,
+                    "reason": "NON_NUMERIC_VALUES",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"rows_total={total_rows}, non_null_count={non_null_count}, non_numeric_count={non_numeric_count}, stage=after_extraction_before_preprocess"
+                })
+            continue
         
         if non_null_count == 0 and total_rows > 0:
             warnings.append({
@@ -478,7 +499,7 @@ def check_all_null_by_source(
         if standard_key not in df.columns:
             continue
         
-        # Skip meta columns
+        # Skip meta columns (non-numeric columns should not trigger ALL_NULL_BY_SOURCE)
         if standard_key in ['HUMAN_ID', 'SEX', 'AGE']:
             continue
         
@@ -490,6 +511,26 @@ def check_all_null_by_source(
         series = df[standard_key]
         non_null_count = series.notna().sum()
         total_rows = len(series)
+        
+        # Check if column is numeric (to avoid false positives for non-numeric columns)
+        is_numeric = pd.api.types.is_numeric_dtype(series)
+        if not is_numeric:
+            # For non-numeric columns, check if they can be converted to numeric
+            numeric_attempt = pd.to_numeric(series, errors='coerce')
+            non_numeric_count = (series.notna() & numeric_attempt.isna()).sum()
+            if non_null_count == 0 and total_rows > 0:
+                # Record as non-numeric values, not ALL_NULL_BY_SOURCE
+                warnings.append({
+                    "source": source_key,
+                    "file": SOURCE_FILES[source_key],
+                    "column": standard_key,
+                    "reason": "NON_NUMERIC_VALUES",
+                    "row_index": None,
+                    "original_value": None,
+                    "details": f"total_rows={total_rows}, non_null_count={non_null_count}, non_numeric_count={non_numeric_count}"
+                })
+                warned_keys.add(key_source_id)
+            continue
         
         if non_null_count == 0 and total_rows > 0:
             warnings.append({
@@ -1022,8 +1063,16 @@ def apply_unit_canonicalization(
         
         # Apply canonicalization
         # First coerce to numeric for safe conversion (dtype/object hardening)
+        # For 7th source, apply unified comma parser strategy before numeric conversion
         original_series = df[col]
-        numeric_series = pd.to_numeric(original_series, errors='coerce')
+        
+        # Apply 7th-specific parser strategy if needed (before numeric conversion)
+        if source_key == '7th' and original_series.dtype == 'object':
+            # Apply unified 7th parser to all object dtype columns before numeric conversion
+            parsed_series = original_series.astype(str).str.strip().apply(parse_numeric_string_7th)
+            numeric_series = pd.to_numeric(parsed_series, errors='coerce')
+        else:
+            numeric_series = pd.to_numeric(original_series, errors='coerce')
         
         # Track NaN introduced by coercion (if any)
         original_nan_count = original_series.isna().sum()
