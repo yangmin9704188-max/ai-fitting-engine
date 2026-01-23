@@ -644,9 +644,10 @@ def apply_unit_canonicalization(
                     non_null_after = pd.Series(converted).notna().sum()
                     
                     # Record aggregated warning
+                    file_path = SOURCE_FILES.get(source_key, "unknown")
                     warnings.append({
                         "source": source_key,
-                        "file": SOURCE_FILES.get(source_key, "unknown"),
+                        "file": file_path,
                         "column": col,
                         "reason": "unit_conversion_applied",
                         "row_index": None,
@@ -659,7 +660,7 @@ def apply_unit_canonicalization(
                         if "UNIT_FAIL" in w or "PROVENANCE" in w:
                             warnings.append({
                                 "source": source_key,
-                                "file": SOURCE_FILES.get(source_key, "unknown"),
+                                "file": file_path,
                                 "column": col,
                                 "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
                                 "row_index": None,
@@ -674,9 +675,10 @@ def apply_unit_canonicalization(
             result_df[col] = np.nan
             # Ensure source_key is set (should not be None at this point)
             warning_source = source_key if source_key else "system"
+            file_path = SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py"
             warnings.append({
                 "source": warning_source,
-                "file": SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py",
+                "file": file_path,
                 "column": col,
                 "reason": "unit_undetermined",
                 "row_index": None,
@@ -711,11 +713,12 @@ def apply_unit_canonicalization(
         # Convert warning_list strings to structured warnings
         # Ensure source_key is set (should not be None at this point)
         warning_source = source_key if source_key else "system"
+        file_path = SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py"
         for w in warning_list:
             if "UNIT_FAIL" in w or "PROVENANCE" in w:
                 warnings.append({
                     "source": warning_source,
-                    "file": SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py",
+                    "file": file_path,
                     "column": col,
                     "reason": "unit_conversion_failed" if "UNIT_FAIL" in w else "unit_conversion_applied",
                     "row_index": None,

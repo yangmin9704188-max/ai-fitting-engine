@@ -1465,12 +1465,21 @@ def test_unit_warnings_source_key_presence():
     
     assert len(unit_warnings) > 0, "Should have unit-related warnings"
     
+    # Explicit assertion: no unit warnings should have source=None or source='unknown'
     for w in unit_warnings:
         source = w.get('source')
         assert source is not None, f"Warning should have source, got: {w}"
         assert source != 'unknown', f"Warning should not have source='unknown', got: {w}"
         assert source in ['7th', '8th_direct', '8th_3d', 'system'], \
             f"Warning source should be valid, got: {source} in {w}"
+    
+    # Additional scan: verify no unit_* reason warnings have None/unknown source
+    all_unit_reasons = ['unit_conversion_failed', 'unit_undetermined', 'unit_conversion_applied', 'UNIT_DEFAULT_MM_NO_UNIT']
+    all_unit_warnings = [w for w in warnings if any(reason in str(w.get('reason', '')) for reason in all_unit_reasons)]
+    for w in all_unit_warnings:
+        source = w.get('source')
+        assert source is not None and source != 'unknown', \
+            f"Unit warning must have valid source (not None/unknown), got source={source} in {w}"
     
     # Test system-level non-finite normalization
     df_with_inf = pd.DataFrame({
