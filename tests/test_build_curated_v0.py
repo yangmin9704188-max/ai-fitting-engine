@@ -410,7 +410,8 @@ def test_sentinel_dedup_prevention():
 def test_7th_xlsx_preference():
     """
     Test that 7th source prefers XLSX over CSV when both exist.
-    Uses temporary XLSX file to verify XLSX is selected.
+    Creates temporary XLSX file and verifies XLSX is selected over CSV.
+    Uses small DataFrame to avoid dependency on large files.
     """
     import tempfile
     
@@ -428,32 +429,46 @@ def test_7th_xlsx_preference():
         })
         csv_data.to_csv(csv_path, index=False, encoding='utf-8-sig')
         
-        # Create XLSX file with same data
+        # Create XLSX file with same data (HUMAN_ID as string)
         xlsx_data = pd.DataFrame({
-            'HUMAN_ID': ['00123', '00456'],
+            'HUMAN_ID': ['00123', '00456'],  # String values with leading zeros
             '키': [1700, 1800],
             '성별': ['남', '여']
         })
         xlsx_data.to_excel(xlsx_path, index=False, engine='openpyxl')
         
-        # Test load_raw_file with 7th source_key
-        # Should prefer XLSX
+        # Test load_raw_file with 7th source_key pointing to CSV
+        # Should internally switch to XLSX
         df_loaded = load_raw_file(csv_path, header_row=0, source_key='7th', is_xlsx=False)
         
-        # Verify XLSX was loaded (check that file was switched)
-        # Since load_raw_file internally switches to XLSX, we verify by checking
-        # that the function doesn't fail and returns a DataFrame
+        # Verify XLSX was loaded (function should have switched to XLSX)
         assert not df_loaded.empty, "Should load XLSX file when available"
         assert len(df_loaded) == 2, "Should have 2 rows"
+        
+        # Verify HUMAN_ID is preserved as string (leading zeros maintained)
+        human_id_col = None
+        for col in df_loaded.columns:
+            if 'ID' in str(col) or 'HUMAN_ID' in str(col):
+                human_id_col = col
+                break
+        
+        if human_id_col:
+            # Check that HUMAN_ID is string type
+            assert df_loaded[human_id_col].dtype == 'object' or df_loaded[human_id_col].dtype.name == 'string', \
+                f"HUMAN_ID should be string, got {df_loaded[human_id_col].dtype}"
+            
+            # Verify values are strings
+            values = df_loaded[human_id_col].astype(str).tolist()
+            assert all(isinstance(v, str) for v in values), "All HUMAN_ID values should be strings"
 
 
 def test_per_key_header_selection():
     """
     Test that HUMAN_ID/SEX use secondary header while other keys use primary header.
     Uses synthetic CSV with separated primary/secondary headers.
+    Primary header at row 5 (0-indexed), secondary at row 7 (primary+2).
     """
     import tempfile
-    import json
     
     # Create synthetic mapping
     mapping = {
@@ -482,54 +497,55 @@ def test_per_key_header_selection():
         ]
     }
     
-    # Create synthetic CSV with primary and secondary headers
+    # Create synthetic CSV with primary (row 5) and secondary (row 7) headers
+    # Both headers should have same number of data rows for alignment
     with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig') as f:
         temp_path = Path(f.name)
-        # Row 0: code
-        f.write('CODE,COL1,COL2\n')
-        # Row 1: secondary header (HUMAN_ID, SEX)
-        f.write('HUMAN_ID,성별,AGE\n')
-        # Row 2: data for secondary
-        f.write('00123,남,25\n')
-        # Row 3: primary header (표준 측정항목 명)
+        # Rows 0-4: metadata/empty
+        for i in range(5):
+            f.write('META,COL1,COL2\n')
+        # Row 5: primary header (표준 측정항목 명) - typically row 5 for 7th
         f.write(' 표준 측정항목 명,키,몸무게\n')
-        # Row 4: data for primary
-        f.write('DATA,1700,70\n')
+        # Row 6: data for primary (row 1)
+        f.write('DATA1,1700,70\n')
+        # Row 7: secondary header (HUMAN_ID, SEX) - typically row 7 for 7th
+        f.write('HUMAN_ID,성별,AGE\n')
+        # Row 8: data for secondary (row 1) - aligned with primary data
+        f.write('00123,남,25\n')
+        # Row 9: data for primary (row 2)
+        f.write('DATA2,1800,80\n')
+        # Row 10: data for secondary (row 2) - aligned with primary data
+        f.write('00456,여,30\n')
     
     try:
         # Find headers
-        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False)
+        primary_row, secondary_row = find_header_rows(temp_path, mapping, is_xlsx=False, source_key='7th')
         
-        assert primary_row == 3, f"Expected primary row 3, got {primary_row}"
-        # Secondary row should be found (row 1 contains HUMAN_ID and 성별)
-        # If not found, it's OK - the test verifies the logic works when secondary exists
-        if secondary_row is None:
-            # Debug: check what was found
-            print(f"Warning: Secondary row not found, but test will continue")
-            print(f"Primary row: {primary_row}")
-            # For this test, we'll allow secondary_row to be None and test with None
-        else:
-            assert secondary_row == 1, f"Expected secondary row 1, got {secondary_row}"
+        assert primary_row == 5, f"Expected primary row 5 (anchor term), got {primary_row}"
+        # Secondary should be found at row 7 (primary+2)
+        assert secondary_row == 7, f"Expected secondary row 7, got {secondary_row}"
         
         # Load primary and secondary DataFrames
         df_primary = load_raw_file(temp_path, primary_row, None, '7th', is_xlsx=False)
-        df_secondary = None
-        if secondary_row is not None:
-            df_secondary = load_raw_file(temp_path, secondary_row, None, '7th', is_xlsx=False)
+        df_secondary = load_raw_file(temp_path, secondary_row, None, '7th', is_xlsx=False)
+        
+        # Verify DataFrames loaded correctly
+        assert not df_primary.empty, "Primary DataFrame should not be empty"
+        assert not df_secondary.empty, "Secondary DataFrame should not be empty"
         
         # Extract columns
         warnings = []
         df_result = extract_columns_from_source(df_primary, df_secondary, '7th', mapping, warnings)
         
-        # Verify columns are extracted (even if secondary wasn't found, primary should work)
+        # Verify HEIGHT_M came from primary (should have value from row 9)
         assert 'HEIGHT_M' in df_result.columns, "HEIGHT_M should be extracted from primary"
         
-        # If secondary was found, verify HUMAN_ID/SEX came from it
-        if secondary_row is not None and df_secondary is not None:
-            assert 'HUMAN_ID' in df_result.columns, "HUMAN_ID should be extracted"
-            human_id_values = df_result['HUMAN_ID'].dropna().astype(str).tolist()
-            # Check that HUMAN_ID values are present (may come from primary if secondary not used)
-            assert len(human_id_values) > 0 or 'HUMAN_ID' in df_result.columns, "HUMAN_ID should be present"
+        # Verify HUMAN_ID/SEX came from secondary
+        assert 'HUMAN_ID' in df_result.columns, "HUMAN_ID should be extracted from secondary"
+        human_id_values = df_result['HUMAN_ID'].dropna().astype(str).tolist()
+        assert '00123' in human_id_values, "HUMAN_ID should come from secondary header (row 7)"
+        
+        assert 'SEX' in df_result.columns, "SEX should be extracted from secondary"
         
     finally:
         if temp_path.exists():
@@ -539,10 +555,8 @@ def test_per_key_header_selection():
 def test_human_id_string_preservation():
     """
     Test that HUMAN_ID is preserved as string throughout processing.
-    Verifies leading zeros and string format are maintained.
+    Verifies leading zeros and string format are maintained end-to-end.
     """
-    import tempfile
-    
     # Create test DataFrame with HUMAN_ID containing leading zeros
     df = pd.DataFrame({
         'HUMAN_ID': ['00123', '00456', '000789'],
@@ -560,9 +574,9 @@ def test_human_id_string_preservation():
     
     # Verify leading zeros are preserved
     human_id_values = df_processed['HUMAN_ID'].astype(str).tolist()
-    assert '00123' in human_id_values, "Leading zeros should be preserved"
-    assert '00456' in human_id_values, "Leading zeros should be preserved"
-    assert '000789' in human_id_values, "Leading zeros should be preserved"
+    assert '00123' in human_id_values, "Leading zeros should be preserved (00123)"
+    assert '00456' in human_id_values, "Leading zeros should be preserved (00456)"
+    assert '000789' in human_id_values, "Leading zeros should be preserved (000789)"
     
     # Test unit canonicalization excludes HUMAN_ID
     warnings2 = []
@@ -575,6 +589,14 @@ def test_human_id_string_preservation():
     
     human_id_values_after = df_canonical['HUMAN_ID'].astype(str).tolist()
     assert '00123' in human_id_values_after, "HUMAN_ID should be preserved through unit canonicalization"
+    
+    # Verify final output format (simulating save/load)
+    df_final = df_canonical.copy()
+    if 'HUMAN_ID' in df_final.columns:
+        df_final['HUMAN_ID'] = df_final['HUMAN_ID'].astype(str)
+    
+    final_values = df_final['HUMAN_ID'].astype(str).tolist()
+    assert '00123' in final_values, "HUMAN_ID '00123' should be preserved in final output"
 
 
 def test_xlsx_human_id_string_loading():

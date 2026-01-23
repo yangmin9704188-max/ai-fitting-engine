@@ -41,12 +41,17 @@ HEADER_ROWS = {
 }
 
 
-def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = False, max_check: int = 20) -> tuple[int, Optional[int]]:
+def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = False, 
+                     source_key: str = None, max_check: int = 20) -> tuple[int, Optional[int]]:
     """
     Find primary and secondary header rows.
     
     Primary header: First column value exactly matches "표준 측정항목 명" (for measurements).
+    - Typically row 5 (0-indexed) for 7th data when anchor is found.
+    
     Secondary header: Row containing "성별"/"SEX" or "ID"/"HUMAN_ID" tokens (for meta columns).
+    - Searched in range primary+1 to primary+6 (typically row 7 for 7th data).
+    - For 8th series, secondary header strings are cleaned (numeric prefix removed).
     
     Returns (primary_row, secondary_row) where secondary_row may be None.
     """
@@ -89,9 +94,10 @@ def find_header_rows(file_path: Path, mapping: Dict[str, Any], is_xlsx: bool = F
                 break
     
     # Find secondary header (SEX/HUMAN_ID) near primary
+    # Search range: primary+1 to primary+6 (typically row 7 for 7th when primary is row 5)
     if primary_row is not None:
-        search_start = max(0, primary_row - 1)
-        search_end = min(len(df_sample), primary_row + 7)  # +1~+6 range
+        search_start = primary_row + 1  # Start after primary
+        search_end = min(len(df_sample), primary_row + 7)  # Up to +6 rows after primary
         
         for i in range(search_start, search_end):
             if i == primary_row:
@@ -429,11 +435,27 @@ def extract_columns_from_source(
             continue
         
         # Extract column values
+        # Align lengths: use primary DataFrame length as reference
         if standard_key == 'HUMAN_ID':
             # Ensure HUMAN_ID is string
-            result_data[standard_key] = source_df[raw_column].astype(str).values
+            values = source_df[raw_column].astype(str).values
+            # Align to primary DataFrame length if needed
+            if len(values) != num_rows:
+                # Pad or truncate to match primary DataFrame
+                if len(values) < num_rows:
+                    values = np.concatenate([values, [""] * (num_rows - len(values))])
+                else:
+                    values = values[:num_rows]
+            result_data[standard_key] = values
         else:
-            result_data[standard_key] = source_df[raw_column].values
+            values = source_df[raw_column].values
+            # Align to primary DataFrame length if needed
+            if len(values) != num_rows:
+                if len(values) < num_rows:
+                    values = np.concatenate([values, [np.nan] * (num_rows - len(values))])
+                else:
+                    values = values[:num_rows]
+            result_data[standard_key] = values
     
     # Preprocess numeric columns (comma removal, sentinel replacement)
     # HUMAN_ID is excluded from numeric processing
@@ -753,7 +775,7 @@ def build_curated_v0(
         
         print(f"Processing {source_key}: {file_path}")
         
-        # Check if XLSX exists for 7th
+        # For 7th, prefer XLSX over CSV
         is_xlsx = False
         if source_key == '7th':
             xlsx_path = file_path.parent / "7th_data.xlsx"
@@ -761,9 +783,13 @@ def build_curated_v0(
                 file_path = xlsx_path
                 is_xlsx = True
                 print(f"  Using XLSX: {file_path}")
+            else:
+                print(f"  Warning: XLSX not found, using CSV fallback: {file_path}")
         
         # Find header rows (primary and secondary)
-        primary_row, secondary_row = find_header_rows(file_path, mapping, is_xlsx=is_xlsx)
+        # Primary: "표준 측정항목 명" anchor row (typically row 5 for 7th)
+        # Secondary: Row with "성별"/"HUMAN_ID" tokens near primary (typically row 7 for 7th)
+        primary_row, secondary_row = find_header_rows(file_path, mapping, is_xlsx=is_xlsx, source_key=source_key)
         print(f"  Detected primary header row: {primary_row}")
         if secondary_row is not None:
             print(f"  Detected secondary header row: {secondary_row}")
