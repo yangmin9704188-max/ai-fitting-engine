@@ -984,6 +984,32 @@ def build_curated_v0(
                 "details": f"{new_nan_count} WEIGHT_KG values failed to convert to numeric during parquet write preparation"
             })
     
+    # Normalize non-finite values (inf/-inf) to NaN for all numeric columns
+    # This prevents pyarrow conversion failures and silent invalid values
+    numeric_cols = df_combined.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        if col in ['SEX', 'AGE', 'HUMAN_ID']:
+            continue  # Skip meta columns
+        
+        # Check for non-finite values
+        non_finite_mask = ~np.isfinite(df_combined[col])
+        non_finite_count = non_finite_mask.sum()
+        
+        if non_finite_count > 0:
+            # Replace inf/-inf with NaN
+            df_combined.loc[non_finite_mask, col] = np.nan
+            
+            # Record aggregated warning
+            warnings.append({
+                "source": "system",
+                "file": "build_curated_v0.py",
+                "column": col,
+                "reason": "unit_conversion_failed",
+                "row_index": None,
+                "original_value": None,
+                "details": f"{non_finite_count} non-finite values (inf/-inf) normalized to NaN before parquet write"
+            })
+    
     if output_format == "parquet":
         df_combined.to_parquet(output_path, index=False)
     else:

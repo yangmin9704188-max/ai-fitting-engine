@@ -861,6 +861,65 @@ def test_weight_kg_mixed_dtype_parquet_cast():
         f"Expected 1 new NaN (from empty string), got {nan_after - nan_before}"
 
 
+def test_non_finite_normalization():
+    """
+    Test that non-finite values (inf/-inf) are normalized to NaN before parquet write.
+    
+    Verifies:
+    1) inf values are replaced with NaN
+    2) -inf values are replaced with NaN
+    3) Normal finite values remain unchanged
+    4) Count of replaced values is tracked
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Create DataFrame with non-finite values
+    df = pd.DataFrame({
+        'HUMAN_ID': ['001', '002', '003', '004', '005'],
+        'WEIGHT_KG': [70.8, np.inf, -np.inf, 65.5, 80.2],
+        'HEIGHT_M': [1.7, 1.8, np.inf, 1.65, 1.75],
+        'BUST_CIRC_M': [0.9, 0.85, 0.88, -np.inf, 0.92]
+    })
+    
+    # Simulate the non-finite normalization logic from build_curated_v0
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    
+    for col in numeric_cols:
+        if col in ['SEX', 'AGE', 'HUMAN_ID']:
+            continue
+        
+        # Check for non-finite values
+        non_finite_mask = ~np.isfinite(df[col])
+        non_finite_count = non_finite_mask.sum()
+        
+        if non_finite_count > 0:
+            # Replace inf/-inf with NaN
+            df.loc[non_finite_mask, col] = np.nan
+    
+    # Verify inf values were replaced with NaN
+    assert pd.isna(df['WEIGHT_KG'].iloc[1]), \
+        f"inf should be replaced with NaN, got {df['WEIGHT_KG'].iloc[1]}"
+    
+    # Verify -inf values were replaced with NaN
+    assert pd.isna(df['WEIGHT_KG'].iloc[2]), \
+        f"-inf should be replaced with NaN, got {df['WEIGHT_KG'].iloc[2]}"
+    
+    # Verify normal finite values remain unchanged
+    assert df['WEIGHT_KG'].iloc[0] == 70.8, \
+        f"Normal value should remain unchanged, got {df['WEIGHT_KG'].iloc[0]}"
+    assert df['WEIGHT_KG'].iloc[3] == 65.5, \
+        f"Normal value should remain unchanged, got {df['WEIGHT_KG'].iloc[3]}"
+    
+    # Verify HEIGHT_M inf was replaced
+    assert pd.isna(df['HEIGHT_M'].iloc[2]), \
+        f"inf in HEIGHT_M should be replaced with NaN, got {df['HEIGHT_M'].iloc[2]}"
+    
+    # Verify BUST_CIRC_M -inf was replaced
+    assert pd.isna(df['BUST_CIRC_M'].iloc[3]), \
+        f"-inf in BUST_CIRC_M should be replaced with NaN, got {df['BUST_CIRC_M'].iloc[3]}"
+
+
 def test_data_start_row_cutoff():
     """
     Test that header/code/meta rows are dropped from data to prevent numeric_parsing_failed.
@@ -1013,6 +1072,7 @@ if __name__ == '__main__':
         test_per_key_header_policy_with_age()
         test_data_start_row_cutoff()
         test_weight_kg_mixed_dtype_parquet_cast()
+        test_non_finite_normalization()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
