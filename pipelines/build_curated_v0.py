@@ -746,13 +746,167 @@ def handle_missing_values(
     return df
 
 
+def detect_duplicate_headers(df: pd.DataFrame, source_key: str) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Detect duplicate headers (e.g., "키", "키.1") and report non-null counts for each.
+    
+    Returns dict mapping base_header -> list of {column_name, non_null_count, total_rows}
+    """
+    duplicate_info = {}
+    
+    # Group columns by base header (remove .1, .2 suffixes)
+    base_header_map = {}
+    for col in df.columns:
+        col_str = str(col).strip()
+        # Remove numeric suffix (e.g., "키.1" -> "키")
+        base_header = re.sub(r'\.\d+$', '', col_str)
+        if base_header not in base_header_map:
+            base_header_map[base_header] = []
+        base_header_map[base_header].append(col)
+    
+    # Find duplicates (base headers with multiple columns)
+    for base_header, columns in base_header_map.items():
+        if len(columns) > 1:
+            duplicate_info[base_header] = []
+            for col in columns:
+                non_null_count = df[col].notna().sum()
+                total_rows = len(df)
+                duplicate_info[base_header].append({
+                    "column_name": str(col),
+                    "non_null_count": int(non_null_count),
+                    "total_rows": int(total_rows),
+                    "non_null_rate": float(non_null_count / total_rows) if total_rows > 0 else 0.0
+                })
+            # Sort by non_null_count descending
+            duplicate_info[base_header].sort(key=lambda x: x["non_null_count"], reverse=True)
+    
+    return duplicate_info
+
+
+def calculate_source_quality(
+    df: pd.DataFrame,
+    source_key: str,
+    mapping: Dict[str, Any]
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Calculate quality metrics for each standard_key in the source.
+    
+    Returns dict mapping standard_key -> {non_null_count, missing_count, missing_rate, total_rows}
+    """
+    quality = {}
+    total_rows = len(df)
+    
+    # Get all standard keys from mapping
+    for key_info in mapping['keys']:
+        standard_key = key_info['standard_key']
+        
+        if standard_key not in df.columns:
+            quality[standard_key] = {
+                "non_null_count": 0,
+                "missing_count": total_rows,
+                "missing_rate": 1.0,
+                "total_rows": total_rows
+            }
+            continue
+        
+        non_null_count = df[standard_key].notna().sum()
+        missing_count = total_rows - non_null_count
+        missing_rate = missing_count / total_rows if total_rows > 0 else 1.0
+        
+        quality[standard_key] = {
+            "non_null_count": int(non_null_count),
+            "missing_count": int(missing_count),
+            "missing_rate": float(missing_rate),
+            "total_rows": int(total_rows)
+        }
+    
+    return quality
+
+
+def generate_quality_summary(
+    all_source_quality: Dict[str, Dict[str, Dict[str, Any]]],
+    all_duplicate_headers: Dict[str, Dict[str, List[Dict[str, Any]]]],
+    output_path: Path
+) -> None:
+    """
+    Generate facts-only quality summary markdown file.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write("# curated_v0 v3 Quality Summary (facts-only)\n\n")
+        f.write(f"Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # 1. High missing rate keys (missing_rate >= 0.95)
+        f.write("## High Missing Rate Keys (missing_rate >= 0.95)\n\n")
+        high_missing = []
+        for source_key, quality in all_source_quality.items():
+            for standard_key, metrics in quality.items():
+                if metrics["missing_rate"] >= 0.95:
+                    high_missing.append({
+                        "source": source_key,
+                        "standard_key": standard_key,
+                        "missing_rate": metrics["missing_rate"],
+                        "missing_count": metrics["missing_count"],
+                        "non_null_count": metrics["non_null_count"],
+                        "total_rows": metrics["total_rows"]
+                    })
+        
+        # Sort by missing_rate descending, then by source
+        high_missing.sort(key=lambda x: (-x["missing_rate"], x["source"], x["standard_key"]))
+        
+        if high_missing:
+            f.write("| source | standard_key | missing_rate | missing_count | non_null_count | total_rows |\n")
+            f.write("|--------|--------------|--------------|---------------|----------------|------------|\n")
+            for item in high_missing:
+                f.write(f"| {item['source']} | {item['standard_key']} | {item['missing_rate']:.4f} | "
+                       f"{item['missing_count']} | {item['non_null_count']} | {item['total_rows']} |\n")
+        else:
+            f.write("No keys with missing_rate >= 0.95.\n")
+        f.write("\n")
+        
+        # 2. Duplicate header detection
+        f.write("## Duplicate Header Detection\n\n")
+        has_duplicates = False
+        for source_key, duplicate_info in all_duplicate_headers.items():
+            if duplicate_info:
+                has_duplicates = True
+                f.write(f"### {source_key}\n\n")
+                for base_header, columns in duplicate_info.items():
+                    f.write(f"**Base header: {base_header}**\n\n")
+                    f.write("| column_name | non_null_count | total_rows | non_null_rate |\n")
+                    f.write("|-------------|-----------------|------------|---------------|\n")
+                    for col_info in columns:
+                        f.write(f"| {col_info['column_name']} | {col_info['non_null_count']} | "
+                               f"{col_info['total_rows']} | {col_info['non_null_rate']:.4f} |\n")
+                    f.write("\n")
+        
+        if not has_duplicates:
+            f.write("No duplicate headers detected.\n\n")
+        
+        # 3. Source completeness summary
+        f.write("## Source Completeness Summary\n\n")
+        for source_key, quality in all_source_quality.items():
+            f.write(f"### {source_key}\n\n")
+            f.write("| standard_key | non_null_count | missing_count | missing_rate | total_rows |\n")
+            f.write("|--------------|----------------|---------------|--------------|------------|\n")
+            
+            # Sort by missing_rate descending
+            sorted_keys = sorted(quality.items(), key=lambda x: (-x[1]["missing_rate"], x[0]))
+            for standard_key, metrics in sorted_keys:
+                f.write(f"| {standard_key} | {metrics['non_null_count']} | {metrics['missing_count']} | "
+                       f"{metrics['missing_rate']:.4f} | {metrics['total_rows']} |\n")
+            f.write("\n")
+
+
 def build_curated_v0(
     mapping_path: Path,
     output_path: Path,
     output_format: str = "parquet",
     dry_run: bool = False,
     max_rows: Optional[int] = None,
-    warnings_output_path: Optional[Path] = None
+    warnings_output_path: Optional[Path] = None,
+    quality_summary_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Build curated_v0 dataset.
@@ -775,6 +929,8 @@ def build_curated_v0(
     
     # Process each source
     all_dfs = []
+    all_source_quality = {}  # source_key -> {standard_key -> quality_metrics}
+    all_duplicate_headers = {}  # source_key -> {base_header -> [column_info]}
     stats = {
         "sources_processed": [],
         "total_rows": 0,
@@ -921,6 +1077,16 @@ def build_curated_v0(
         # Add source column
         df_final['_source'] = source_key
         
+        # Calculate quality metrics if quality summary is requested
+        if quality_summary_path is not None:
+            source_quality = calculate_source_quality(df_final, source_key, mapping)
+            all_source_quality[source_key] = source_quality
+            
+            # Detect duplicate headers in raw DataFrame (before extraction)
+            duplicate_headers = detect_duplicate_headers(df_raw, source_key)
+            if duplicate_headers:
+                all_duplicate_headers[source_key] = duplicate_headers
+        
         all_dfs.append(df_final)
         stats["sources_processed"].append(source_key)
         stats["total_rows"] += len(df_final)
@@ -1029,6 +1195,11 @@ def build_curated_v0(
     
     stats["warnings_count"] = len(warnings)
     
+    # Generate quality summary if requested
+    if quality_summary_path is not None and all_source_quality:
+        generate_quality_summary(all_source_quality, all_duplicate_headers, quality_summary_path)
+        print(f"Saved quality summary: {quality_summary_path}")
+    
     # Print summary
     print("\n=== Summary ===")
     print(f"Sources processed: {len(stats['sources_processed'])}")
@@ -1089,12 +1260,19 @@ def main():
         default=None,
         help='Path to save warnings JSONL file (optional)'
     )
+    parser.add_argument(
+        '--emit-quality-summary',
+        type=str,
+        default=None,
+        help='Path to save quality summary markdown file (optional)'
+    )
     
     args = parser.parse_args()
     
     mapping_path = Path(args.mapping)
     output_path = Path(args.output)
     warnings_output_path = Path(args.warnings_output) if args.warnings_output else None
+    quality_summary_path = Path(args.emit_quality_summary) if args.emit_quality_summary else None
     
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")
@@ -1106,7 +1284,8 @@ def main():
         output_format=args.format,
         dry_run=args.dry_run,
         max_rows=args.max_rows,
-        warnings_output_path=warnings_output_path
+        warnings_output_path=warnings_output_path,
+        quality_summary_path=quality_summary_path
     )
     
     return 0
