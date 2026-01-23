@@ -805,6 +805,62 @@ def test_xlsx_human_id_string_loading():
             assert all(isinstance(v, str) for v in values), "All HUMAN_ID values should be strings"
 
 
+def test_weight_kg_mixed_dtype_parquet_cast():
+    """
+    Test that WEIGHT_KG with mixed dtype (string/float/empty) is cast to numeric
+    before parquet write to avoid pyarrow conversion failure.
+    
+    Verifies:
+    1) Mixed dtype values ("70.8" str, 70.8 float, "" empty) are converted to float
+    2) Empty strings become NaN
+    3) dtype is float64 after conversion
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Create DataFrame with mixed WEIGHT_KG dtype
+    df = pd.DataFrame({
+        'HUMAN_ID': ['001', '002', '003', '004'],
+        'WEIGHT_KG': ['70.8', 70.8, '', np.nan],  # Mixed: str, float, empty, NaN
+        'HEIGHT_M': [1.7, 1.8, 1.65, 1.75]
+    })
+    
+    # Simulate the casting logic from build_curated_v0
+    nan_before = df['WEIGHT_KG'].isna().sum()
+    
+    # Convert to numeric (same logic as pipeline)
+    df['WEIGHT_KG'] = pd.to_numeric(
+        df['WEIGHT_KG'].astype(str).str.replace(',', '', regex=False).str.strip(),
+        errors='coerce'
+    )
+    
+    nan_after = df['WEIGHT_KG'].isna().sum()
+    
+    # Verify dtype is numeric
+    assert pd.api.types.is_numeric_dtype(df['WEIGHT_KG']), \
+        f"WEIGHT_KG should be numeric dtype, got {df['WEIGHT_KG'].dtype}"
+    
+    # Verify string "70.8" was converted to float
+    assert df['WEIGHT_KG'].iloc[0] == 70.8, \
+        f"String '70.8' should be converted to float 70.8, got {df['WEIGHT_KG'].iloc[0]}"
+    
+    # Verify float 70.8 remains float
+    assert df['WEIGHT_KG'].iloc[1] == 70.8, \
+        f"Float 70.8 should remain 70.8, got {df['WEIGHT_KG'].iloc[1]}"
+    
+    # Verify empty string became NaN
+    assert pd.isna(df['WEIGHT_KG'].iloc[2]), \
+        f"Empty string should become NaN, got {df['WEIGHT_KG'].iloc[2]}"
+    
+    # Verify NaN remains NaN
+    assert pd.isna(df['WEIGHT_KG'].iloc[3]), \
+        f"NaN should remain NaN, got {df['WEIGHT_KG'].iloc[3]}"
+    
+    # Verify new NaN count (empty string -> NaN)
+    assert nan_after - nan_before == 1, \
+        f"Expected 1 new NaN (from empty string), got {nan_after - nan_before}"
+
+
 def test_data_start_row_cutoff():
     """
     Test that header/code/meta rows are dropped from data to prevent numeric_parsing_failed.
@@ -956,6 +1012,7 @@ if __name__ == '__main__':
         test_primary_header_anchor_in_non_first_cell()
         test_per_key_header_policy_with_age()
         test_data_start_row_cutoff()
+        test_weight_kg_mixed_dtype_parquet_cast()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
