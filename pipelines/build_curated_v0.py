@@ -292,11 +292,47 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
         
         original_series = df[col]
         
-        # 7th: Remove commas from numeric strings
+        # 7th: Handle comma-separated numbers (distinguish decimal comma vs thousands separator)
         if source_key == '7th':
             if original_series.dtype == 'object':
-                # Try to remove commas and convert to numeric
-                cleaned = original_series.astype(str).str.replace(',', '', regex=False)
+                # Normalize string values: strip whitespace
+                cleaned = original_series.astype(str).str.strip()
+                
+                # Helper function to distinguish decimal comma vs thousands separator
+                def normalize_comma_number(s: str) -> str:
+                    """Normalize comma-separated numbers.
+                    
+                    Case 1 (thousands separator): "1,736", "12,345" -> remove comma
+                    Case 2 (decimal comma): "79,5", "377,0" (comma followed by 1-2 digits, no dot) -> replace comma with '.'
+                    """
+                    if pd.isna(s) or s == '' or s == 'nan':
+                        return s
+                    
+                    s = str(s).strip()
+                    
+                    # Check if comma exists
+                    if ',' not in s:
+                        return s
+                    
+                    # Check if dot exists (if dot exists, comma is likely thousands separator)
+                    if '.' in s:
+                        # Remove comma (thousands separator)
+                        return s.replace(',', '')
+                    
+                    # No dot: check if comma is followed by 1-2 digits (decimal comma pattern)
+                    # Pattern: digits, comma, 1-2 digits, optional end
+                    import re
+                    decimal_comma_pattern = r'^\d+,\d{1,2}$'
+                    if re.match(decimal_comma_pattern, s):
+                        # Decimal comma: replace with dot
+                        return s.replace(',', '.')
+                    else:
+                        # Thousands separator: remove comma
+                        return s.replace(',', '')
+                
+                # Apply normalization
+                cleaned = cleaned.apply(normalize_comma_number)
+                
                 try:
                     numeric_series = pd.to_numeric(cleaned, errors='coerce')
                     result_df[col] = numeric_series
@@ -310,7 +346,7 @@ def preprocess_numeric_columns(df: pd.DataFrame, source_key: str, warnings: List
                             "reason": "numeric_parsing_failed",
                             "row_index": None,
                             "original_value": None,
-                            "details": f"{failed_count} values failed to parse after comma removal"
+                            "details": f"{failed_count} values failed to parse after comma normalization"
                         })
                 except Exception:
                     pass  # Keep original if conversion fails
@@ -1495,13 +1531,15 @@ def collect_arm_knee_trace(
             # Convert to string for markdown output
             sample_values = [str(v) for v in sample_values]
         
-        # Check for non-finite values
+        # Check for non-finite values (inf/-inf only, not NaN)
         if pd.api.types.is_numeric_dtype(series):
-            non_finite_mask = ~np.isfinite(series)
-            non_finite_count = non_finite_mask.sum()
+            # Use np.isinf to explicitly check for inf/-inf only (not NaN)
+            inf_mask = np.isinf(series)
+            non_finite_count = inf_mask.sum()
             
-            # Get min/max from finite values
-            finite_series = series[np.isfinite(series)]
+            # Get min/max from finite values (exclude inf/-inf and NaN)
+            finite_mask = np.isfinite(series)
+            finite_series = series[finite_mask]
             min_value = float(finite_series.min()) if len(finite_series) > 0 else None
             max_value = float(finite_series.max()) if len(finite_series) > 0 else None
         else:
@@ -1572,9 +1610,13 @@ def collect_unit_fail_trace(
         
         # Calculate non_finite_count: numeric values that are inf/-inf (not NaN)
         # NaN is not considered non-finite for this count (it's missing, not invalid)
+        # Use np.isinf to explicitly check for inf/-inf only (not NaN)
         numeric_notna_mask = numeric.notna()
-        finite_mask = np.isfinite(numeric_values)
-        non_finite_count = (numeric_notna_mask & ~finite_mask).sum()
+        inf_mask = np.isinf(numeric_values)
+        non_finite_count = (numeric_notna_mask & inf_mask).sum()
+        
+        # Separate NaN count (optional, for reference)
+        nan_count = numeric.isna().sum()
         
         # Calculate non_numeric_count: values that couldn't be converted to numeric
         non_numeric_count = (col.notna() & numeric.isna()).sum()
@@ -1587,8 +1629,8 @@ def collect_unit_fail_trace(
         raw_str_values = col.astype(str).head(20).tolist()
         raw_sample_values = raw_str_values[:20]
         
-        # Prioritize non-finite values in numeric samples
-        non_finite_indices = np.where(numeric_notna_mask & ~finite_mask)[0]
+        # Prioritize non-finite values (inf/-inf) in numeric samples
+        non_finite_indices = np.where(numeric_notna_mask & inf_mask)[0]
         non_finite_raw = [str(col.iloc[i]) for i in non_finite_indices[:10]]
         
         # Prioritize non-numeric values (conversion failures)
@@ -1607,6 +1649,7 @@ def collect_unit_fail_trace(
             sample_values.append(f"non_numeric:{val}")
         
         # Then add finite numeric samples
+        finite_mask = np.isfinite(numeric_values)
         finite_indices = np.where(finite_mask)[0]
         for i in finite_indices[:20]:
             if len(sample_values) >= 20:
@@ -2114,13 +2157,14 @@ def build_curated_v0(
         if col in ['SEX', 'AGE', 'HUMAN_ID']:
             continue  # Skip meta columns
         
-        # Check for non-finite values
-        non_finite_mask = ~np.isfinite(df_combined[col])
-        non_finite_count = non_finite_mask.sum()
+        # Check for inf/-inf values only (not NaN)
+        # Use np.isinf to explicitly check for inf/-inf only
+        inf_mask = np.isinf(df_combined[col])
+        non_finite_count = inf_mask.sum()
         
         if non_finite_count > 0:
             # Replace inf/-inf with NaN
-            df_combined.loc[non_finite_mask, col] = np.nan
+            df_combined.loc[inf_mask, col] = np.nan
             
             # Record aggregated warning
             warnings.append({
