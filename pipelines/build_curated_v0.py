@@ -899,6 +899,122 @@ def generate_quality_summary(
             f.write("\n")
 
 
+def find_header_candidates(
+    df: pd.DataFrame,
+    source_key: str,
+    target_keys: List[str],
+    primary_row: int
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Find header candidates for target keys in DataFrame.
+    
+    Args:
+        df: Raw DataFrame with headers
+        source_key: Source identifier (e.g., '8th_direct', '8th_3d')
+        target_keys: List of standard keys to find candidates for
+        primary_row: Primary header row index (for reference)
+    
+    Returns:
+        Dictionary mapping standard_key -> list of candidate info
+        Each candidate info contains: column_name, non_null_count, total_rows, missing_count
+    """
+    candidates = {}
+    total_rows = len(df)
+    
+    # Search patterns for each target key
+    search_patterns = {
+        'ARM_LEN_M': ['팔길이'],
+        'KNEE_HEIGHT_M': ['무릎높이', '앉은무릎높이']
+    }
+    
+    for standard_key in target_keys:
+        patterns = search_patterns.get(standard_key, [])
+        if not patterns:
+            continue
+        
+        key_candidates = []
+        
+        # Search all columns for matching headers
+        for col in df.columns:
+            col_str = str(col).strip()
+            
+            # Check if column name contains any search pattern
+            matches_pattern = False
+            for pattern in patterns:
+                if pattern in col_str:
+                    matches_pattern = True
+                    break
+            
+            if matches_pattern:
+                # Calculate non-null count
+                non_null_count = df[col].notna().sum()
+                missing_count = total_rows - non_null_count
+                
+                key_candidates.append({
+                    "column_name": col_str,
+                    "non_null_count": int(non_null_count),
+                    "missing_count": int(missing_count),
+                    "total_rows": int(total_rows),
+                    "non_null_rate": float(non_null_count / total_rows) if total_rows > 0 else 0.0
+                })
+        
+        # Sort by non_null_count descending
+        key_candidates.sort(key=lambda x: x["non_null_count"], reverse=True)
+        candidates[standard_key] = key_candidates
+    
+    return candidates
+
+
+def emit_header_candidates(
+    all_candidates: Dict[str, Dict[str, List[Dict[str, Any]]]],
+    output_path: Path
+):
+    """
+    Emit header candidates to markdown file (facts-only).
+    
+    Args:
+        all_candidates: Dictionary mapping source_key -> {standard_key -> [candidate_info]}
+        output_path: Path to output markdown file
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write("# Header Candidates Diagnostic (facts-only)\n\n")
+        f.write("This document lists header candidates for specific keys in 8th_direct/8th_3d sources.\n")
+        f.write("Each candidate shows non-null count and missing count for manual confirmation.\n\n")
+        
+        for source_key in ['8th_direct', '8th_3d']:
+            if source_key not in all_candidates:
+                continue
+            
+            f.write(f"## {source_key}\n\n")
+            
+            source_candidates = all_candidates[source_key]
+            
+            for standard_key in ['ARM_LEN_M', 'KNEE_HEIGHT_M']:
+                if standard_key not in source_candidates:
+                    f.write(f"### {standard_key}\n\n")
+                    f.write("No candidates found.\n\n")
+                    continue
+                
+                f.write(f"### {standard_key}\n\n")
+                f.write("| Column Name | Non-Null Count | Missing Count | Total Rows | Non-Null Rate |\n")
+                f.write("|-------------|----------------|---------------|------------|---------------|\n")
+                
+                for candidate in source_candidates[standard_key]:
+                    col_name = candidate["column_name"]
+                    non_null = candidate["non_null_count"]
+                    missing = candidate["missing_count"]
+                    total = candidate["total_rows"]
+                    rate = candidate["non_null_rate"]
+                    
+                    f.write(f"| {col_name} | {non_null} | {missing} | {total} | {rate:.2%} |\n")
+                
+                f.write("\n")
+    
+    print(f"Saved header candidates: {output_path}")
+
+
 def build_curated_v0(
     mapping_path: Path,
     output_path: Path,
@@ -906,7 +1022,8 @@ def build_curated_v0(
     dry_run: bool = False,
     max_rows: Optional[int] = None,
     warnings_output_path: Optional[Path] = None,
-    quality_summary_path: Optional[Path] = None
+    quality_summary_path: Optional[Path] = None,
+    header_candidates_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Build curated_v0 dataset.
@@ -931,6 +1048,7 @@ def build_curated_v0(
     all_dfs = []
     all_source_quality = {}  # source_key -> {standard_key -> quality_metrics}
     all_duplicate_headers = {}  # source_key -> {base_header -> [column_info]}
+    all_header_candidates = {}  # source_key -> {standard_key -> [candidate_info]}
     stats = {
         "sources_processed": [],
         "total_rows": 0,
@@ -1087,6 +1205,13 @@ def build_curated_v0(
             if duplicate_headers:
                 all_duplicate_headers[source_key] = duplicate_headers
         
+        # Find header candidates if requested (for 8th_direct/8th_3d only)
+        if header_candidates_path is not None and source_key in ['8th_direct', '8th_3d']:
+            target_keys = ['ARM_LEN_M', 'KNEE_HEIGHT_M']
+            source_candidates = find_header_candidates(df_raw, source_key, target_keys, primary_row)
+            if source_candidates:
+                all_header_candidates[source_key] = source_candidates
+        
         all_dfs.append(df_final)
         stats["sources_processed"].append(source_key)
         stats["total_rows"] += len(df_final)
@@ -1200,6 +1325,10 @@ def build_curated_v0(
         generate_quality_summary(all_source_quality, all_duplicate_headers, quality_summary_path)
         print(f"Saved quality summary: {quality_summary_path}")
     
+    # Emit header candidates if requested
+    if header_candidates_path is not None and all_header_candidates:
+        emit_header_candidates(all_header_candidates, header_candidates_path)
+    
     # Print summary
     print("\n=== Summary ===")
     print(f"Sources processed: {len(stats['sources_processed'])}")
@@ -1266,6 +1395,12 @@ def main():
         default=None,
         help='Path to save quality summary markdown file (optional)'
     )
+    parser.add_argument(
+        '--emit-header-candidates',
+        type=str,
+        default=None,
+        help='Path to save header candidates diagnostic markdown file (optional, for 8th_direct/8th_3d)'
+    )
     
     args = parser.parse_args()
     
@@ -1273,6 +1408,7 @@ def main():
     output_path = Path(args.output)
     warnings_output_path = Path(args.warnings_output) if args.warnings_output else None
     quality_summary_path = Path(args.emit_quality_summary) if args.emit_quality_summary else None
+    header_candidates_path = Path(args.emit_header_candidates) if args.emit_header_candidates else None
     
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")
@@ -1285,7 +1421,8 @@ def main():
         dry_run=args.dry_run,
         max_rows=args.max_rows,
         warnings_output_path=warnings_output_path,
-        quality_summary_path=quality_summary_path
+        quality_summary_path=quality_summary_path,
+        header_candidates_path=header_candidates_path
     )
     
     return 0
