@@ -1165,6 +1165,170 @@ def collect_arm_knee_trace(
     return trace_data
 
 
+def collect_unit_fail_trace(
+    df: pd.DataFrame,
+    source_key: str,
+    stage: str,
+    target_keys: List[str] = ['NECK_WIDTH_M', 'NECK_DEPTH_M', 'UNDERBUST_CIRC_M', 'CHEST_CIRC_M_REF']
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Collect trace data for unit-fail keys at a specific processing stage.
+    
+    Args:
+        df: DataFrame at current stage
+        source_key: Source identifier
+        stage: Stage name (e.g., 'after_extraction_before_preprocess', 'after_preprocess', 'after_unit_conversion')
+        target_keys: List of standard keys to trace
+    
+    Returns:
+        Dictionary mapping standard_key -> trace_info
+    """
+    trace_data = {}
+    
+    for standard_key in target_keys:
+        if standard_key not in df.columns:
+            trace_data[standard_key] = {
+                "stage": stage,
+                "source": source_key,
+                "present": False,
+                "dtype": None,
+                "sample_values": [],
+                "non_null_count": 0,
+                "total_rows": len(df),
+                "non_finite_count": 0,
+                "min": None,
+                "max": None
+            }
+            continue
+        
+        col = df[standard_key]
+        dtype = str(col.dtype)
+        non_null_count = col.notna().sum()
+        total_rows = len(df)
+        
+        # Collect sample values (prioritize non-finite/invalid values)
+        sample_values = []
+        values = col.values
+        
+        # First, collect non-finite values (inf, -inf, NaN)
+        non_finite_mask = ~np.isfinite(values)
+        non_finite_count = non_finite_mask.sum()
+        non_finite_values = values[non_finite_mask]
+        
+        # Collect non-finite samples (up to 10)
+        for val in non_finite_values[:10]:
+            if len(sample_values) >= 20:
+                break
+            if pd.notna(val):  # inf/-inf (not NaN)
+                sample_values.append(str(val))
+            else:  # NaN
+                sample_values.append("NaN")
+        
+        # Then collect finite values
+        finite_mask = np.isfinite(values) & pd.notna(values)
+        finite_values = values[finite_mask]
+        
+        # Add finite samples (up to remaining slots)
+        remaining = 20 - len(sample_values)
+        for val in finite_values[:remaining]:
+            sample_values.append(str(val))
+        
+        # Calculate min/max for finite values only
+        min_val = None
+        max_val = None
+        if len(finite_values) > 0:
+            min_val = float(np.min(finite_values))
+            max_val = float(np.max(finite_values))
+        
+        trace_data[standard_key] = {
+            "stage": stage,
+            "source": source_key,
+            "present": True,
+            "dtype": dtype,
+            "sample_values": sample_values[:20],
+            "non_null_count": int(non_null_count),
+            "total_rows": int(total_rows),
+            "non_finite_count": int(non_finite_count),
+            "min": min_val,
+            "max": max_val
+        }
+    
+    return trace_data
+
+
+def emit_unit_fail_trace(
+    all_traces: Dict[str, List[Dict[str, Dict[str, Any]]]],
+    output_path: Path
+):
+    """
+    Emit unit-fail trace to markdown file (facts-only).
+    
+    Args:
+        all_traces: Dictionary mapping source_key -> list of trace_data dicts
+        output_path: Path to output markdown file
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write("# curated_v0 Unit Fail Trace (facts-only)\n\n")
+        f.write(f"Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("Target keys: NECK_WIDTH_M, NECK_DEPTH_M, UNDERBUST_CIRC_M, CHEST_CIRC_M_REF\n\n")
+        
+        for source_key in ['7th', '8th_direct', '8th_3d']:
+            if source_key not in all_traces or not all_traces[source_key]:
+                continue
+            
+            f.write(f"## {source_key}\n\n")
+            
+            # Group traces by standard_key
+            key_traces = defaultdict(list)
+            for trace_dict in all_traces[source_key]:
+                for standard_key, trace_info in trace_dict.items():
+                    key_traces[standard_key].append(trace_info)
+            
+            for standard_key in ['NECK_WIDTH_M', 'NECK_DEPTH_M', 'UNDERBUST_CIRC_M', 'CHEST_CIRC_M_REF']:
+                if standard_key not in key_traces:
+                    continue
+                
+                f.write(f"### {standard_key}\n\n")
+                
+                traces = key_traces[standard_key]
+                # Sort by stage order
+                stage_order = {'after_extraction_before_preprocess': 0, 'after_preprocess': 1, 'after_unit_conversion': 2}
+                traces.sort(key=lambda x: stage_order.get(x.get('stage', ''), 999))
+                
+                for trace in traces:
+                    stage = trace.get('stage', 'unknown')
+                    f.write(f"#### {stage}\n\n")
+                    
+                    if not trace.get('present', False):
+                        f.write("- present: false\n\n")
+                        continue
+                    
+                    f.write(f"- dtype: {trace.get('dtype', 'unknown')}\n")
+                    f.write(f"- non_null_count: {trace.get('non_null_count', 0)}\n")
+                    f.write(f"- total_rows: {trace.get('total_rows', 0)}\n")
+                    f.write(f"- non_finite_count: {trace.get('non_finite_count', 0)}\n")
+                    
+                    min_val = trace.get('min')
+                    max_val = trace.get('max')
+                    if min_val is not None and max_val is not None:
+                        f.write(f"- min: {min_val}\n")
+                        f.write(f"- max: {max_val}\n")
+                    
+                    sample_values = trace.get('sample_values', [])
+                    if sample_values:
+                        f.write(f"- sample_values (first 20, non-finite prioritized):\n")
+                        for i, val in enumerate(sample_values[:20], 1):
+                            f.write(f"  {i}. {val}\n")
+                    else:
+                        f.write("- sample_values: []\n")
+                    
+                    f.write("\n")
+            
+            f.write("\n")
+
+
 def emit_arm_knee_trace(
     all_traces: Dict[str, List[Dict[str, Dict[str, Any]]]],
     output_path: Path
@@ -1415,9 +1579,21 @@ def build_curated_v0(
             df_extracted = extract_columns_from_source(df_raw, df_secondary, source_key, mapping, warnings)
         print(f"  Extracted {len(df_extracted.columns)} standard columns")
         
+        # Collect unit-fail trace after extraction (before preprocessing)
+        if unit_fail_trace_path is not None:
+            if source_key not in all_unit_fail_traces:
+                all_unit_fail_traces[source_key] = []
+            trace_after_extraction = collect_unit_fail_trace(df_extracted, source_key, 'after_extraction_before_preprocess')
+            all_unit_fail_traces[source_key].append(trace_after_extraction)
+        
         # Sample units
         unit_map = sample_units(df_extracted, sample_size=min(100, len(df_extracted)))
         print(f"  Detected units: {len(unit_map)} columns")
+        
+        # Collect unit-fail trace after preprocessing
+        if unit_fail_trace_path is not None:
+            trace_after_preprocess = collect_unit_fail_trace(df_extracted, source_key, 'after_preprocess')
+            all_unit_fail_traces[source_key].append(trace_after_preprocess)
         
         # Apply unit canonicalization
         df_canonical = apply_unit_canonicalization(df_extracted, unit_map, warnings, source_key=source_key)
@@ -1426,6 +1602,11 @@ def build_curated_v0(
         if arm_knee_trace_path is not None and source_key in ['8th_direct', '8th_3d']:
             trace_after_unit = collect_arm_knee_trace(df_canonical, source_key, 'after_unit_conversion')
             all_arm_knee_traces[source_key].append(trace_after_unit)
+        
+        # Collect unit-fail trace after unit conversion
+        if unit_fail_trace_path is not None:
+            trace_after_unit = collect_unit_fail_trace(df_canonical, source_key, 'after_unit_conversion')
+            all_unit_fail_traces[source_key].append(trace_after_unit)
         
         # Handle missing values
         df_final = handle_missing_values(df_canonical, source_key, warnings)
@@ -1652,6 +1833,12 @@ def main():
         default=None,
         help='Path to save ARM_LEN_M and KNEE_HEIGHT_M trace diagnostic markdown file (optional, for 8th_direct/8th_3d)'
     )
+    parser.add_argument(
+        '--emit-unit-fail-trace',
+        type=str,
+        default=None,
+        help='Path to save unit-fail trace diagnostic markdown file (optional, for NECK_WIDTH_M, NECK_DEPTH_M, UNDERBUST_CIRC_M, CHEST_CIRC_M_REF)'
+    )
     
     args = parser.parse_args()
     
@@ -1661,6 +1848,7 @@ def main():
     quality_summary_path = Path(args.emit_quality_summary) if args.emit_quality_summary else None
     header_candidates_path = Path(args.emit_header_candidates) if args.emit_header_candidates else None
     arm_knee_trace_path = Path(args.emit_arm_knee_trace) if args.emit_arm_knee_trace else None
+    unit_fail_trace_path = Path(args.emit_unit_fail_trace) if args.emit_unit_fail_trace else None
     
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")

@@ -1512,6 +1512,74 @@ def test_unit_warnings_source_key_presence():
         assert w.get('source') == 'system', f"System warning should have source='system', got: {w.get('source')}"
 
 
+def test_unit_fail_trace_generation():
+    """
+    Test unit-fail trace generation for inf/-inf diagnosis.
+    
+    Verifies:
+    1) collect_unit_fail_trace captures non-finite values
+    2) emit_unit_fail_trace generates markdown with non_finite_count > 0
+    3) sample_values prioritize non-finite values
+    """
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+    import tempfile
+    
+    # Create synthetic DataFrame with inf values that will trigger unit_conversion_failed
+    df = pd.DataFrame({
+        'NECK_WIDTH_M': [0.1, 0.2, np.inf, -np.inf, 0.15, np.nan],
+        'NECK_DEPTH_M': [0.05, 0.1, np.inf, 0.08, np.nan, 0.12],
+        'UNDERBUST_CIRC_M': [0.7, np.inf, 0.75, -np.inf, 0.72, np.nan],
+        'CHEST_CIRC_M_REF': [0.9, 0.95, np.inf, 0.92, np.nan, 0.88],
+        'OTHER_COL': [1, 2, 3, 4, 5, 6]
+    })
+    
+    # Test collect_unit_fail_trace
+    trace = collect_unit_fail_trace(df, '7th', 'after_unit_conversion')
+    
+    # Verify all target keys are in trace
+    target_keys = ['NECK_WIDTH_M', 'NECK_DEPTH_M', 'UNDERBUST_CIRC_M', 'CHEST_CIRC_M_REF']
+    for key in target_keys:
+        assert key in trace, f"Trace should include {key}"
+        assert trace[key]['present'], f"{key} should be present"
+        assert trace[key]['non_finite_count'] > 0, f"{key} should have non_finite_count > 0"
+        assert len(trace[key]['sample_values']) > 0, f"{key} should have sample values"
+        # Verify non-finite values are in samples (inf/-inf should appear)
+        sample_str = ' '.join(trace[key]['sample_values'])
+        assert 'inf' in sample_str or 'Inf' in sample_str or '-inf' in sample_str, \
+            f"{key} samples should include inf values"
+    
+    # Test emit_unit_fail_trace
+    all_traces = {
+        '7th': [trace]
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        output_path = Path(f.name)
+    
+    try:
+        emit_unit_fail_trace(all_traces, output_path)
+        
+        # Verify file was created
+        assert output_path.exists(), "Trace markdown file should be created"
+        
+        # Read and verify content
+        content = output_path.read_text(encoding='utf-8')
+        assert 'curated_v0 Unit Fail Trace' in content, "Should contain title"
+        assert '7th' in content, "Should contain source"
+        assert 'NECK_WIDTH_M' in content, "Should contain NECK_WIDTH_M"
+        assert 'non_finite_count' in content, "Should contain non_finite_count"
+        
+        # Verify non_finite_count > 0 is recorded
+        assert 'non_finite_count: 2' in content or 'non_finite_count: 3' in content or 'non_finite_count: 4' in content, \
+            "Should record non_finite_count > 0"
+        
+    finally:
+        if output_path.exists():
+            output_path.unlink()
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1536,6 +1604,7 @@ if __name__ == '__main__':
         test_arm_knee_trace_generation()
         test_unit_fallback_mm_for_8th_unitless()
         test_unit_warnings_source_key_presence()
+        test_unit_fail_trace_generation()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
