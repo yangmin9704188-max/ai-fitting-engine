@@ -58,6 +58,7 @@ active\_runbook:
 - curated_v0 ingest 규칙 강화 (pipelines/build_curated_v0.py): 동적 헤더 탐색(표준 측정항목 명 매칭), 7th 콤마 제거, sentinel 결측 처리(9999/empty → NaN + SENTINEL_MISSING warnings), 성별 정규화(남/여 → M/F), 테스트 추가(sentinel/comma 파싱 검증)
 - curated_v0 하드닝 (pipelines/build_curated_v0.py, tests/test_build_curated_v0.py, docs/data/curated_v0_warnings_schema.md): 헤더 탐색 앵커 우선순위("표준 측정항목 명" 1순위), warnings 중복 방지(sentinel_missing → value_missing 중복 차단), warnings 스키마 정합성(SENTINEL_MISSING, numeric_parsing_failed 추가), 테스트 assert 기반 하드닝(헤더/sentinel/comma/dedup 검증)
 - curated_v0 정합성 완성 (pipelines/build_curated_v0.py, docs/data/curated_v0_warnings_schema.md, tests/test_build_curated_v0.py): warnings 필드 정합성(sentinel_value, optional sentinel_count 기록), 8th_direct 9999 치환 dtype 무관 처리, value_missing 집계 정교화(sentinel_count 제외), 테스트 결정성 강화(synthetic CSV 앵커 검증)
+- curated_v0 7th XLSX 우선 및 HUMAN_ID 문자열 보존 (pipelines/build_curated_v0.py, tests/test_build_curated_v0.py): 7th source prefers XLSX in data/raw/sizekorea_raw to preserve HUMAN_ID; HUMAN_ID excluded from numeric/unit processing; per-key header selection (HUMAN_ID/SEX secondary only)
 - curated_v0 v3 실행 완료 (verification/runs/curated_v0/2026-01-23_v3_run1.md, tools/aggregate_warnings_v3.py): v3 실행 결과 facts-only 요약 생성, warnings 집계 도구 추가, 총 393 warnings (value_missing 133, unit_undetermined 123, column_not_found 93, column_not_present 38, 기타 6), 총 8249 rows 처리 (7th: 6414, 8th_direct: 5092, 8th_3d: 4546)
 
 signals:
