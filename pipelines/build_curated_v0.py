@@ -916,9 +916,24 @@ def apply_unit_canonicalization(
             continue
         
         # Apply canonicalization
-        values = df[col].values
+        # First coerce to numeric for safe conversion (dtype/object hardening)
+        original_series = df[col]
+        numeric_series = pd.to_numeric(original_series, errors='coerce')
+        
+        # Track NaN introduced by coercion (if any)
+        original_nan_count = original_series.isna().sum()
+        coerced_nan_count = numeric_series.isna().sum()
+        coercion_nan_increase = coerced_nan_count - original_nan_count
+        
+        # Use numeric values for unit conversion
+        values = numeric_series.values
         converted = canonicalize_units_to_m(values, source_unit, warning_list)
         result_df[col] = converted
+        
+        # Add coercion info to details if NaN increased
+        coercion_info = ""
+        if coercion_nan_increase > 0:
+            coercion_info = f", coercion_nan_increase={coercion_nan_increase}"
         
         # Convert warning_list strings to structured warnings
         # Only emit unit_conversion_failed for inf/-inf (not NaN)
@@ -927,6 +942,7 @@ def apply_unit_canonicalization(
         file_path = SOURCE_FILES.get(warning_source, "unknown") if warning_source != "system" else "build_curated_v0.py"
         for w in warning_list:
             if "PROVENANCE" in w:
+                details = w + coercion_info if coercion_info else w
                 warnings.append({
                     "source": warning_source,
                     "file": file_path,
@@ -934,10 +950,12 @@ def apply_unit_canonicalization(
                     "reason": "unit_conversion_applied",
                     "row_index": None,
                     "original_value": None,
-                    "details": w
+                    "details": details
                 })
             elif "UNIT_FAIL" in w and "inf/-inf" in w:
-                # Only emit unit_conversion_failed for inf/-inf detected
+                # Only emit unit_conversion_failed for inf/-inf detected (numeric coercion already done)
+                # invalid(inf/-inf) count is from numeric float, not object dtype
+                details = w + coercion_info if coercion_info else w
                 warnings.append({
                     "source": warning_source,
                     "file": file_path,
@@ -945,7 +963,7 @@ def apply_unit_canonicalization(
                     "reason": "unit_conversion_failed",
                     "row_index": None,
                     "original_value": None,
-                    "details": w
+                    "details": details
                 })
         
         warning_list.clear()  # Clear for next column
