@@ -23,7 +23,10 @@ from pipelines.build_curated_v0 import (
     handle_missing_values,
     load_raw_file,
     extract_columns_from_source,
-    build_curated_v0
+    build_curated_v0,
+    calculate_source_quality,
+    detect_duplicate_headers,
+    generate_quality_summary
 )
 
 
@@ -1054,6 +1057,134 @@ def test_data_start_row_cutoff():
         temp_path.unlink()
 
 
+def test_quality_summary_generation():
+    """
+    Test that quality summary is generated with correct completeness metrics.
+    
+    Verifies:
+    1) calculate_source_quality computes non_null_count, missing_count, missing_rate correctly
+    2) detect_duplicate_headers finds columns with same base header
+    3) generate_quality_summary creates markdown file with facts-only content
+    """
+    import tempfile
+    import json
+    
+    # Create synthetic mapping
+    mapping = {
+        'keys': [
+            {
+                'standard_key': 'HEIGHT_M',
+                'sources': {
+                    '7th': {'present': True, 'column': '키'}
+                }
+            },
+            {
+                'standard_key': 'WEIGHT_KG',
+                'sources': {
+                    '7th': {'present': True, 'column': '체중(몸무게)'}
+                }
+            },
+            {
+                'standard_key': 'NECK_WIDTH_M',
+                'sources': {
+                    '7th': {'present': False, 'column': None}
+                }
+            }
+        ]
+    }
+    
+    # Create synthetic DataFrame with known completeness
+    df = pd.DataFrame({
+        'HEIGHT_M': [1.7, 1.8, np.nan, 1.65, 1.75],  # 4 non-null, 1 missing (missing_rate=0.2)
+        'WEIGHT_KG': [70, np.nan, np.nan, 65, 80],  # 3 non-null, 2 missing (missing_rate=0.4)
+        'NECK_WIDTH_M': [np.nan, np.nan, np.nan, np.nan, np.nan],  # 0 non-null, 5 missing (missing_rate=1.0)
+        'SEX': ['M', 'F', 'M', 'F', 'M']
+    })
+    
+    # Test calculate_source_quality
+    quality = calculate_source_quality(df, '7th', mapping)
+    
+    assert 'HEIGHT_M' in quality, "HEIGHT_M should be in quality metrics"
+    assert quality['HEIGHT_M']['non_null_count'] == 4, f"Expected 4 non-null, got {quality['HEIGHT_M']['non_null_count']}"
+    assert quality['HEIGHT_M']['missing_count'] == 1, f"Expected 1 missing, got {quality['HEIGHT_M']['missing_count']}"
+    assert abs(quality['HEIGHT_M']['missing_rate'] - 0.2) < 0.001, f"Expected missing_rate 0.2, got {quality['HEIGHT_M']['missing_rate']}"
+    assert quality['HEIGHT_M']['total_rows'] == 5, f"Expected 5 total rows, got {quality['HEIGHT_M']['total_rows']}"
+    
+    assert 'WEIGHT_KG' in quality, "WEIGHT_KG should be in quality metrics"
+    assert quality['WEIGHT_KG']['non_null_count'] == 3, f"Expected 3 non-null, got {quality['WEIGHT_KG']['non_null_count']}"
+    assert quality['WEIGHT_KG']['missing_count'] == 2, f"Expected 2 missing, got {quality['WEIGHT_KG']['missing_count']}"
+    assert abs(quality['WEIGHT_KG']['missing_rate'] - 0.4) < 0.001, f"Expected missing_rate 0.4, got {quality['WEIGHT_KG']['missing_rate']}"
+    
+    assert 'NECK_WIDTH_M' in quality, "NECK_WIDTH_M should be in quality metrics"
+    assert quality['NECK_WIDTH_M']['non_null_count'] == 0, f"Expected 0 non-null, got {quality['NECK_WIDTH_M']['non_null_count']}"
+    assert quality['NECK_WIDTH_M']['missing_count'] == 5, f"Expected 5 missing, got {quality['NECK_WIDTH_M']['missing_count']}"
+    assert abs(quality['NECK_WIDTH_M']['missing_rate'] - 1.0) < 0.001, f"Expected missing_rate 1.0, got {quality['NECK_WIDTH_M']['missing_rate']}"
+    
+    # Test detect_duplicate_headers
+    df_with_duplicates = pd.DataFrame({
+        '키': [1.7, 1.8, np.nan],  # Base header "키"
+        '키.1': [np.nan, np.nan, np.nan],  # Duplicate with .1 suffix
+        '키.2': [1.65, np.nan, 1.75],  # Duplicate with .2 suffix
+        '체중(몸무게)': [70, 80, 65]  # No duplicate
+    })
+    
+    duplicates = detect_duplicate_headers(df_with_duplicates, '7th')
+    
+    assert '키' in duplicates, "Base header '키' should be detected as duplicate"
+    assert len(duplicates['키']) == 3, f"Expected 3 columns for '키', got {len(duplicates['키'])}"
+    
+    # Check column names
+    col_names = [col['column_name'] for col in duplicates['키']]
+    assert '키' in col_names, "'키' should be in duplicate columns"
+    assert '키.1' in col_names, "'키.1' should be in duplicate columns"
+    assert '키.2' in col_names, "'키.2' should be in duplicate columns"
+    
+    # Check non-null counts (sorted descending)
+    assert duplicates['키'][0]['non_null_count'] >= duplicates['키'][1]['non_null_count'], \
+        "Columns should be sorted by non_null_count descending"
+    
+    # Test generate_quality_summary
+    with tempfile.TemporaryDirectory() as tmpdir:
+        summary_path = Path(tmpdir) / "quality_summary.md"
+        
+        all_source_quality = {
+            '7th': quality
+        }
+        all_duplicate_headers = {
+            '7th': duplicates
+        }
+        
+        generate_quality_summary(all_source_quality, all_duplicate_headers, summary_path)
+        
+        # Verify file was created
+        assert summary_path.exists(), f"Quality summary file should be created at {summary_path}"
+        
+        # Read and verify content
+        with open(summary_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify facts-only content (no action directives)
+        assert 'missing_rate' in content, "Content should include missing_rate"
+        assert 'non_null_count' in content, "Content should include non_null_count"
+        assert 'missing_count' in content, "Content should include missing_count"
+        
+        # Verify high missing rate section (NECK_WIDTH_M with missing_rate=1.0 >= 0.95)
+        assert 'NECK_WIDTH_M' in content, "High missing rate key should be in summary"
+        assert '1.0000' in content or '1.0' in content, "Missing rate 1.0 should be in summary"
+        
+        # Verify duplicate header section
+        assert '키' in content, "Duplicate header '키' should be in summary"
+        assert '키.1' in content, "Duplicate column '키.1' should be in summary"
+        
+        # Verify no action directives (facts-only)
+        assert 'should' not in content.lower() or 'should' in content.lower() and 'should be' not in content.lower(), \
+            "Content should be facts-only, no action directives"
+        
+        # Verify source completeness summary
+        assert '7th' in content, "Source '7th' should be in summary"
+        assert 'HEIGHT_M' in content, "HEIGHT_M should be in completeness summary"
+
+
 if __name__ == '__main__':
     # Run all tests with pytest-style assertions
     try:
@@ -1073,6 +1204,7 @@ if __name__ == '__main__':
         test_data_start_row_cutoff()
         test_weight_kg_mixed_dtype_parquet_cast()
         test_non_finite_normalization()
+        test_quality_summary_generation()
         print("All tests passed")
         sys.exit(0)
     except AssertionError as e:
