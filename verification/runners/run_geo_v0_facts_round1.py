@@ -30,6 +30,8 @@ from core.measurements.core_measurements_v0 import (
     measure_height_v0_with_metadata,
     measure_arm_length_v0_with_metadata,
     create_weight_metadata,
+    measure_waist_group_with_shared_slice,
+    measure_hip_group_with_shared_slice,
     MeasurementResult,
 )
 
@@ -121,13 +123,12 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     """Measure all keys for a single case."""
     results = {}
     
-    # Circumference group
-    for key in CIRCUMFERENCE_KEYS:
-        try:
-            result = measure_circumference_v0_with_metadata(verts, key)
-            results[key] = result
-        except Exception as e:
-            # Record failure
+    # WAIST group: Use shared slice (CIRC, WIDTH, DEPTH)
+    try:
+        waist_results = measure_waist_group_with_shared_slice(verts)
+        results.update(waist_results)
+    except Exception as e:
+        for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M"]:
             results[key] = MeasurementResult(
                 standard_key=key,
                 value_m=float('nan'),
@@ -141,8 +142,50 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                 }
             )
     
-    # Width/Depth group
+    # HIP group: Use shared slice (CIRC, WIDTH, DEPTH)
+    try:
+        hip_results = measure_hip_group_with_shared_slice(verts)
+        results.update(hip_results)
+    except Exception as e:
+        for key in ["HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            results[key] = MeasurementResult(
+                standard_key=key,
+                value_m=float('nan'),
+                metadata={
+                    "standard_key": key,
+                    "value_m": float('nan'),
+                    "unit": "m",
+                    "precision": 0.001,
+                    "warnings": [f"EXEC_FAIL: {str(e)}"],
+                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
+                }
+            )
+    
+    # Other circumference keys (excluding WAIST/HIP which are already done)
+    for key in CIRCUMFERENCE_KEYS:
+        if key in ["WAIST_CIRC_M", "HIP_CIRC_M"]:
+            continue  # Already measured above
+        try:
+            result = measure_circumference_v0_with_metadata(verts, key)
+            results[key] = result
+        except Exception as e:
+            results[key] = MeasurementResult(
+                standard_key=key,
+                value_m=float('nan'),
+                metadata={
+                    "standard_key": key,
+                    "value_m": float('nan'),
+                    "unit": "m",
+                    "precision": 0.001,
+                    "warnings": [f"EXEC_FAIL: {str(e)}"],
+                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
+                }
+            )
+    
+    # Other width/depth keys (excluding WAIST/HIP which are already done)
     for key in WIDTH_DEPTH_KEYS:
+        if key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            continue  # Already measured above
         try:
             result = measure_width_depth_v0_with_metadata(verts, key, proxy_used=False)
             results[key] = result
@@ -261,6 +304,10 @@ def aggregate_results(
         target_out_of_bounds_count = 0
         initial_candidates_counts = []
         fallback_candidates_counts = []
+        slice_shared_count = 0
+        slicer_independent_false_count = 0
+        slice_shared_from_keys = defaultdict(int)
+        height_calculation_list = []
         
         for result in key_results:
             if result is None:
@@ -315,6 +362,28 @@ def aggregate_results(
                 shift_mm = search.get("nearest_valid_plane_shift_mm")
                 if shift_mm is not None:
                     nearest_valid_plane_shifts.append(float(shift_mm))
+            
+            # Slice sharing info (for waist/hip width/depth)
+            debug = meta.get("debug", {})
+            cross_section = debug.get("cross_section", {}) if debug else {}
+            slice_shared_from = cross_section.get("slice_shared_from")
+            slicer_called_independently = cross_section.get("slicer_called_independently", True)
+            
+            if slice_shared_from:
+                slice_shared_count += 1
+                slice_shared_from_keys[slice_shared_from] += 1
+            
+            if slicer_called_independently is False:
+                slicer_independent_false_count += 1
+            
+            # HEIGHT_M debug aggregation
+            if key == "HEIGHT_M":
+                debug = meta.get("debug", {})
+                height_calc = debug.get("height_calculation", {}) if debug else {}
+                if height_calc:
+                    if "height_calculation_list" not in locals():
+                        height_calculation_list = []
+                    height_calculation_list.append(height_calc)
             
             # Debug info aggregation
             debug = meta.get("debug", {})
@@ -398,6 +467,22 @@ def aggregate_results(
         if landmark_reasons:
             debug_summary["landmark_reasons"] = dict(landmark_reasons)
         
+        # HEIGHT_M debug aggregation
+        if key == "HEIGHT_M" and height_calculation_list:
+            bbox_mins = [h.get("bbox_min") for h in height_calculation_list if h.get("bbox_min") is not None]
+            bbox_maxs = [h.get("bbox_max") for h in height_calculation_list if h.get("bbox_max") is not None]
+            height_raws = [h.get("height_raw") for h in height_calculation_list if h.get("height_raw") is not None]
+            scale_factors = [h.get("scale_factor") for h in height_calculation_list if h.get("scale_factor") is not None]
+            
+            if bbox_mins and bbox_maxs and height_raws:
+                debug_summary["height_calculation"] = {
+                    "axis_used": height_calculation_list[0].get("axis_used", "N/A"),
+                    "bbox_min_median": float(np.median(bbox_mins)),
+                    "bbox_max_median": float(np.median(bbox_maxs)),
+                    "height_raw_median": float(np.median(height_raws)),
+                    "scale_factor": scale_factors[0] if scale_factors else 1.0
+                }
+        
         # Nearest valid plane fallback stats
         nearest_valid_plane_stats = {}
         if nearest_valid_plane_used_count > 0:
@@ -457,6 +542,13 @@ def aggregate_results(
             "debug_summary": debug_summary if debug_summary else {},
             "nearest_valid_plane_stats": nearest_valid_plane_stats if nearest_valid_plane_stats else {},
             "target_bbox_stats": target_bbox_stats if target_bbox_stats else {},
+            "slice_sharing_stats": {
+                "slice_shared_count": slice_shared_count,
+                "slice_shared_rate": slice_shared_count / total_count if total_count > 0 else 0.0,
+                "slicer_independent_false_count": slicer_independent_false_count,
+                "slicer_independent_false_rate": slicer_independent_false_count / total_count if total_count > 0 else 0.0,
+                "slice_shared_from_keys": dict(slice_shared_from_keys)
+            } if slice_shared_count > 0 or slicer_independent_false_count > 0 else {},
             # Valid/Expected fail split
             "valid_cases": {
                 "total_count": len(valid_key_results),
@@ -561,7 +653,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round6_s0_humanlike.md"
+    report_filename = "geo_v0_facts_round7_slice_shared.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -582,7 +674,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 6 - S0 Human-like Scale)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 7 - Slice Sharing)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -875,8 +967,32 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             )
     lines.append("")
     
-    # Section 5.1: Target/Bbox Debug 통계 (Valid Cases)
-    lines.append("### 5.1 Target/Bbox Debug 통계 (Valid Cases)")
+    # Section 5.1: Slice Sharing 통계 (Valid Cases)
+    lines.append("### 5.1 Slice Sharing 통계 (Valid Cases)")
+    lines.append("")
+    lines.append("| Key | Slice Shared Count | Slice Shared Rate | Slicer Independent False | Shared From |")
+    lines.append("|-----|-------------------|-------------------|--------------------------|-------------|")
+    
+    for key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+        if key not in summary:
+            continue
+        s = summary[key]
+        slice_stats = s.get("slice_sharing_stats", {})
+        valid_total = s.get("valid_cases", {}).get("total_count", 0)
+        
+        shared_count = slice_stats.get("slice_shared_count", 0)
+        shared_rate = slice_stats.get("slice_shared_rate", 0.0)
+        independent_false = slice_stats.get("slicer_independent_false_count", 0)
+        shared_from = slice_stats.get("slice_shared_from_keys", {})
+        shared_from_str = ", ".join([f"{k}:{v}" for k, v in shared_from.items()]) if shared_from else "N/A"
+        
+        lines.append(
+            f"| {key} | {shared_count} | {shared_rate:.2%} | {independent_false} | {shared_from_str} |"
+        )
+    lines.append("")
+    
+    # Section 5.2: Target/Bbox Debug 통계 (Valid Cases)
+    lines.append("### 5.2 Target/Bbox Debug 통계 (Valid Cases)")
     lines.append("")
     lines.append("| Key | Target Out of Bounds Count | Out of Bounds Rate | Initial Candidates (Zero Count) | Fallback Candidates (Median) |")
     lines.append("|-----|---------------------------|-------------------|--------------------------------|------------------------------|")
@@ -901,6 +1017,28 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             f"| {key} | {out_of_bounds_count} | {out_of_bounds_rate:.2%} | "
             f"{initial_zero_count} | {fallback_median} |"
         )
+    lines.append("")
+    
+    # Section 5.3: HEIGHT_M Debug 통계 (Valid Cases)
+    lines.append("### 5.3 HEIGHT_M Debug 통계 (Valid Cases)")
+    lines.append("")
+    if "HEIGHT_M" in summary:
+        s = summary["HEIGHT_M"]
+        debug_summary = s.get("debug_summary", {})
+        height_calc = debug_summary.get("height_calculation", {})
+        
+        if height_calc:
+            lines.append("| Statistic | Value |")
+            lines.append("|-----------|-------|")
+            lines.append(f"| Axis Used | {height_calc.get('axis_used', 'N/A')} |")
+            lines.append(f"| Bbox Min (median) | {height_calc.get('bbox_min_median', 'N/A')} |")
+            lines.append(f"| Bbox Max (median) | {height_calc.get('bbox_max_median', 'N/A')} |")
+            lines.append(f"| Height Raw (median) | {height_calc.get('height_raw_median', 'N/A')} |")
+            lines.append(f"| Scale Factor | {height_calc.get('scale_factor', 'N/A')} |")
+        else:
+            lines.append("(HEIGHT_M debug info not available)")
+    else:
+        lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
     # Section 6: Round 2 대비 변화 (Round 4)
