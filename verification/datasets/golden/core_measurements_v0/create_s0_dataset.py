@@ -9,12 +9,82 @@ Expected fail cases (degenerate_*, etc.) are intentionally invalid for testing.
 import numpy as np
 import json
 import os
+import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 
 # Set seed for reproducibility
 np.random.seed(42)
+
+# ============================================================================
+# FAST MODE Support
+# ============================================================================
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Create S0 synthetic dataset")
+    parser.add_argument(
+        "--only-case",
+        type=str,
+        default=None,
+        help="FAST MODE: Generate only this case (e.g., normal_1)"
+    )
+    return parser.parse_args()
+
+def get_only_case() -> Optional[str]:
+    """Get ONLY_CASE from CLI or environment variable."""
+    args = parse_args()
+    if args.only_case:
+        return args.only_case
+    return os.environ.get("ONLY_CASE", None)
+
+def find_latest_debug_json(debug_dir: Path) -> Optional[Path]:
+    """Find the latest invariant fail debug JSON."""
+    if not debug_dir.exists():
+        return None
+    json_files = list(debug_dir.glob("s0_invariant_fail_*.json"))
+    if not json_files:
+        return None
+    return max(json_files, key=lambda p: p.stat().st_mtime)
+
+def parse_debug_json(debug_path: Path) -> Optional[Dict[str, Any]]:
+    """Parse debug JSON and return summary."""
+    try:
+        with open(debug_path, "r") as f:
+            data = json.load(f)
+        
+        summary = {
+            "case_id": data.get("case_id"),
+            "height_m_after_scale": data.get("bbox_span_y_after"),
+            "bust_circ_estimate": data.get("bust_circ_estimate"),
+            "waist_circ_estimate": data.get("waist_circ_estimate"),
+            "hip_circ_estimate": data.get("hip_circ_estimate"),
+            "scale_factor": data.get("scale_factor_applied"),
+            "bbox_span_y_before": data.get("bbox_span_y_before"),
+            "target_height_m": data.get("target_height_m"),
+            "error_message": data.get("error_message"),
+            "clamp_applied": data.get("clamp_applied", False)
+        }
+        return summary
+    except Exception as e:
+        print(f"[DEBUG JSON PARSER] Failed to parse {debug_path}: {e}")
+        return None
+
+def print_debug_summary(debug_summary: Dict[str, Any]):
+    """Print debug JSON summary."""
+    print("\n" + "="*60)
+    print("[DEBUG JSON SUMMARY] Last invariant fail analysis:")
+    print("="*60)
+    print(f"  Case ID: {debug_summary.get('case_id')}")
+    print(f"  Height (after scale): {debug_summary.get('height_m_after_scale'):.4f}m")
+    print(f"  Scale factor: {debug_summary.get('scale_factor'):.4f}")
+    print(f"  BUST_CIRC estimate: {debug_summary.get('bust_circ_estimate'):.4f}m")
+    print(f"  WAIST_CIRC estimate: {debug_summary.get('waist_circ_estimate')}")
+    print(f"  HIP_CIRC estimate: {debug_summary.get('hip_circ_estimate')}")
+    print(f"  Error: {debug_summary.get('error_message')}")
+    print(f"  Clamp applied: {debug_summary.get('clamp_applied')}")
+    print("="*60)
+    print()
 
 # ============================================================================
 # Human-like Scale Invariants (Physical Plausibility)
@@ -126,6 +196,20 @@ def _estimate_radius_at_height(verts: np.ndarray, y_target: float, tolerance: fl
     distances = np.linalg.norm(xz - center, axis=1)
     return float(np.mean(distances))
 
+# ============================================================================
+# FAST MODE: Check for ONLY_CASE
+# ============================================================================
+only_case = get_only_case()
+if only_case:
+    print(f"\n[FAST MODE] ONLY_CASE={only_case}; will generate only this case")
+    # Parse latest debug JSON if available
+    debug_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
+    latest_debug = find_latest_debug_json(debug_dir)
+    if latest_debug:
+        debug_summary = parse_debug_json(latest_debug)
+        if debug_summary:
+            print_debug_summary(debug_summary)
+
 cases = []
 case_ids = []
 case_classes = []  # "valid" or "expected_fail"
@@ -133,6 +217,12 @@ case_metadata = []  # Scale normalization metadata
 
 # Case 1-5: Normal cases (body-like shapes with human-like scale)
 for i in range(5):
+    case_id = f"normal_{i+1}"
+    
+    # FAST MODE: Skip if not the target case
+    if only_case and case_id != only_case:
+        print(f"  [FAST MODE] Skipping {case_id} (ONLY_CASE={only_case})")
+        continue
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
@@ -197,7 +287,7 @@ for i in range(5):
     # ========================================================================
     # CRITICAL: Apply scale normalization BEFORE invariant check
     # ========================================================================
-    case_id = f"normal_{i+1}"
+    # case_id already set above
     
     # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
@@ -262,6 +352,12 @@ for i in range(5):
 
 # Case 6-10: More varied shapes (still human-like)
 for i in range(5):
+    case_id = f"varied_{i+1}"
+    
+    # FAST MODE: Skip if not the target case
+    if only_case and case_id != only_case:
+        print(f"  [FAST MODE] Skipping {case_id} (ONLY_CASE={only_case})")
+        continue
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
@@ -313,7 +409,7 @@ for i in range(5):
     # ========================================================================
     # CRITICAL: Apply scale normalization BEFORE invariant check
     # ========================================================================
-    case_id = f"varied_{i+1}"
+    # case_id already set above
     
     # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
@@ -464,7 +560,12 @@ case_metadata.append(metadata)
 
 # Self-check: Validate all valid cases
 print("\nValidating human-like invariants...")
+if only_case:
+    print(f"  [FAST MODE] Only validating {only_case}")
 for i, (verts, case_id, case_class) in enumerate(zip(cases, case_ids, case_classes)):
+    # FAST MODE: Skip validation if not the target case
+    if only_case and case_id != only_case:
+        continue
     is_valid, error_msg = check_human_like_invariants(verts, case_id, case_class)
     if case_class == "valid" and not is_valid:
         raise ValueError(f"VALID case {case_id} failed invariant check: {error_msg}")
@@ -661,6 +762,8 @@ else:
 
 print(f"\nCreated {output_path}")
 print(f"  Cases: {len(cases)}")
+if only_case:
+    print(f"  [FAST MODE] Only generated {only_case}")
 print(f"  Valid cases: {sum(1 for c in case_classes if c == 'valid')}")
 print(f"  Expected fail cases: {sum(1 for c in case_classes if c == 'expected_fail')}")
 print(f"  Case IDs: {case_ids}")
