@@ -51,10 +51,12 @@
 - Proxy 사용 시(필수인 경우): provenance 기록 필수(Warning only, 자동 보정 금지).
 
 ### A7. Allowed DoF & Pose Constraints (SizeKorea Evidence-based)
-- **band_scan_limit**: <= ±10mm (기본은 forbidden; landmark 미해결 시에만 최소 범위로 허용)
-- **canonical_side**: right (SizeKorea가 우측 측정을 명시한 키에 적용: THIGH_CIRC_M, MIN_CALF_CIRC_M, KNEE_HEIGHT_M, ARM_LEN_M)
-- **plane_clamp 정책**: plane_clamp는 proxy로만 허용되며(provenance 기록 필수), 이는 도구(가로자/큰수평자/아크릴판)로 평면화된 관측치를 반영한 것이라 canonical metric(표준 의미) 자체가 아님을 명시한다.
+- **band_scan_limit**: band_scan_limit_mm = 10 (±10mm)를 Semantic 규칙으로 확정. 기본은 forbidden이며, landmark 미해결 시에만 최소 범위로 허용. 핵심 둘레(BUST/WAIST/HIP 등)는 band_scan=forbidden, fixed_height=required, breath_state=neutral_mid를 기본으로 한다.
+- **canonical_side = right**: SizeKorea의 오른쪽 측정 원칙을 normative rule로 명시. 좌우 평균/자동 보정 금지(필요 시 warning만). 적용 키: THIGH_CIRC_M, MIN_CALF_CIRC_M, KNEE_HEIGHT_M, ARM_LEN_M.
+- **plane_clamp 정책**: plane_clamp는 proxy로만 허용되며 provenance 기록이 필수다. 도구(가로자/큰수평자/아크릴판) 기반 평면화 관측치를 반영한 proxy이며, canonical metric(진짜 신체 metric)으로 오인하면 안 된다. 폭/두께 키(CHEST_WIDTH/DEPTH, WAIST_WIDTH/DEPTH, HIP_WIDTH/DEPTH 등)에 공통 적용.
 - **자동 보정 금지**: auto_pose_correction=forbidden / proxy 자동 대체 금지 / auto substitution 금지
+
+**Evidence 문서 참조**: [SizeKorea Measurement Methods v0](../semantic/evidence/sizekorea_measurement_methods_v0.md)
 
 ---
 
@@ -178,6 +180,8 @@
 - Sensitivity: 자세/근육 긴장, 호흡 영향 약
 - Confusions: HEAD_CIRC_M, CHEST 계열
 - Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#neck_circ_m)
+- Definition: 방패연골아래점을 지나는 둘레. 기준점: 방패연골아래점. 측정 방법: 피측정자의 앞에서 줄자로 방패연골아래점에서 목의 축에 직각으로 지나는 둘레를 측정한다.
+- Uncertainty note: SMPL-X에서 정확한 해부학 포인트가 불명확하면 '가장 가까운 수평 단면'에 고정하되 band_scan은 최소화한다(band_scan_limit_mm = 10).
 - Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
 - Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
