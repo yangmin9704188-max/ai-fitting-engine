@@ -186,30 +186,34 @@ def _find_nearest_valid_plane(
     max_shift_mm: float,
     y_min: float,
     y_max: float,
+    step_mm: float = 1.0,
 ) -> tuple[Optional[np.ndarray], Optional[float], Optional[Dict[str, Any]]]:
     """
     Find nearest valid plane within max_shift_mm from target.
     Returns (vertices_2d or None, shift_mm or None, debug_info or None).
     
     This is NOT band_scan - it's a single nearest valid plane selection.
+    
+    Args:
+        step_mm: Step size in mm for searching candidate planes (default: 1.0mm)
     """
     y_coords = verts[:, 1]
     max_shift_m = max_shift_mm / 1000.0  # Convert to meters
+    step_m = step_mm / 1000.0  # Convert step to meters
     
     # Search in ±max_shift_m range
     search_min = max(y_min, y_target - max_shift_m)
     search_max = min(y_max, y_target + max_shift_m)
     
-    # Sample candidate planes (step size: tolerance/2)
-    step = tolerance * 0.5
-    num_steps = int((search_max - search_min) / step) + 1
+    # Sample candidate planes with explicit step size
+    num_steps = max(1, int((search_max - search_min) / step_m) + 1)
     
     best_vertices = None
     best_shift_mm = None
     best_candidates_count = 0
     
     for i in range(num_steps):
-        y_candidate = search_min + i * step
+        y_candidate = search_min + i * step_m
         if y_candidate > search_max:
             break
         
@@ -671,25 +675,32 @@ def measure_width_depth_v0_with_metadata(
     else:
         tolerance = y_range * 0.02  # 2% of body height
     
-    # Allow nearest fallback for waist/hip
-    allow_fallback = is_waist_hip
+    # Find cross-section (without fallback first to get initial state)
     vertices_2d, cross_section_debug = _find_cross_section(
         verts, y_target, tolerance, warnings, y_min, y_max,
         target_mode="ratio",
-        allow_nearest_fallback=allow_fallback
+        allow_nearest_fallback=False  # Don't use old fallback logic
     )
     
+    # Track initial state for debug
+    initial_candidates_count = 0
+    if cross_section_debug:
+        initial_candidates_count = cross_section_debug.get("candidates_count", 0)
+    
     # If failed and is waist/hip, try nearest valid plane fallback
+    # CRITICAL: If candidates_count == 0, ALWAYS try fallback (regardless of reason)
     nearest_fallback_used = False
     nearest_fallback_shift_mm = None
     nearest_fallback_debug = None
+    fallback_candidates_count = 0
     
-    if vertices_2d is None and is_waist_hip and cross_section_debug:
-        reason = cross_section_debug.get("reason_not_found")
-        if reason in ["mesh_empty_at_height", "out_of_bounds_target"]:
+    if vertices_2d is None and is_waist_hip:
+        # Check if candidates_count == 0 (main trigger)
+        if initial_candidates_count == 0:
             # Try nearest valid plane fallback (<=10mm shift)
+            # Use finer step (1mm) for better coverage
             fallback_vertices, fallback_shift_mm, fallback_debug = _find_nearest_valid_plane(
-                verts, y_target, tolerance, max_shift_mm=10.0, y_min=y_min, y_max=y_max
+                verts, y_target, tolerance, max_shift_mm=10.0, y_min=y_min, y_max=y_max, step_mm=1.0
             )
             if fallback_vertices is not None and fallback_shift_mm is not None:
                 if fallback_shift_mm <= 10.0:  # Policy limit
@@ -697,23 +708,32 @@ def measure_width_depth_v0_with_metadata(
                     nearest_fallback_used = True
                     nearest_fallback_shift_mm = fallback_shift_mm
                     nearest_fallback_debug = fallback_debug
+                    if fallback_debug:
+                        fallback_candidates_count = fallback_debug.get("nearest_valid_plane_candidates_count", 0)
                     warnings.append("NEAREST_VALID_PLANE_FALLBACK")
                 else:
                     # Shift exceeds policy limit - do not use
-                    pass
-        elif reason in ["too_thin_slice"]:
-            # Try with larger tolerance (up to 5% of body height)
-            larger_tolerance = min(y_range * 0.05, tolerance * 2.0)
-            if larger_tolerance > tolerance:
-                warnings.append("SLICE_THICKNESS_ADJUSTED")
-                vertices_2d, cross_section_debug = _find_cross_section(
-                    verts, y_target, larger_tolerance, warnings, y_min, y_max,
-                    target_mode="ratio",
-                    allow_nearest_fallback=False  # Already tried fallback
-                )
+                    if cross_section_debug:
+                        cross_section_debug["fallback_failure_reason"] = "shift_exceeds_10mm"
+            else:
+                # Fallback failed - no valid plane within 10mm
                 if cross_section_debug:
-                    cross_section_debug["slice_half_thickness_m"] = float(larger_tolerance)
-                    cross_section_debug["slice_thickness_adjusted"] = True
+                    cross_section_debug["fallback_failure_reason"] = "no_plane_with_candidates_within_10mm"
+        elif cross_section_debug:
+            reason = cross_section_debug.get("reason_not_found")
+            if reason == "too_thin_slice":
+                # Try with larger tolerance (up to 5% of body height)
+                larger_tolerance = min(y_range * 0.05, tolerance * 2.0)
+                if larger_tolerance > tolerance:
+                    warnings.append("SLICE_THICKNESS_ADJUSTED")
+                    vertices_2d, cross_section_debug = _find_cross_section(
+                        verts, y_target, larger_tolerance, warnings, y_min, y_max,
+                        target_mode="ratio",
+                        allow_nearest_fallback=False
+                    )
+                    if cross_section_debug:
+                        cross_section_debug["slice_half_thickness_m"] = float(larger_tolerance)
+                        cross_section_debug["slice_thickness_adjusted"] = True
     
     if vertices_2d is None:
         warnings.append("CROSS_SECTION_NOT_FOUND")
@@ -791,8 +811,45 @@ def measure_width_depth_v0_with_metadata(
             "reason_invalid": None
         }
     }
-    if cross_section_debug:
+    
+    # Enhanced debug for waist/hip cross-section failures
+    if is_waist_hip:
+        cross_section_debug_enhanced = {}
+        if cross_section_debug:
+            cross_section_debug_enhanced.update(cross_section_debug)
+        
+        # Add target/bbox/axis debug
+        cross_section_debug_enhanced["target_mode"] = "ratio"
+        cross_section_debug_enhanced["target_value"] = float((y_target - y_min) / y_range) if y_range > 0 else 0.0
+        cross_section_debug_enhanced["axis_name"] = "y_up"
+        cross_section_debug_enhanced["axis_length_m"] = float(y_range)
+        cross_section_debug_enhanced["bbox_min_axis"] = float(y_min)
+        cross_section_debug_enhanced["bbox_max_axis"] = float(y_max)
+        cross_section_debug_enhanced["slice_half_thickness_m"] = float(tolerance)
+        cross_section_debug_enhanced["initial_candidates_count"] = initial_candidates_count
+        
+        # Check if target is out of bounds
+        if y_target < y_min or y_target > y_max:
+            cross_section_debug_enhanced["target_out_of_bounds"] = True
+        else:
+            cross_section_debug_enhanced["target_out_of_bounds"] = False
+        
+        # Add fallback info
+        if nearest_fallback_used:
+            cross_section_debug_enhanced["fallback_candidates_count"] = fallback_candidates_count
+            cross_section_debug_enhanced["fallback_shift_mm"] = float(nearest_fallback_shift_mm) if nearest_fallback_shift_mm is not None else None
+        else:
+            cross_section_debug_enhanced["fallback_candidates_count"] = 0
+            cross_section_debug_enhanced["fallback_shift_mm"] = None
+            if cross_section_debug:
+                failure_reason = cross_section_debug.get("fallback_failure_reason")
+                if failure_reason:
+                    cross_section_debug_enhanced["fallback_failure_reason"] = failure_reason
+        
+        debug_info["cross_section"] = cross_section_debug_enhanced
+    elif cross_section_debug:
         debug_info["cross_section"] = cross_section_debug
+    
     if nearest_fallback_debug:
         debug_info["nearest_valid_plane"] = nearest_fallback_debug
     
