@@ -23,6 +23,8 @@ def create_metadata_v0(
     search_band_scan_used: bool = False,
     search_band_scan_limit_mm: int = 10,
     search_min_max_search_used: bool = False,
+    search_nearest_valid_plane_used: bool = False,
+    search_nearest_valid_plane_shift_mm: Optional[int] = None,
     proxy_proxy_used: bool = False,
     proxy_proxy_type: Optional[Literal["plane_clamp", "other"]] = None,
     proxy_proxy_tool: Optional[str] = None,
@@ -80,6 +82,10 @@ def create_metadata_v0(
         "band_scan_limit_mm": search_band_scan_limit_mm,
         "min_max_search_used": search_min_max_search_used,
     }
+    if search_nearest_valid_plane_used:
+        search["nearest_valid_plane_used"] = True
+        if search_nearest_valid_plane_shift_mm is not None:
+            search["nearest_valid_plane_shift_mm"] = search_nearest_valid_plane_shift_mm
     
     # Build proxy dict
     proxy: Dict[str, Any] = {

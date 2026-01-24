@@ -176,12 +176,28 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     return results
 
 
-def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[str, Any]:
-    """Aggregate results across all cases."""
+def is_valid_case(case_id: str) -> bool:
+    """Check if case is valid (normal_* or varied_*)."""
+    return case_id.startswith("normal_") or case_id.startswith("varied_")
+
+
+def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids: List[str]) -> Dict[str, Any]:
+    """Aggregate results across all cases, with separate valid/expected_fail aggregation."""
     summary = {}
+    valid_case_indices = [i for i, cid in enumerate(case_ids) if is_valid_case(cid)]
+    expected_fail_case_indices = [i for i, cid in enumerate(case_ids) if not is_valid_case(cid)]
     
     for key in ALL_KEYS:
-        key_results = [r.get(key) for r in all_results if key in r]
+        # Separate valid and expected fail results
+        all_key_results = [r.get(key) for r in all_results if key in r]
+        valid_key_results = [all_key_results[i] for i in valid_case_indices if i < len(all_key_results)]
+        expected_fail_key_results = [all_key_results[i] for i in expected_fail_case_indices if i < len(all_key_results)]
+        
+        if not all_key_results:
+            continue
+        
+        # Aggregate valid cases (for DoD)
+        key_results = valid_key_results
         if not key_results:
             continue
         
@@ -202,6 +218,8 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
         cross_section_candidates_counts = []
         body_axis_reasons = defaultdict(int)
         landmark_reasons = defaultdict(int)
+        nearest_valid_plane_used_count = 0
+        nearest_valid_plane_shifts = []
         
         for result in key_results:
             if result is None:
@@ -248,6 +266,14 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
                     pose_total_counts[pose_key] += 1
                     if pose[pose_key] == "unknown":
                         pose_unknown_counts[pose_key] += 1
+            
+            # Nearest valid plane fallback
+            search = meta.get("search", {})
+            if search.get("nearest_valid_plane_used", False):
+                nearest_valid_plane_used_count += 1
+                shift_mm = search.get("nearest_valid_plane_shift_mm")
+                if shift_mm is not None:
+                    nearest_valid_plane_shifts.append(float(shift_mm))
             
             # Debug info aggregation
             debug = meta.get("debug", {})
@@ -318,6 +344,27 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
         if landmark_reasons:
             debug_summary["landmark_reasons"] = dict(landmark_reasons)
         
+        # Nearest valid plane fallback stats
+        nearest_valid_plane_stats = {}
+        if "nearest_valid_plane_used_count" in locals():
+            nearest_valid_plane_stats["used_count"] = nearest_valid_plane_used_count
+            if "nearest_valid_plane_shifts" in locals() and nearest_valid_plane_shifts:
+                nearest_valid_plane_stats["shift_mm"] = {
+                    "min": int(np.min(nearest_valid_plane_shifts)),
+                    "median": float(np.median(nearest_valid_plane_shifts)),
+                    "max": int(np.max(nearest_valid_plane_shifts))
+                }
+        
+        # Aggregate expected fail cases separately
+        expected_fail_nan_count = 0
+        expected_fail_total = len(expected_fail_key_results)
+        for result in expected_fail_key_results:
+            if result is None:
+                continue
+            value = result.value_m if result.value_m is not None else result.value_kg
+            if value is None or np.isnan(value):
+                expected_fail_nan_count += 1
+        
         summary[key] = {
             "total_count": total_count,
             "nan_count": nan_count,
@@ -334,7 +381,19 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
                 if pose_total_counts[k] > 0 else 0.0
                 for k in pose_total_counts
             },
-            "debug_summary": debug_summary if debug_summary else {}
+            "debug_summary": debug_summary if debug_summary else {},
+            "nearest_valid_plane_stats": nearest_valid_plane_stats if nearest_valid_plane_stats else {},
+            # Valid/Expected fail split
+            "valid_cases": {
+                "total_count": len(valid_key_results),
+                "nan_count": nan_count,
+                "nan_rate": nan_rate
+            },
+            "expected_fail_cases": {
+                "total_count": expected_fail_total,
+                "nan_count": expected_fail_nan_count,
+                "nan_rate": expected_fail_nan_count / expected_fail_total if expected_fail_total > 0 else 0.0
+            }
         }
     
     return summary
@@ -394,7 +453,7 @@ def main():
     
     # Aggregate
     print("\nAggregating results...")
-    summary = aggregate_results(all_results)
+    summary = aggregate_results(all_results, case_ids)
     
     # Get git SHA
     git_sha = get_git_sha()
@@ -425,7 +484,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round3_waist_hip_fix.md"
+    report_filename = "geo_v0_facts_round4_waist_hip_fix.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -446,7 +505,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 3 - Waist/Hip Cross-Section Fix)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 4 - Nearest Valid Plane Fallback)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -456,28 +515,64 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     lines.append(f"- **실행 일시**: {summary_json.get('timestamp', 'N/A')}")
     lines.append("")
     
-    # Section 2: Key별 요약 테이블
-    lines.append("## 2. Key별 요약")
+    # Section 2: Key별 요약 테이블 (Valid Cases Only for DoD)
+    lines.append("## 2. Key별 요약 (Valid Cases Only - DoD 평가 기준)")
     lines.append("")
-    lines.append("| Key | Total | NaN | NaN Rate | Min | Median | Max |")
-    lines.append("|-----|-------|-----|----------|-----|--------|-----|")
+    lines.append("**Valid Cases**: normal_* + varied_* (10개)")
+    lines.append("")
+    lines.append("| Key | Valid Total | Valid NaN | Valid NaN Rate | Min | Median | Max | DoD (<=40%) |")
+    lines.append("|-----|-------------|-----------|----------------|-----|--------|-----|-------------|")
     
     for key in ALL_KEYS:
         if key not in summary:
             continue
         s = summary[key]
+        valid_cases = s.get("valid_cases", {})
+        valid_total = valid_cases.get("total_count", 0)
+        valid_nan = valid_cases.get("nan_count", 0)
+        valid_nan_rate = valid_cases.get("nan_rate", 0.0)
         value_stats = s.get("value_stats", {})
+        
+        # DoD check for waist/hip width/depth
+        dod_status = "N/A"
+        if key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            if valid_nan_rate <= 0.40:
+                dod_status = "✅ PASS"
+            else:
+                dod_status = f"❌ FAIL ({valid_nan_rate:.1%})"
+        
         if value_stats:
             lines.append(
-                f"| {key} | {s['total_count']} | {s['nan_count']} | "
-                f"{s['nan_rate']:.2%} | {value_stats.get('min', 'N/A'):.4f} | "
-                f"{value_stats.get('median', 'N/A'):.4f} | {value_stats.get('max', 'N/A'):.4f} |"
+                f"| {key} | {valid_total} | {valid_nan} | "
+                f"{valid_nan_rate:.2%} | {value_stats.get('min', 'N/A'):.4f} | "
+                f"{value_stats.get('median', 'N/A'):.4f} | {value_stats.get('max', 'N/A'):.4f} | {dod_status} |"
             )
         else:
             lines.append(
-                f"| {key} | {s['total_count']} | {s['nan_count']} | "
-                f"{s['nan_rate']:.2%} | N/A | N/A | N/A |"
+                f"| {key} | {valid_total} | {valid_nan} | "
+                f"{valid_nan_rate:.2%} | N/A | N/A | N/A | {dod_status} |"
             )
+    lines.append("")
+    
+    # Section 2.1: Expected Fail Cases (사실 기록만)
+    lines.append("## 2.1 Expected Fail Cases (사실 기록)")
+    lines.append("")
+    lines.append("**Expected Fail Cases**: degenerate_y_range, minimal_vertices, scale_error_suspected, random_noise_seed123, tall_thin (5개)")
+    lines.append("")
+    lines.append("| Key | Expected Fail Total | Expected Fail NaN | Expected Fail NaN Rate |")
+    lines.append("|-----|---------------------|-------------------|------------------------|")
+    
+    for key in ALL_KEYS:
+        if key not in summary:
+            continue
+        s = summary[key]
+        expected_fail_cases = s.get("expected_fail_cases", {})
+        ef_total = expected_fail_cases.get("total_count", 0)
+        ef_nan = expected_fail_cases.get("nan_count", 0)
+        ef_nan_rate = expected_fail_cases.get("nan_rate", 0.0)
+        lines.append(
+            f"| {key} | {ef_total} | {ef_nan} | {ef_nan_rate:.2%} |"
+        )
     lines.append("")
     
     # Section 3: Warnings Top 리스트
@@ -652,30 +747,58 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                 lines.append(f"| {key} | {reason} | {count} |")
     lines.append("")
     
-    # Section 5: Round 2 대비 변화 (Round 3)
-    lines.append("## 5. Round 2 대비 변화 (Round 3)")
+    # Section 5: Nearest Valid Plane Fallback 통계
+    lines.append("## 5. Nearest Valid Plane Fallback 통계 (Valid Cases)")
     lines.append("")
-    lines.append("### 5.1 NaN율 변화")
+    lines.append("| Key | Used Count | Used Rate | Shift Min (mm) | Shift Median (mm) | Shift Max (mm) |")
+    lines.append("|-----|------------|-----------|----------------|------------------|----------------|")
+    
+    for key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+        if key not in summary:
+            continue
+        s = summary[key]
+        nvp_stats = s.get("nearest_valid_plane_stats", {})
+        valid_total = s.get("valid_cases", {}).get("total_count", 0)
+        used_count = nvp_stats.get("used_count", 0)
+        used_rate = used_count / valid_total if valid_total > 0 else 0.0
+        shift_stats = nvp_stats.get("shift_mm", {})
+        
+        if shift_stats:
+            lines.append(
+                f"| {key} | {used_count} | {used_rate:.2%} | "
+                f"{shift_stats.get('min', 'N/A')} | {shift_stats.get('median', 'N/A'):.1f} | "
+                f"{shift_stats.get('max', 'N/A')} |"
+            )
+        else:
+            lines.append(
+                f"| {key} | {used_count} | {used_rate:.2%} | N/A | N/A | N/A |"
+            )
     lines.append("")
-    lines.append("| Key | Round 2 NaN율 | Round 3 NaN율 | 변화 |")
+    
+    # Section 6: Round 2 대비 변화 (Round 4)
+    lines.append("## 6. Round 2 대비 변화 (Round 4 - Valid Cases 기준)")
+    lines.append("")
+    lines.append("### 6.1 NaN율 변화 (Valid Cases)")
+    lines.append("")
+    lines.append("| Key | Round 2 NaN율 | Round 4 NaN율 | 변화 | DoD (<=40%) |")
+    lines.append("|-----|---------------|---------------|------|-------------|")
+    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
+    lines.append("")
+    lines.append("### 6.2 CROSS_SECTION_NOT_FOUND 감소 (Valid Cases)")
+    lines.append("")
+    lines.append("| Key | Round 2 Count | Round 4 Count | 감소 |")
     lines.append("|-----|---------------|---------------|------|")
     lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
     lines.append("")
-    lines.append("### 5.2 CROSS_SECTION_NOT_FOUND 감소")
+    lines.append("### 6.3 empty_slice_reason 분포 변화 (Valid Cases)")
     lines.append("")
-    lines.append("| Key | Round 2 Count | Round 3 Count | 감소 |")
-    lines.append("|-----|---------------|---------------|------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
-    lines.append("### 5.3 empty_slice_reason 분포 변화")
-    lines.append("")
-    lines.append("| Key | Reason | Round 2 Count | Round 3 Count | 변화 |")
+    lines.append("| Key | Reason | Round 2 Count | Round 4 Count | 변화 |")
     lines.append("|-----|--------|---------------|---------------|------|")
     lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
     lines.append("")
     
-    # Section 6: 이슈 분류
-    lines.append("## 6. 이슈 분류")
+    # Section 7: 이슈 분류
+    lines.append("## 7. 이슈 분류")
     lines.append("")
     
     issues = {
