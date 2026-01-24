@@ -9,12 +9,82 @@ Expected fail cases (degenerate_*, etc.) are intentionally invalid for testing.
 import numpy as np
 import json
 import os
+import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 
 # Set seed for reproducibility
 np.random.seed(42)
+
+# ============================================================================
+# FAST MODE Support
+# ============================================================================
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Create S0 synthetic dataset")
+    parser.add_argument(
+        "--only-case",
+        type=str,
+        default=None,
+        help="FAST MODE: Generate only this case (e.g., normal_1)"
+    )
+    return parser.parse_args()
+
+def get_only_case() -> Optional[str]:
+    """Get ONLY_CASE from CLI or environment variable."""
+    args = parse_args()
+    if args.only_case:
+        return args.only_case
+    return os.environ.get("ONLY_CASE", None)
+
+def find_latest_debug_json(debug_dir: Path) -> Optional[Path]:
+    """Find the latest invariant fail debug JSON."""
+    if not debug_dir.exists():
+        return None
+    json_files = list(debug_dir.glob("s0_invariant_fail_*.json"))
+    if not json_files:
+        return None
+    return max(json_files, key=lambda p: p.stat().st_mtime)
+
+def parse_debug_json(debug_path: Path) -> Optional[Dict[str, Any]]:
+    """Parse debug JSON and return summary."""
+    try:
+        with open(debug_path, "r") as f:
+            data = json.load(f)
+        
+        summary = {
+            "case_id": data.get("case_id"),
+            "height_m_after_scale": data.get("bbox_span_y_after"),
+            "bust_circ_estimate": data.get("bust_circ_estimate"),
+            "waist_circ_estimate": data.get("waist_circ_estimate"),
+            "hip_circ_estimate": data.get("hip_circ_estimate"),
+            "scale_factor": data.get("scale_factor_applied"),
+            "bbox_span_y_before": data.get("bbox_span_y_before"),
+            "target_height_m": data.get("target_height_m"),
+            "error_message": data.get("error_message"),
+            "clamp_applied": data.get("clamp_applied", False)
+        }
+        return summary
+    except Exception as e:
+        print(f"[DEBUG JSON PARSER] Failed to parse {debug_path}: {e}")
+        return None
+
+def print_debug_summary(debug_summary: Dict[str, Any]):
+    """Print debug JSON summary."""
+    print("\n" + "="*60)
+    print("[DEBUG JSON SUMMARY] Last invariant fail analysis:")
+    print("="*60)
+    print(f"  Case ID: {debug_summary.get('case_id')}")
+    print(f"  Height (after scale): {debug_summary.get('height_m_after_scale'):.4f}m")
+    print(f"  Scale factor: {debug_summary.get('scale_factor'):.4f}")
+    print(f"  BUST_CIRC estimate: {debug_summary.get('bust_circ_estimate'):.4f}m")
+    print(f"  WAIST_CIRC estimate: {debug_summary.get('waist_circ_estimate')}")
+    print(f"  HIP_CIRC estimate: {debug_summary.get('hip_circ_estimate')}")
+    print(f"  Error: {debug_summary.get('error_message')}")
+    print(f"  Clamp applied: {debug_summary.get('clamp_applied')}")
+    print("="*60)
+    print()
 
 # ============================================================================
 # Human-like Scale Invariants (Physical Plausibility)
@@ -126,6 +196,20 @@ def _estimate_radius_at_height(verts: np.ndarray, y_target: float, tolerance: fl
     distances = np.linalg.norm(xz - center, axis=1)
     return float(np.mean(distances))
 
+# ============================================================================
+# FAST MODE: Check for ONLY_CASE
+# ============================================================================
+only_case = get_only_case()
+if only_case:
+    print(f"\n[FAST MODE] ONLY_CASE={only_case}; will generate only this case")
+    # Parse latest debug JSON if available
+    debug_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
+    latest_debug = find_latest_debug_json(debug_dir)
+    if latest_debug:
+        debug_summary = parse_debug_json(latest_debug)
+        if debug_summary:
+            print_debug_summary(debug_summary)
+
 cases = []
 case_ids = []
 case_classes = []  # "valid" or "expected_fail"
@@ -133,6 +217,12 @@ case_metadata = []  # Scale normalization metadata
 
 # Case 1-5: Normal cases (body-like shapes with human-like scale)
 for i in range(5):
+    case_id = f"normal_{i+1}"
+    
+    # FAST MODE: Skip if not the target case
+    if only_case and case_id != only_case:
+        print(f"  [FAST MODE] Skipping {case_id} (ONLY_CASE={only_case})")
+        continue
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
@@ -197,7 +287,7 @@ for i in range(5):
     # ========================================================================
     # CRITICAL: Apply scale normalization BEFORE invariant check
     # ========================================================================
-    case_id = f"normal_{i+1}"
+    # case_id already set above
     
     # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
@@ -211,6 +301,59 @@ for i in range(5):
     verts_scaled = verts * scale_factor
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
+    # ========================================================================
+    # CRITICAL: After scaling, clamp circumference regions if needed
+    # ========================================================================
+    clamp_applied = False
+    clamped_keys = []
+    y_coords_scaled = verts_scaled[:, 1]
+    y_min_scaled = float(np.min(y_coords_scaled))
+    y_max_scaled = float(np.max(y_coords_scaled))
+    y_range_scaled = y_max_scaled - y_min_scaled
+    
+    # Check and clamp bust region if needed
+    bust_y_scaled = y_min_scaled + 0.35 * y_range_scaled
+    bust_radius_est = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+    if bust_radius_est is not None:
+        bust_circ_est = 2 * np.pi * bust_radius_est
+        if bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
+            # Clamp: scale down bust region vertices
+            clamp_factor = CIRCUMFERENCE_RANGES["BUST"][1] / bust_circ_est
+            bust_mask = np.abs(y_coords_scaled - bust_y_scaled) < 0.05
+            if np.sum(bust_mask) > 0:
+                verts_scaled[bust_mask, 0] *= clamp_factor
+                verts_scaled[bust_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("BUST_CIRC")
+    
+    # Check and clamp waist region if needed
+    waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
+    waist_radius_est = _estimate_radius_at_height(verts_scaled, waist_y_scaled)
+    if waist_radius_est is not None:
+        waist_circ_est = 2 * np.pi * waist_radius_est
+        if waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
+            clamp_factor = CIRCUMFERENCE_RANGES["WAIST"][1] / waist_circ_est
+            waist_mask = np.abs(y_coords_scaled - waist_y_scaled) < 0.05
+            if np.sum(waist_mask) > 0:
+                verts_scaled[waist_mask, 0] *= clamp_factor
+                verts_scaled[waist_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("WAIST_CIRC")
+    
+    # Check and clamp hip region if needed
+    hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
+    hip_radius_est = _estimate_radius_at_height(verts_scaled, hip_y_scaled)
+    if hip_radius_est is not None:
+        hip_circ_est = 2 * np.pi * hip_radius_est
+        if hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
+            clamp_factor = CIRCUMFERENCE_RANGES["HIP"][1] / hip_circ_est
+            hip_mask = np.abs(y_coords_scaled - hip_y_scaled) < 0.05
+            if np.sum(hip_mask) > 0:
+                verts_scaled[hip_mask, 0] *= clamp_factor
+                verts_scaled[hip_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("HIP_CIRC")
+    
     # Validate invariants using SCALED vertices (not original)
     is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
     
@@ -221,6 +364,24 @@ for i in range(5):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         debug_path = debug_dir / f"s0_invariant_fail_{timestamp}.json"
         
+        # Calculate circumference estimates for debug
+        y_coords_debug = verts_scaled[:, 1]
+        y_min_debug = float(np.min(y_coords_debug))
+        y_max_debug = float(np.max(y_coords_debug))
+        y_range_debug = y_max_debug - y_min_debug
+        
+        bust_y_debug = y_min_debug + 0.35 * y_range_debug
+        bust_radius_debug = _estimate_radius_at_height(verts_scaled, bust_y_debug)
+        bust_circ_est_debug = 2 * np.pi * bust_radius_debug if bust_radius_debug is not None else None
+        
+        waist_y_debug = y_min_debug + 0.50 * y_range_debug
+        waist_radius_debug = _estimate_radius_at_height(verts_scaled, waist_y_debug)
+        waist_circ_est_debug = 2 * np.pi * waist_radius_debug if waist_radius_debug is not None else None
+        
+        hip_y_debug = y_min_debug + 0.60 * y_range_debug
+        hip_radius_debug = _estimate_radius_at_height(verts_scaled, hip_y_debug)
+        hip_circ_est_debug = 2 * np.pi * hip_radius_debug if hip_radius_debug is not None else None
+        
         debug_data = {
             "case_id": case_id,
             "case_class": "valid",
@@ -230,6 +391,11 @@ for i in range(5):
             "scale_factor_applied": float(scale_factor),
             "scale_was_applied": True,
             "invariant_check_input_height": float(bbox_span_y_after),
+            "bust_circ_estimate": float(bust_circ_est_debug) if bust_circ_est_debug is not None else None,
+            "waist_circ_estimate": float(waist_circ_est_debug) if waist_circ_est_debug is not None else None,
+            "hip_circ_estimate": float(hip_circ_est_debug) if hip_circ_est_debug is not None else None,
+            "clamp_applied": clamp_applied,
+            "clamped_keys": clamped_keys,
             "error_message": error_msg,
             "timestamp": timestamp
         }
@@ -241,9 +407,10 @@ for i in range(5):
         raise ValueError(f"{case_id} failed invariant check: {error_msg}")
     
     # Hard proof log: print scale application evidence
+    clamp_str = f" (clamped: {', '.join(clamped_keys)})" if clamp_applied else ""
     print(f"  [SCALE] {case_id}: before={bbox_span_y_before:.4f}m, "
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
-          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m")
+          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m{clamp_str}")
     
     # Record metadata
     metadata = {
@@ -251,7 +418,9 @@ for i in range(5):
         "bbox_span_y_before": float(bbox_span_y_before),
         "bbox_span_y_after": float(bbox_span_y_after),
         "scale_factor_applied": float(scale_factor),
-        "target_height_m": float(target_height_m)
+        "target_height_m": float(target_height_m),
+        "clamp_applied": clamp_applied,
+        "clamped_keys": clamped_keys if clamp_applied else []
     }
     
     # CRITICAL: Append scaled vertices, not original
@@ -262,6 +431,12 @@ for i in range(5):
 
 # Case 6-10: More varied shapes (still human-like)
 for i in range(5):
+    case_id = f"varied_{i+1}"
+    
+    # FAST MODE: Skip if not the target case
+    if only_case and case_id != only_case:
+        print(f"  [FAST MODE] Skipping {case_id} (ONLY_CASE={only_case})")
+        continue
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
@@ -313,7 +488,7 @@ for i in range(5):
     # ========================================================================
     # CRITICAL: Apply scale normalization BEFORE invariant check
     # ========================================================================
-    case_id = f"varied_{i+1}"
+    # case_id already set above
     
     # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
@@ -327,6 +502,59 @@ for i in range(5):
     verts_scaled = verts * scale_factor
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
+    # ========================================================================
+    # CRITICAL: After scaling, clamp circumference regions if needed
+    # ========================================================================
+    clamp_applied = False
+    clamped_keys = []
+    y_coords_scaled = verts_scaled[:, 1]
+    y_min_scaled = float(np.min(y_coords_scaled))
+    y_max_scaled = float(np.max(y_coords_scaled))
+    y_range_scaled = y_max_scaled - y_min_scaled
+    
+    # Check and clamp bust region if needed
+    bust_y_scaled = y_min_scaled + 0.35 * y_range_scaled
+    bust_radius_est = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+    if bust_radius_est is not None:
+        bust_circ_est = 2 * np.pi * bust_radius_est
+        if bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
+            # Clamp: scale down bust region vertices
+            clamp_factor = CIRCUMFERENCE_RANGES["BUST"][1] / bust_circ_est
+            bust_mask = np.abs(y_coords_scaled - bust_y_scaled) < 0.05
+            if np.sum(bust_mask) > 0:
+                verts_scaled[bust_mask, 0] *= clamp_factor
+                verts_scaled[bust_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("BUST_CIRC")
+    
+    # Check and clamp waist region if needed
+    waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
+    waist_radius_est = _estimate_radius_at_height(verts_scaled, waist_y_scaled)
+    if waist_radius_est is not None:
+        waist_circ_est = 2 * np.pi * waist_radius_est
+        if waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
+            clamp_factor = CIRCUMFERENCE_RANGES["WAIST"][1] / waist_circ_est
+            waist_mask = np.abs(y_coords_scaled - waist_y_scaled) < 0.05
+            if np.sum(waist_mask) > 0:
+                verts_scaled[waist_mask, 0] *= clamp_factor
+                verts_scaled[waist_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("WAIST_CIRC")
+    
+    # Check and clamp hip region if needed
+    hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
+    hip_radius_est = _estimate_radius_at_height(verts_scaled, hip_y_scaled)
+    if hip_radius_est is not None:
+        hip_circ_est = 2 * np.pi * hip_radius_est
+        if hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
+            clamp_factor = CIRCUMFERENCE_RANGES["HIP"][1] / hip_circ_est
+            hip_mask = np.abs(y_coords_scaled - hip_y_scaled) < 0.05
+            if np.sum(hip_mask) > 0:
+                verts_scaled[hip_mask, 0] *= clamp_factor
+                verts_scaled[hip_mask, 2] *= clamp_factor
+                clamp_applied = True
+                clamped_keys.append("HIP_CIRC")
+    
     # Validate invariants using SCALED vertices (not original)
     is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
     
@@ -337,6 +565,24 @@ for i in range(5):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         debug_path = debug_dir / f"s0_invariant_fail_{timestamp}.json"
         
+        # Calculate circumference estimates for debug
+        y_coords_debug = verts_scaled[:, 1]
+        y_min_debug = float(np.min(y_coords_debug))
+        y_max_debug = float(np.max(y_coords_debug))
+        y_range_debug = y_max_debug - y_min_debug
+        
+        bust_y_debug = y_min_debug + 0.35 * y_range_debug
+        bust_radius_debug = _estimate_radius_at_height(verts_scaled, bust_y_debug)
+        bust_circ_est_debug = 2 * np.pi * bust_radius_debug if bust_radius_debug is not None else None
+        
+        waist_y_debug = y_min_debug + 0.50 * y_range_debug
+        waist_radius_debug = _estimate_radius_at_height(verts_scaled, waist_y_debug)
+        waist_circ_est_debug = 2 * np.pi * waist_radius_debug if waist_radius_debug is not None else None
+        
+        hip_y_debug = y_min_debug + 0.60 * y_range_debug
+        hip_radius_debug = _estimate_radius_at_height(verts_scaled, hip_y_debug)
+        hip_circ_est_debug = 2 * np.pi * hip_radius_debug if hip_radius_debug is not None else None
+        
         debug_data = {
             "case_id": case_id,
             "case_class": "valid",
@@ -346,6 +592,11 @@ for i in range(5):
             "scale_factor_applied": float(scale_factor),
             "scale_was_applied": True,
             "invariant_check_input_height": float(bbox_span_y_after),
+            "bust_circ_estimate": float(bust_circ_est_debug) if bust_circ_est_debug is not None else None,
+            "waist_circ_estimate": float(waist_circ_est_debug) if waist_circ_est_debug is not None else None,
+            "hip_circ_estimate": float(hip_circ_est_debug) if hip_circ_est_debug is not None else None,
+            "clamp_applied": clamp_applied,
+            "clamped_keys": clamped_keys,
             "error_message": error_msg,
             "timestamp": timestamp
         }
@@ -357,9 +608,10 @@ for i in range(5):
         raise ValueError(f"{case_id} failed invariant check: {error_msg}")
     
     # Hard proof log: print scale application evidence
+    clamp_str = f" (clamped: {', '.join(clamped_keys)})" if clamp_applied else ""
     print(f"  [SCALE] {case_id}: before={bbox_span_y_before:.4f}m, "
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
-          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m")
+          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m{clamp_str}")
     
     # Record metadata
     metadata = {
@@ -367,7 +619,9 @@ for i in range(5):
         "bbox_span_y_before": float(bbox_span_y_before),
         "bbox_span_y_after": float(bbox_span_y_after),
         "scale_factor_applied": float(scale_factor),
-        "target_height_m": float(target_height_m)
+        "target_height_m": float(target_height_m),
+        "clamp_applied": clamp_applied,
+        "clamped_keys": clamped_keys if clamp_applied else []
     }
     
     # CRITICAL: Append scaled vertices, not original
@@ -464,7 +718,12 @@ case_metadata.append(metadata)
 
 # Self-check: Validate all valid cases
 print("\nValidating human-like invariants...")
+if only_case:
+    print(f"  [FAST MODE] Only validating {only_case}")
 for i, (verts, case_id, case_class) in enumerate(zip(cases, case_ids, case_classes)):
+    # FAST MODE: Skip validation if not the target case
+    if only_case and case_id != only_case:
+        continue
     is_valid, error_msg = check_human_like_invariants(verts, case_id, case_class)
     if case_class == "valid" and not is_valid:
         raise ValueError(f"VALID case {case_id} failed invariant check: {error_msg}")
@@ -661,6 +920,8 @@ else:
 
 print(f"\nCreated {output_path}")
 print(f"  Cases: {len(cases)}")
+if only_case:
+    print(f"  [FAST MODE] Only generated {only_case}")
 print(f"  Valid cases: {sum(1 for c in case_classes if c == 'valid')}")
 print(f"  Expected fail cases: {sum(1 for c in case_classes if c == 'expected_fail')}")
 print(f"  Case IDs: {case_ids}")
