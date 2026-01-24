@@ -8,6 +8,15 @@
 - Breathing: 자연 호흡(과흡기/과호기 금지)
 - Shoulder/Scapula Neutrality: 견갑 중립(과도한 말림/후인 금지) 상태가 SHOULDER_WIDTH 등 폭 계열의 의미 보존 전제, 위반 시 warning. 자동 보정 금지, warning만 허용.
 
+### 1.1 Breath State (상체 둘레/폭/두께)
+- 상체 둘레/폭/두께는 breath_state=neutral_mid(자연 호흡 중간) 조건을 기본으로 한다(근거가 있는 키들에 적용: NECK_CIRC_M, BUST_CIRC_M, UNDERBUST_CIRC_M, WAIST_CIRC_M, NAVEL_WAIST_CIRC_M, ABDOMEN_CIRC_M, CHEST_WIDTH_M, WAIST_WIDTH_M, CHEST_DEPTH_M, WAIST_DEPTH_M).
+
+### 1.2 Arm Position (폭 계열)
+- CHEST_WIDTH 같이 팔 위치가 영향을 주는 항목은 arms_down을 기본으로 한다.
+
+### 1.3 Height Measurements (높이 계열)
+- 높이 계열(CROTCH_HEIGHT_M, KNEE_HEIGHT_M, HEIGHT_M)은 strict standing + knee flexion 금지.
+
 ## 2. Prohibited Conditions (Semantic-level)
 - 두꺼운 의복/보정속옷/강한 압박
 - 팔을 들거나 크게 벌린 자세로 상체 둘레/폭 측정
