@@ -28,25 +28,20 @@ Core Principle: 5-Layer R\&D 파이프라인(Semantic–Contract–Geometric–V
 
 2. Milestone Achievements (누적 성과)
 
-Current Milestone: MVP-1 Measurement Frame Stabilization v0
+2. Milestone Achievements (누적 성과)
 
-Accomplishments:
+Current Milestone: curated_v0 Data Contract & Pipeline Stabilization v3 (Freeze Candidate)
 
-5-Layer R\&D 프레임워크 정립 및 운영 정합성 체계 구축
+Accomplishments (facts-only, high-level):
+- SizeKorea 7th/8th(Direct/3D) 3-source 통합 파이프라인 구축: curated_v0.parquet 산출
+- Contract(sizekorea_v2.json) exact-match 매핑 정리로 column_not_found=0 달성
+- Sentinel 정책 정합성 확립: 8th_direct의 9999 dtype 무관 필터링 + SENTINEL_MISSING 스키마 정합
+- 단위/스케일 조용한 오답 리스크를 "센서"로 표면화:
+  - completeness_report 기반: ALL_NULL_BY_SOURCE, ALL_NULL_EXTRACTED, MASSIVE_NULL_INTRODUCED, RANGE_SUSPECTED
+- 시스템 무결성 원칙 확정:
+  - 특정 키 하드코딩 금지(if key == ... 금지)
+  - “m 기대 컬럼 판별” 규칙을 단순 suffix(.endswith('_M'))가 아닌 패턴/토큰 기반으로 정본화
 
-4개 Measurement(Circumference, CHEST(legacy), HIP, THIGH) v0 완주 및 봉인(프레임 관점)
-
-가슴 계열 치수 이원화 정책 확정:
-
-UNDERBUST = 구조(흉곽)
-
-BUST = 볼륨(젖가슴 최대)
-
-브라 사이즈 입력 매핑 정책 확정:
-
-입력 "75A" → UNDERBUST(band) + Δ(cup)로 BUST 산출
-
-Cup Delta Table(MVP): cup당 +2.5cm 증가 대표값 테이블 채택
 
 3. Terminology \& Standard Keys (Single Source of Truth)
    3.1 Standard Keys (Internal)
@@ -72,27 +67,14 @@ See header block for ENUM definition. **Rule**: related_measurement_key must use
 
 4. Current Status \& Active Strategy
 
-Current Track: Track A: Body Engine (Measurement Logic Core)
+4. Current Status & Active Strategy
+
+Current Track: Track A (Data): Contract + curated_v0 Stabilization (Freeze -> Tag)
 
 Strategic Direction:
-
-기존 단일 CHEST 정의를 폐기하고, 브라 사이즈 입력과 직접 연동되는 UNDERBUST 및 BUST 체계로 전환
-
-모든 측정 결과는 자동 보정 없이 신호(Warning 포함) 기반의 사실 기록 위주로 관리
-
-4.1 Facts-driven Triggers for Dataset Refinement \& Golden Regeneration
-
-Facts-only 러너 결과를 기반으로 한 데이터 정제 및 golden 재생성 전환 조건(운영 전환 규칙, PASS/FAIL 판정 아님):
-
-Trigger T1 (Unit/Scale suspicion): PERIMETER_LARGE 또는 UNIT_FAIL이 "서로 다른 2개 이상 NPZ"에서 재현되면, 다음 우선순위는 구현 튜닝이 아니라 "dataset unit standardization(m) + golden 재생성"이다.
-
-Trigger T2 (Persistent NaN): UNDERBUST/BUST NaN rate가 "2개 이상 NPZ에서 20% 이상"이면 dataset 정제/재생성이 우선이다.
-
-Trigger T3 (Persistent Degeneracy): DEGEN_FAIL/EMPTY_CANDIDATES/BODY_AXIS_TOO_SHORT가 "2개 이상 NPZ에서 상위 경고"로 반복되면 dataset 정제/재생성이 우선이다.
-
-최근 facts output 경로: verification/runs/facts/bust_underbust/
-
-Note: 위 트리거는 판정(PASS/FAIL)이 아니라 "작업 전환 규칙"이다. Validation/Judgment 레이어를 침범하지 않으며, 사실 신호 기반으로만 서술한다.
+- 파이프라인의 목적은 "정답을 만들기"가 아니라, 조용한 오답을 '경고/센서'로 드러내고 Contract로 봉인하는 것
+- Contract는 exact match만 허용하며, 자동 유사매칭을 금지한다
+- Unit canonicalization은 meters(m) 정본화이며, “m 기대 컬럼 판별”은 시스템 규칙(패턴/토큰 기반)으로만 결정한다
 
 5. Bra Input Spec (MVP, Normative)
    5.1 Input Format
@@ -175,9 +157,30 @@ Focus on: L4 Validation 산출물 경로는 verification/reports/<measurement\_k
 
 **Guard ref**: See header block for official definition location.
 
+Do NOT:
+- 특정 키 하드코딩(if key == '...')으로 문제를 숨기지 말 것
+- Contract에 자동 유사매칭을 도입하지 말 것
+- Validation 레이어에 PASS/FAIL 임계값을 직접 박지 말 것 (facts-only 신호 기록)
+
+Must:
+- pipelines/tests/.github/workflows/contract 변경 PR은 반드시 docs/sync/CURRENT_STATE.md facts-only 업데이트 동반
+- 산출물 정책:
+  - data/processed/**, verification/runs/** 는 커밋 금지(경로/명령만 기록)
+  - golden NPZ는 재현 목적에 한해 allowlist로만 커밋 허용
+
 8.1 Ops Contract (Memo)
 
 SoT = `/SYNC_HUB.md`, 운영 신호 = `/docs/sync/CURRENT_STATE.md`. PR에 core/, tests/, verification/, tools/, db/, pipelines/, .github/workflows/ 변경이 포함되면 `docs/sync/CURRENT_STATE.md`를 같은 PR에 업데이트(guard-sync-state 준수). `.gitignore` 정책: `data/` 본문은 기본 ignore, 단 `data/README.md`는 track. `verification/runs/`는 항상 ignore(산출물 커밋 금지). `verification/datasets/**/*.npz`는 golden/재현 목적에 한해 커밋 허용(allowlist). facts output은 `verification/runs/facts/...` 경로에 저장하되 커밋 금지.
+
+8.2 Semantic v0 Freeze Declaration
+
+**Semantic v0 봉인 선언 (2026-01-24 기준)**:
+- Semantic v0 이후 Geometric/Validation 이슈는 **Semantic을 수정**하지 않는다.
+- 해결은 **metadata/provenance + facts-only validation 신호**로만 흡수한다.
+- auto substitution 금지 원칙 유지.
+- 변경이 필요하면 **Semantic v1**로 새 문서/새 태그로만 진행한다.
+
+Reference: `docs/semantic/measurement_semantics_v0.md` (Freeze Declaration 섹션 참조)
 
 9. Provenance
 
