@@ -76,7 +76,22 @@ def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[s
         case_classes: List of case classes ("valid" or "expected_fail")
         case_metadata: Optional list of metadata dicts (scale normalization info)
     """
+    npz_path_abs = Path(npz_path).resolve()
+    print(f"[NPZ LOAD] Loading NPZ from: {npz_path_abs}")
+    print(f"[NPZ LOAD] File exists: {npz_path_abs.exists()}")
+    if npz_path_abs.exists():
+        file_stat = npz_path_abs.stat()
+        print(f"[NPZ LOAD] File size: {file_stat.st_size / 1024:.1f} KB")
+        print(f"[NPZ LOAD] File mtime: {file_stat.st_mtime}")
+    
     data = np.load(npz_path, allow_pickle=True)
+    
+    # Print NPZ structure
+    loaded_keys = list(data.files)
+    print(f"[NPZ LOAD] Loaded NPZ keys: {loaded_keys}")
+    for key in loaded_keys:
+        arr = data[key]
+        print(f"[NPZ LOAD]   {key}: shape={arr.shape}, dtype={arr.dtype}")
     
     if "verts" in data:
         verts_array = data["verts"]
@@ -674,8 +689,10 @@ def main():
     
     # Load dataset
     npz_path_abs = Path(args.npz).resolve()
+    print(f"\n{'='*60}")
     print(f"Loading dataset: {args.npz}")
     print(f"  [PROOF] NPZ absolute path: {npz_path_abs}")
+    print(f"{'='*60}")
     load_result = load_npz_dataset(args.npz)
     if len(load_result) == 4:
         verts_list, case_ids, case_classes, case_metadata_list = load_result
@@ -794,8 +811,11 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     # Detect round from output_path
     is_round9 = "round9" in str(output_path).lower()
     is_round10 = "round10" in str(output_path).lower()
+    is_round11 = "round11" in str(output_path).lower()
     
-    if is_round10:
+    if is_round11:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 11 - S0 Scale Re-open Proof)")
+    elif is_round10:
         lines.append("# Geometric v0 Facts-Only Summary (Round 10 - S0 Scale Proof)")
     elif is_round9:
         lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
@@ -1296,8 +1316,8 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10
-    if is_round9 or is_round10:
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10/11
+    if is_round9 or is_round10 or is_round11:
         lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
         lines.append("")
         lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
@@ -1307,7 +1327,13 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             value_stats = s.get("value_stats", {})
             valid_cases = s.get("valid_cases", {})
             if value_stats:
-                if is_round10:
+                if is_round11:
+                    lines.append("| Statistic | Round 8 (Before) | Round 9/10 (No Change) | Round 11 (After Re-open Proof) |")
+                    lines.append("|-----------|------------------|----------------------|------------------------------|")
+                    lines.append(f"| HEIGHT_M Median | 0.8625m | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Min | 0.765m | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Max | 0.960m | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+                elif is_round10:
                     lines.append("| Statistic | Round 8 (Before) | Round 9 (No Change) | Round 10 (After Fix) |")
                     lines.append("|-----------|------------------|-------------------|---------------------|")
                     lines.append(f"| HEIGHT_M Median | 0.8625m | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
@@ -1387,8 +1413,8 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                                     )
         lines.append("")
         
-        # Round 10: Scale application proof logs summary
-        if is_round10:
+        # Round 10/11: Scale application proof logs summary
+        if is_round10 or is_round11:
             lines.append("### 6.3 Scale 적용 증거 로그 요약")
             lines.append("")
             lines.append("(create_s0_dataset.py 실행 로그에서 다음 정보 확인)")
@@ -1403,12 +1429,35 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             lines.append("- NPZ 저장 경로가 runner 로드 경로와 일치")
             lines.append("")
         
+        # Round 11: Re-open proof summary
+        if is_round11:
+            lines.append("### 6.4 Re-open Proof 통과 여부")
+            lines.append("")
+            lines.append("(create_s0_dataset.py 실행 로그에서 `[RE-OPEN PROOF]` 섹션 확인)")
+            lines.append("")
+            lines.append("**핵심 검증**:")
+            lines.append("- NPZ 저장 직후 `np.load()`로 파일을 다시 열어서 검증")
+            lines.append("- `assert bbox_span_y_reloaded ≈ target_height_m` (tolerance 5cm)")
+            lines.append("- 모든 valid cases에서 assert 통과 여부 확인")
+            lines.append("")
+            lines.append("| Case ID | bbox_span_y_before | target_height_m | bbox_span_y_reloaded | scale_factor | diff |")
+            lines.append("|---------|-------------------|-----------------|---------------------|--------------|------|")
+            lines.append("| (로그에서 샘플 2~3개 복사) |")
+            lines.append("")
+            lines.append("**DoD**: Re-open proof assert가 모든 valid cases에서 통과해야 함")
+            lines.append("")
+        
         # Section 7: Round 7 회귀 체크 (Valid Cases 기준)
         lines.append("## 7. Round 7 Slice-Sharing 회귀 체크 (Valid Cases 기준)")
         lines.append("")
         lines.append("### 7.1 Waist/Hip NaN율 (회귀 확인)")
         lines.append("")
-        round_label = "Round 10" if is_round10 else "Round 9"
+        if is_round11:
+            round_label = "Round 11"
+        elif is_round10:
+            round_label = "Round 10"
+        else:
+            round_label = "Round 9"
         lines.append(f"| Key | Round 7 NaN율 | {round_label} NaN율 | 변화 |")
         lines.append("|-----|---------------|---------------|------|")
         for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:

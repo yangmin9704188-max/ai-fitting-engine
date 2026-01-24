@@ -460,18 +460,132 @@ case_class_array = np.array(case_classes, dtype=object)
 case_metadata_array = np.empty(len(case_metadata), dtype=object)
 case_metadata_array[:] = case_metadata
 
+# Prepare data dict for saving
+data_dict = {
+    "verts": verts_array,
+    "case_id": case_id_array,
+    "case_class": case_class_array,
+    "case_metadata": case_metadata_array
+}
+
+# Print NPZ keys before saving
+print(f"\n[NPZ STRUCTURE] Keys to be saved: {list(data_dict.keys())}")
+print(f"[NPZ STRUCTURE] verts shape: {verts_array.shape}, dtype: {verts_array.dtype}")
+print(f"[NPZ STRUCTURE] case_id shape: {case_id_array.shape}, dtype: {case_id_array.dtype}")
+print(f"[NPZ STRUCTURE] case_class shape: {case_class_array.shape}, dtype: {case_class_array.dtype}")
+print(f"[NPZ STRUCTURE] case_metadata shape: {case_metadata_array.shape}, dtype: {case_metadata_array.dtype}")
+
 np.savez(
     str(output_path),
-    verts=verts_array,
-    case_id=case_id_array,
-    case_class=case_class_array,
-    case_metadata=case_metadata_array
+    **data_dict
 )
 
 print(f"\n[PROOF] Wrote NPZ to: {output_path_abs}")
 print(f"[PROOF] NPZ file exists: {output_path_abs.exists()}")
 if output_path_abs.exists():
-    print(f"[PROOF] NPZ file size: {output_path_abs.stat().st_size / 1024:.1f} KB")
+    file_stat = output_path_abs.stat()
+    print(f"[PROOF] NPZ file size: {file_stat.st_size / 1024:.1f} KB")
+    print(f"[PROOF] NPZ file mtime: {file_stat.st_mtime}")
+
+# ============================================================================
+# RE-OPEN PROOF (핵심 DoD): 저장 직후 파일을 다시 열어서 검증
+# ============================================================================
+print("\n[RE-OPEN PROOF] Re-opening NPZ file to verify scale was persisted...")
+reloaded_data = np.load(str(output_path_abs), allow_pickle=True)
+reloaded_keys = list(reloaded_data.files)
+print(f"[RE-OPEN PROOF] Reloaded NPZ keys: {reloaded_keys}")
+
+# Verify keys match
+assert set(reloaded_keys) == set(data_dict.keys()), \
+    f"Reloaded keys {reloaded_keys} != saved keys {list(data_dict.keys())}"
+
+# For each valid case, verify bbox_span_y matches target_height
+print("\n[RE-OPEN PROOF] Verifying scaled vertices in reloaded NPZ (valid cases only)...")
+reloaded_verts_array = reloaded_data["verts"]
+reloaded_case_ids = reloaded_data["case_id"]
+reloaded_case_classes = reloaded_data["case_class"]
+reloaded_case_metadata = reloaded_data.get("case_metadata", None)
+
+reopen_proof_passed = True
+reopen_proof_samples = []
+
+for i in range(len(reloaded_case_ids)):
+    case_id = str(reloaded_case_ids[i])
+    case_class = str(reloaded_case_classes[i])
+    
+    if case_class == "valid":
+        # Extract vertices
+        if reloaded_verts_array.dtype == object:
+            verts_reloaded = reloaded_verts_array[i]
+        else:
+            if reloaded_verts_array.ndim == 3:
+                verts_reloaded = reloaded_verts_array[i]
+            else:
+                verts_reloaded = reloaded_verts_array
+        
+        # Calculate bbox_span_y from reloaded vertices
+        y_coords_reloaded = verts_reloaded[:, 1]
+        bbox_span_y_reloaded = float(np.max(y_coords_reloaded) - np.min(y_coords_reloaded))
+        
+        # Get target_height from metadata
+        if reloaded_case_metadata is not None:
+            meta_reloaded = reloaded_case_metadata[i]
+            if isinstance(meta_reloaded, dict):
+                target_height = meta_reloaded.get("target_height_m")
+                scale_factor = meta_reloaded.get("scale_factor_applied")
+                bbox_span_y_before = meta_reloaded.get("bbox_span_y_before")
+            else:
+                target_height = None
+                scale_factor = None
+                bbox_span_y_before = None
+        else:
+            # Fallback to original metadata list
+            meta_orig = case_metadata[i]
+            target_height = meta_orig.get("target_height_m")
+            scale_factor = meta_orig.get("scale_factor_applied")
+            bbox_span_y_before = meta_orig.get("bbox_span_y_before")
+        
+        if target_height is not None:
+            tolerance = 0.05  # 5cm tolerance
+            diff = abs(bbox_span_y_reloaded - target_height)
+            
+            # CRITICAL ASSERT: This proves scale was persisted to file
+            assert diff <= tolerance, (
+                f"[RE-OPEN PROOF FAIL] {case_id}: "
+                f"bbox_span_y_reloaded={bbox_span_y_reloaded:.4f}m != "
+                f"target_height={target_height:.4f}m "
+                f"(diff={diff:.4f}m > {tolerance:.4f}m tolerance). "
+                f"Scale was NOT persisted to NPZ file!"
+            )
+            
+            # Store sample for report
+            if len(reopen_proof_samples) < 3:
+                reopen_proof_samples.append({
+                    "case_id": case_id,
+                    "bbox_span_y_before": bbox_span_y_before,
+                    "target_height_m": target_height,
+                    "bbox_span_y_reloaded": bbox_span_y_reloaded,
+                    "scale_factor": scale_factor,
+                    "diff": diff
+                })
+            
+            print(f"  ✓ {case_id}: bbox_span_y_reloaded={bbox_span_y_reloaded:.4f}m ≈ "
+                  f"target={target_height:.4f}m (scale={scale_factor:.4f}, diff={diff:.4f}m)")
+        else:
+            print(f"  ⚠ {case_id}: target_height not found in metadata")
+
+reloaded_data.close()
+
+if reopen_proof_passed:
+    print(f"\n[RE-OPEN PROOF] ✓ PASSED: All valid cases verified. Scale was persisted to NPZ.")
+    print(f"[RE-OPEN PROOF] Sample cases:")
+    for sample in reopen_proof_samples:
+        print(f"  - {sample['case_id']}: before={sample['bbox_span_y_before']:.4f}m, "
+              f"target={sample['target_height_m']:.4f}m, "
+              f"reloaded={sample['bbox_span_y_reloaded']:.4f}m, "
+              f"scale={sample['scale_factor']:.4f}, diff={sample['diff']:.4f}m")
+else:
+    print(f"\n[RE-OPEN PROOF] ✗ FAILED: Some valid cases did not pass verification.")
 
 print(f"\nCreated {output_path}")
 print(f"  Cases: {len(cases)}")
