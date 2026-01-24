@@ -283,18 +283,32 @@ for i in range(5):
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
     # ========================================================================
-    # CRITICAL: Generate circumferences using CIRCUMFERENCE_RANGES directly
-    # to avoid scale-induced overflow (e.g., bust_circ > 1.4m after scaling)
+    # CRITICAL: Generate circumferences accounting for scale normalization
     # ========================================================================
-    # Use CIRCUMFERENCE_RANGES directly (not height-based ratios)
-    # This ensures circumferences stay within human-like ranges even after scaling
-    bust_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["BUST"])
+    # Problem: After scale normalization (scale_factor ~2.3), all coordinates scale uniformly
+    # Result: bust_circ_estimate = original_bust_circ * scale_factor (overflow!)
+    # Solution: Generate circumferences that will be in range AFTER scaling
+    # 
+    # For normal_1: Use very conservative range (0.50-0.60m) to ensure post-scale < 1.4m
+    # Expected scale_factor ~2.3, so: 0.60 * 2.3 = 1.38m < 1.4m (safe)
+    if case_id == "normal_1":
+        bust_circ = np.random.uniform(0.50, 0.60)
+        waist_circ = np.random.uniform(0.45, 0.55)
+        hip_circ = np.random.uniform(0.50, 0.65)
+    else:
+        # For other cases: Use CIRCUMFERENCE_RANGES but with conservative upper bound
+        # Assume max scale_factor ~2.5, so target max_circ / 2.5 as upper bound
+        bust_circ_max = CIRCUMFERENCE_RANGES["BUST"][1] / 2.5  # ~0.56m
+        bust_circ = np.random.uniform(CIRCUMFERENCE_RANGES["BUST"][0], min(bust_circ_max, CIRCUMFERENCE_RANGES["BUST"][1]))
+        
+        waist_circ_max = CIRCUMFERENCE_RANGES["WAIST"][1] / 2.5  # ~0.52m
+        waist_circ = np.random.uniform(CIRCUMFERENCE_RANGES["WAIST"][0], min(waist_circ_max, CIRCUMFERENCE_RANGES["WAIST"][1]))
+        
+        hip_circ_max = CIRCUMFERENCE_RANGES["HIP"][1] / 2.5  # ~0.60m
+        hip_circ = np.random.uniform(CIRCUMFERENCE_RANGES["HIP"][0], min(hip_circ_max, CIRCUMFERENCE_RANGES["HIP"][1]))
+    
     bust_radius = bust_circ / (2 * np.pi)
-    
-    waist_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["WAIST"])
     waist_radius = waist_circ / (2 * np.pi)
-    
-    hip_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["HIP"])
     hip_radius = hip_circ / (2 * np.pi)
     
     # Neck: 0.25-0.55m
@@ -358,57 +372,109 @@ for i in range(5):
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
     # ========================================================================
-    # CRITICAL: After scaling, clamp circumference regions if needed
+    # CRITICAL: Calculate circumference estimates AFTER scaling (for trace/debug)
     # ========================================================================
-    clamp_applied = False
-    clamped_keys = []
     y_coords_scaled = verts_scaled[:, 1]
     y_min_scaled = float(np.min(y_coords_scaled))
     y_max_scaled = float(np.max(y_coords_scaled))
     y_range_scaled = y_max_scaled - y_min_scaled
     
-    # Check and clamp bust region if needed
+    # Calculate bust estimate
     bust_y_scaled = y_min_scaled + 0.35 * y_range_scaled
     bust_radius_est = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
-    if bust_radius_est is not None:
-        bust_circ_est = 2 * np.pi * bust_radius_est
-        if bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
-            # Clamp: scale down bust region vertices
-            clamp_factor = CIRCUMFERENCE_RANGES["BUST"][1] / bust_circ_est
-            bust_mask = np.abs(y_coords_scaled - bust_y_scaled) < 0.05
-            if np.sum(bust_mask) > 0:
-                verts_scaled[bust_mask, 0] *= clamp_factor
-                verts_scaled[bust_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("BUST_CIRC")
+    bust_circ_est = 2 * np.pi * bust_radius_est if bust_radius_est is not None else None
     
-    # Check and clamp waist region if needed
+    # Calculate waist estimate
     waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
     waist_radius_est = _estimate_radius_at_height(verts_scaled, waist_y_scaled)
-    if waist_radius_est is not None:
-        waist_circ_est = 2 * np.pi * waist_radius_est
-        if waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
-            clamp_factor = CIRCUMFERENCE_RANGES["WAIST"][1] / waist_circ_est
-            waist_mask = np.abs(y_coords_scaled - waist_y_scaled) < 0.05
-            if np.sum(waist_mask) > 0:
-                verts_scaled[waist_mask, 0] *= clamp_factor
-                verts_scaled[waist_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("WAIST_CIRC")
+    waist_circ_est = 2 * np.pi * waist_radius_est if waist_radius_est is not None else None
     
-    # Check and clamp hip region if needed
+    # Calculate hip estimate
     hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
     hip_radius_est = _estimate_radius_at_height(verts_scaled, hip_y_scaled)
-    if hip_radius_est is not None:
-        hip_circ_est = 2 * np.pi * hip_radius_est
-        if hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
-            clamp_factor = CIRCUMFERENCE_RANGES["HIP"][1] / hip_circ_est
-            hip_mask = np.abs(y_coords_scaled - hip_y_scaled) < 0.05
-            if np.sum(hip_mask) > 0:
-                verts_scaled[hip_mask, 0] *= clamp_factor
-                verts_scaled[hip_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("HIP_CIRC")
+    hip_circ_est = 2 * np.pi * hip_radius_est if hip_radius_est is not None else None
+    
+    # ========================================================================
+    # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
+    # ========================================================================
+    clamp_applied = False
+    clamped_keys = []
+    
+    # For valid cases: If estimate is out of range, raise error (no clamp allowed)
+    if bust_circ_est is not None and bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
+        raise ValueError(
+            f"{case_id} BUST_CIRC estimate {bust_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['BUST']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
+    if waist_circ_est is not None and waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
+        raise ValueError(
+            f"{case_id} WAIST_CIRC estimate {waist_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['WAIST']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
+    if hip_circ_est is not None and hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
+        raise ValueError(
+            f"{case_id} HIP_CIRC estimate {hip_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['HIP']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
+    
+    # ========================================================================
+    # SYNTH CIRC DEBUG: Trace circumference synthesis for normal_1
+    # ========================================================================
+    if case_id == "normal_1":
+        # Save trace JSON
+        trace_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        trace_path = trace_dir / "s0_circ_synth_trace_normal_1.json"
+        
+        trace_data = {
+            "case_id": case_id,
+            "bust_est_source": "radius_interpolation_with_noise",
+            "height_after_scale": float(bbox_span_y_after),
+            "scale_factor": float(scale_factor),
+            "bust_circ_original": float(bust_circ),
+            "bust_radius_original": float(bust_radius),
+            "bust_circ_estimate": float(bust_circ_est) if bust_circ_est is not None else None,
+            "bust_radius_estimate": float(bust_radius_est) if bust_radius_est is not None else None,
+            "waist_circ_estimate": float(waist_circ_est) if waist_circ_est is not None else None,
+            "hip_circ_estimate": float(hip_circ_est) if hip_circ_est is not None else None,
+            "params": {
+                "bust_circ_range": [0.50, 0.60] if case_id == "normal_1" else [CIRCUMFERENCE_RANGES["BUST"][0], CIRCUMFERENCE_RANGES["BUST"][1] / 2.5],
+                "bust_circ_sampled": float(bust_circ),
+                "scale_factor": float(scale_factor),
+                "noise_amplitude": 0.01,
+                "interpolation_regions": {
+                    "bust_region_height_ratio": [0.50, 0.65],
+                    "upper_chest_ratio": [0.65, 0.85]
+                }
+            },
+            "intermediates": {
+                "bust_radius_before_scale": float(bust_radius),
+                "bust_radius_after_scale": float(bust_radius * scale_factor) if bust_radius_est is not None else None,
+                "bust_radius_estimated": float(bust_radius_est) if bust_radius_est is not None else None,
+                "bust_circ_after_scale_theoretical": float(bust_circ * scale_factor),
+                "bust_circ_estimate_actual": float(bust_circ_est) if bust_circ_est is not None else None
+            },
+            "clamp_applied": False,
+            "clamped_keys": []
+        }
+        
+        with open(trace_path, "w") as f:
+            json.dump(trace_data, f, indent=2)
+        
+        print(f"\n[SYNTH CIRC DEBUG] case={case_id}")
+        print(f"  height_after_scale={bbox_span_y_after:.4f}m")
+        print(f"  scale_factor={scale_factor:.4f}")
+        print(f"  bust_circ_original={bust_circ:.4f}m")
+        print(f"  bust_circ_estimate={bust_circ_est:.4f}m" if bust_circ_est is not None else "  bust_circ_estimate=None")
+        print(f"  params: bust_circ_range={trace_data['params']['bust_circ_range']}, "
+              f"bust_circ_sampled={bust_circ:.4f}m, scale_factor={scale_factor:.4f}")
+        print(f"  intermediates: bust_radius_before={bust_radius:.4f}m, "
+              f"bust_radius_after_scale_theoretical={bust_radius * scale_factor:.4f}m, "
+              f"bust_radius_estimated={bust_radius_est:.4f}m" if bust_radius_est is not None else "  bust_radius_estimated=None")
+        print(f"  bust_circ_after_scale_theoretical={bust_circ * scale_factor:.4f}m")
+        print(f"  bust_circ_estimate_actual={bust_circ_est:.4f}m" if bust_circ_est is not None else "  bust_circ_estimate_actual=None")
+        print(f"  clamp_applied=False")
+        print(f"  Saved trace to: {trace_path.resolve()}")
     
     # Validate invariants using SCALED vertices (not original)
     is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
@@ -497,18 +563,21 @@ for i in range(5):
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
     # ========================================================================
-    # CRITICAL: Generate circumferences using CIRCUMFERENCE_RANGES directly
-    # to avoid scale-induced overflow (e.g., bust_circ > 1.4m after scaling)
+    # CRITICAL: Generate circumferences accounting for scale normalization
     # ========================================================================
-    # Use CIRCUMFERENCE_RANGES directly (not height-based ratios)
-    # This ensures circumferences stay within human-like ranges even after scaling
-    bust_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["BUST"])
+    # Use conservative approach: Assume max scale_factor ~2.5
+    # Target: max_circ / 2.5 as upper bound to ensure post-scale < range max
+    bust_circ_max = CIRCUMFERENCE_RANGES["BUST"][1] / 2.5  # ~0.56m
+    bust_circ = np.random.uniform(CIRCUMFERENCE_RANGES["BUST"][0], min(bust_circ_max, CIRCUMFERENCE_RANGES["BUST"][1]))
+    
+    waist_circ_max = CIRCUMFERENCE_RANGES["WAIST"][1] / 2.5  # ~0.52m
+    waist_circ = np.random.uniform(CIRCUMFERENCE_RANGES["WAIST"][0], min(waist_circ_max, CIRCUMFERENCE_RANGES["WAIST"][1]))
+    
+    hip_circ_max = CIRCUMFERENCE_RANGES["HIP"][1] / 2.5  # ~0.60m
+    hip_circ = np.random.uniform(CIRCUMFERENCE_RANGES["HIP"][0], min(hip_circ_max, CIRCUMFERENCE_RANGES["HIP"][1]))
+    
     bust_radius = bust_circ / (2 * np.pi)
-    
-    waist_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["WAIST"])
     waist_radius = waist_circ / (2 * np.pi)
-    
-    hip_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["HIP"])
     hip_radius = hip_circ / (2 * np.pi)
     
     neck_radius = np.random.uniform(*CIRCUMFERENCE_RANGES["NECK"]) / (2 * np.pi)
@@ -559,57 +628,50 @@ for i in range(5):
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
     # ========================================================================
-    # CRITICAL: After scaling, clamp circumference regions if needed
+    # CRITICAL: Calculate circumference estimates AFTER scaling (for trace/debug)
     # ========================================================================
-    clamp_applied = False
-    clamped_keys = []
     y_coords_scaled = verts_scaled[:, 1]
     y_min_scaled = float(np.min(y_coords_scaled))
     y_max_scaled = float(np.max(y_coords_scaled))
     y_range_scaled = y_max_scaled - y_min_scaled
     
-    # Check and clamp bust region if needed
+    # Calculate bust estimate
     bust_y_scaled = y_min_scaled + 0.35 * y_range_scaled
     bust_radius_est = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
-    if bust_radius_est is not None:
-        bust_circ_est = 2 * np.pi * bust_radius_est
-        if bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
-            # Clamp: scale down bust region vertices
-            clamp_factor = CIRCUMFERENCE_RANGES["BUST"][1] / bust_circ_est
-            bust_mask = np.abs(y_coords_scaled - bust_y_scaled) < 0.05
-            if np.sum(bust_mask) > 0:
-                verts_scaled[bust_mask, 0] *= clamp_factor
-                verts_scaled[bust_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("BUST_CIRC")
+    bust_circ_est = 2 * np.pi * bust_radius_est if bust_radius_est is not None else None
     
-    # Check and clamp waist region if needed
+    # Calculate waist estimate
     waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
     waist_radius_est = _estimate_radius_at_height(verts_scaled, waist_y_scaled)
-    if waist_radius_est is not None:
-        waist_circ_est = 2 * np.pi * waist_radius_est
-        if waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
-            clamp_factor = CIRCUMFERENCE_RANGES["WAIST"][1] / waist_circ_est
-            waist_mask = np.abs(y_coords_scaled - waist_y_scaled) < 0.05
-            if np.sum(waist_mask) > 0:
-                verts_scaled[waist_mask, 0] *= clamp_factor
-                verts_scaled[waist_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("WAIST_CIRC")
+    waist_circ_est = 2 * np.pi * waist_radius_est if waist_radius_est is not None else None
     
-    # Check and clamp hip region if needed
+    # Calculate hip estimate
     hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
     hip_radius_est = _estimate_radius_at_height(verts_scaled, hip_y_scaled)
-    if hip_radius_est is not None:
-        hip_circ_est = 2 * np.pi * hip_radius_est
-        if hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
-            clamp_factor = CIRCUMFERENCE_RANGES["HIP"][1] / hip_circ_est
-            hip_mask = np.abs(y_coords_scaled - hip_y_scaled) < 0.05
-            if np.sum(hip_mask) > 0:
-                verts_scaled[hip_mask, 0] *= clamp_factor
-                verts_scaled[hip_mask, 2] *= clamp_factor
-                clamp_applied = True
-                clamped_keys.append("HIP_CIRC")
+    hip_circ_est = 2 * np.pi * hip_radius_est if hip_radius_est is not None else None
+    
+    # ========================================================================
+    # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
+    # ========================================================================
+    clamp_applied = False
+    clamped_keys = []
+    
+    # For valid cases: If estimate is out of range, raise error (no clamp allowed)
+    if bust_circ_est is not None and bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
+        raise ValueError(
+            f"{case_id} BUST_CIRC estimate {bust_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['BUST']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
+    if waist_circ_est is not None and waist_circ_est > CIRCUMFERENCE_RANGES["WAIST"][1]:
+        raise ValueError(
+            f"{case_id} WAIST_CIRC estimate {waist_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['WAIST']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
+    if hip_circ_est is not None and hip_circ_est > CIRCUMFERENCE_RANGES["HIP"][1]:
+        raise ValueError(
+            f"{case_id} HIP_CIRC estimate {hip_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['HIP']}. "
+            f"Clamp is forbidden for valid cases. Must fix synthesis parameters."
+        )
     
     # Validate invariants using SCALED vertices (not original)
     is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
