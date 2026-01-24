@@ -557,3 +557,14 @@
 curated_v0 v3 completeness 관측 중 일부 컬럼(BICEPS_CIRC_M, FOREARM_CIRC_M 등)이 표준키 사전(45 keys)에 존재하지 않는 것으로 보일 수 있다.
 - v0 봉인 범위에서는 **표준키 사전(45개)만** 의미론을 가진다.
 - 비표준 컬럼은 Contract 확장 없이 "무시/비표준"으로 처리한다(자동 편입 금지). 
+
+---
+
+## Freeze Declaration (Semantic v0)
+
+본 문서(Measurement Semantics v0)는 **2026-01-24 (Asia/Seoul)** 기준으로 봉인된다.
+1) 본 문서는 45개 표준 Measurement Key의 **Ideal 의미론 정의**를 고정한다.  
+2) 데이터 소스별 측정 관행/분포/결측(Observed)은 **Semantic 정의를 변경하지 않으며**, Validation/Warnings에서만 흡수한다.  
+3) 유사 키 간 **자동 대체/승계/보정은 금지**한다(No Auto Substitution).  
+4) all-null 등 데이터 커버리지가 부족한 키도 의미론은 유지하되, **자동 Proxy/추정 대체는 금지**한다(Proxy 사용 시 provenance 기록 필수).  
+5) 이후 Geometric/Validation 구현에서 본 의미론을 재해석하거나 수정하는 행위는 금지하며, 변경이 필요하면 **Semantic v1**로 새 문서/새 태그로만 진행한다. 
