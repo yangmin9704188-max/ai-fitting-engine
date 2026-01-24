@@ -220,6 +220,9 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids:
         landmark_reasons = defaultdict(int)
         nearest_valid_plane_used_count = 0
         nearest_valid_plane_shifts = []
+        target_out_of_bounds_count = 0
+        initial_candidates_counts = []
+        fallback_candidates_counts = []
         
         for result in key_results:
             if result is None:
@@ -292,6 +295,19 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids:
                         if candidates_count == 0:
                             cross_section_reasons["mesh_empty_at_height"] += 1
                             cross_section_reasons["empty_slice"] -= 1  # Avoid double counting
+                    
+                    # Track target out of bounds for waist/hip
+                    target_out_of_bounds = cross_section.get("target_out_of_bounds", False)
+                    if target_out_of_bounds:
+                        target_out_of_bounds_count += 1
+                    
+                    # Track initial and fallback candidates counts
+                    initial_count = cross_section.get("initial_candidates_count")
+                    if initial_count is not None:
+                        initial_candidates_counts.append(initial_count)
+                    fallback_count = cross_section.get("fallback_candidates_count")
+                    if fallback_count is not None and fallback_count > 0:
+                        fallback_candidates_counts.append(fallback_count)
                 
                 # Body axis debug
                 body_axis = debug.get("body_axis", {})
@@ -346,14 +362,33 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids:
         
         # Nearest valid plane fallback stats
         nearest_valid_plane_stats = {}
-        if "nearest_valid_plane_used_count" in locals():
+        if nearest_valid_plane_used_count > 0:
             nearest_valid_plane_stats["used_count"] = nearest_valid_plane_used_count
-            if "nearest_valid_plane_shifts" in locals() and nearest_valid_plane_shifts:
+            if nearest_valid_plane_shifts:
                 nearest_valid_plane_stats["shift_mm"] = {
                     "min": int(np.min(nearest_valid_plane_shifts)),
                     "median": float(np.median(nearest_valid_plane_shifts)),
                     "max": int(np.max(nearest_valid_plane_shifts))
                 }
+        
+        # Target/bbox debug stats (for waist/hip)
+        target_bbox_stats = {}
+        if target_out_of_bounds_count > 0:
+            target_bbox_stats["target_out_of_bounds_count"] = target_out_of_bounds_count
+            target_bbox_stats["target_out_of_bounds_rate"] = target_out_of_bounds_count / total_count if total_count > 0 else 0.0
+        if initial_candidates_counts:
+            target_bbox_stats["initial_candidates_count"] = {
+                "min": int(np.min(initial_candidates_counts)),
+                "median": float(np.median(initial_candidates_counts)),
+                "max": int(np.max(initial_candidates_counts)),
+                "zero_count": sum(1 for c in initial_candidates_counts if c == 0)
+            }
+        if fallback_candidates_counts:
+            target_bbox_stats["fallback_candidates_count"] = {
+                "min": int(np.min(fallback_candidates_counts)),
+                "median": float(np.median(fallback_candidates_counts)),
+                "max": int(np.max(fallback_candidates_counts))
+            }
         
         # Aggregate expected fail cases separately
         expected_fail_nan_count = 0
@@ -383,6 +418,7 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids:
             },
             "debug_summary": debug_summary if debug_summary else {},
             "nearest_valid_plane_stats": nearest_valid_plane_stats if nearest_valid_plane_stats else {},
+            "target_bbox_stats": target_bbox_stats if target_bbox_stats else {},
             # Valid/Expected fail split
             "valid_cases": {
                 "total_count": len(valid_key_results),
@@ -484,7 +520,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round4_waist_hip_fix.md"
+    report_filename = "geo_v0_facts_round5_waist_hip_fallback_working.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -505,7 +541,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 4 - Nearest Valid Plane Fallback)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 5 - Nearest Valid Plane Fallback Working)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -747,7 +783,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                 lines.append(f"| {key} | {reason} | {count} |")
     lines.append("")
     
-    # Section 5: Nearest Valid Plane Fallback 통계
+    # Section 5: Nearest Valid Plane Fallback 통계 (Valid Cases)
     lines.append("## 5. Nearest Valid Plane Fallback 통계 (Valid Cases)")
     lines.append("")
     lines.append("| Key | Used Count | Used Rate | Shift Min (mm) | Shift Median (mm) | Shift Max (mm) |")
@@ -773,6 +809,34 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             lines.append(
                 f"| {key} | {used_count} | {used_rate:.2%} | N/A | N/A | N/A |"
             )
+    lines.append("")
+    
+    # Section 5.1: Target/Bbox Debug 통계 (Valid Cases)
+    lines.append("### 5.1 Target/Bbox Debug 통계 (Valid Cases)")
+    lines.append("")
+    lines.append("| Key | Target Out of Bounds Count | Out of Bounds Rate | Initial Candidates (Zero Count) | Fallback Candidates (Median) |")
+    lines.append("|-----|---------------------------|-------------------|--------------------------------|------------------------------|")
+    
+    for key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+        if key not in summary:
+            continue
+        s = summary[key]
+        tbb_stats = s.get("target_bbox_stats", {})
+        valid_total = s.get("valid_cases", {}).get("total_count", 0)
+        
+        out_of_bounds_count = tbb_stats.get("target_out_of_bounds_count", 0)
+        out_of_bounds_rate = tbb_stats.get("target_out_of_bounds_rate", 0.0)
+        
+        initial_stats = tbb_stats.get("initial_candidates_count", {})
+        initial_zero_count = initial_stats.get("zero_count", 0) if initial_stats else 0
+        
+        fallback_stats = tbb_stats.get("fallback_candidates_count", {})
+        fallback_median = fallback_stats.get("median", "N/A") if fallback_stats else "N/A"
+        
+        lines.append(
+            f"| {key} | {out_of_bounds_count} | {out_of_bounds_rate:.2%} | "
+            f"{initial_zero_count} | {fallback_median} |"
+        )
     lines.append("")
     
     # Section 6: Round 2 대비 변화 (Round 4)
