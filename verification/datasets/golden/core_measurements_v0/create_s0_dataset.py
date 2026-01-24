@@ -47,42 +47,98 @@ def find_latest_debug_json(debug_dir: Path) -> Optional[Path]:
         return None
     return max(json_files, key=lambda p: p.stat().st_mtime)
 
+def fmt_m(x: Optional[float]) -> str:
+    """Format meter value safely (None -> 'N/A')."""
+    if x is None:
+        return "N/A"
+    try:
+        return f"{x:.4f}m"
+    except (TypeError, ValueError):
+        return f"{x}"
+
+def find_key_candidate(data: Dict[str, Any], candidates: List[str]) -> Tuple[Optional[Any], Optional[str]]:
+    """Find first non-None value among candidate keys."""
+    for key in candidates:
+        value = data.get(key)
+        if value is not None:
+            return value, key
+    return None, None
+
 def parse_debug_json(debug_path: Path) -> Optional[Dict[str, Any]]:
     """Parse debug JSON and return summary."""
     try:
         with open(debug_path, "r") as f:
             data = json.load(f)
         
+        # Print original JSON keys for debugging
+        original_keys = sorted(data.keys())
+        print(f"[DEBUG JSON PARSER] Original JSON keys: {original_keys}")
+        
+        # Try multiple candidate keys for bust/waist/hip
+        bust_candidates = ["bust_circ_estimate", "bust_circ_m", "bust_est_m", "BUST_CIRC_M", "bust_circ"]
+        waist_candidates = ["waist_circ_estimate", "waist_circ_m", "waist_est_m", "WAIST_CIRC_M", "waist_circ"]
+        hip_candidates = ["hip_circ_estimate", "hip_circ_m", "hip_est_m", "HIP_CIRC_M", "hip_circ"]
+        
+        bust_value, bust_key = find_key_candidate(data, bust_candidates)
+        waist_value, waist_key = find_key_candidate(data, waist_candidates)
+        hip_value, hip_key = find_key_candidate(data, hip_candidates)
+        
         summary = {
             "case_id": data.get("case_id"),
             "height_m_after_scale": data.get("bbox_span_y_after"),
-            "bust_circ_estimate": data.get("bust_circ_estimate"),
-            "waist_circ_estimate": data.get("waist_circ_estimate"),
-            "hip_circ_estimate": data.get("hip_circ_estimate"),
+            "bust_circ_estimate": bust_value,
+            "bust_circ_key_used": bust_key,
+            "waist_circ_estimate": waist_value,
+            "waist_circ_key_used": waist_key,
+            "hip_circ_estimate": hip_value,
+            "hip_circ_key_used": hip_key,
             "scale_factor": data.get("scale_factor_applied"),
             "bbox_span_y_before": data.get("bbox_span_y_before"),
             "target_height_m": data.get("target_height_m"),
             "error_message": data.get("error_message"),
-            "clamp_applied": data.get("clamp_applied", False)
+            "clamp_applied": data.get("clamp_applied", False),
+            "_original_keys": original_keys  # For debugging
         }
         return summary
     except Exception as e:
         print(f"[DEBUG JSON PARSER] Failed to parse {debug_path}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def print_debug_summary(debug_summary: Dict[str, Any]):
-    """Print debug JSON summary."""
+    """Print debug JSON summary (None-safe)."""
     print("\n" + "="*60)
     print("[DEBUG JSON SUMMARY] Last invariant fail analysis:")
     print("="*60)
-    print(f"  Case ID: {debug_summary.get('case_id')}")
-    print(f"  Height (after scale): {debug_summary.get('height_m_after_scale'):.4f}m")
-    print(f"  Scale factor: {debug_summary.get('scale_factor'):.4f}")
-    print(f"  BUST_CIRC estimate: {debug_summary.get('bust_circ_estimate'):.4f}m")
-    print(f"  WAIST_CIRC estimate: {debug_summary.get('waist_circ_estimate')}")
-    print(f"  HIP_CIRC estimate: {debug_summary.get('hip_circ_estimate')}")
-    print(f"  Error: {debug_summary.get('error_message')}")
-    print(f"  Clamp applied: {debug_summary.get('clamp_applied')}")
+    
+    # Print available keys
+    available_keys = sorted([k for k in debug_summary.keys() if not k.startswith("_")])
+    print(f"[DEBUG JSON KEYS] Available keys: {available_keys}")
+    if "_original_keys" in debug_summary:
+        print(f"[DEBUG JSON KEYS] Original JSON keys: {debug_summary['_original_keys']}")
+    
+    # None-safe printing
+    case_id = debug_summary.get('case_id', 'N/A')
+    height = debug_summary.get('height_m_after_scale')
+    scale_factor = debug_summary.get('scale_factor')
+    bust = debug_summary.get('bust_circ_estimate')
+    bust_key = debug_summary.get('bust_circ_key_used')
+    waist = debug_summary.get('waist_circ_estimate')
+    waist_key = debug_summary.get('waist_circ_key_used')
+    hip = debug_summary.get('hip_circ_estimate')
+    hip_key = debug_summary.get('hip_circ_key_used')
+    error_msg = debug_summary.get('error_message', 'N/A')
+    clamp_applied = debug_summary.get('clamp_applied', False)
+    
+    print(f"  Case ID: {case_id}")
+    print(f"  Height (after scale): {fmt_m(height)}")
+    print(f"  Scale factor: {fmt_m(scale_factor)}")
+    print(f"  BUST_CIRC estimate: {fmt_m(bust)} (key: {bust_key or 'None'})")
+    print(f"  WAIST_CIRC estimate: {fmt_m(waist)} (key: {waist_key or 'None'})")
+    print(f"  HIP_CIRC estimate: {fmt_m(hip)} (key: {hip_key or 'None'})")
+    print(f"  Error: {error_msg}")
+    print(f"  Clamp applied: {clamp_applied}")
     print("="*60)
     print()
 
