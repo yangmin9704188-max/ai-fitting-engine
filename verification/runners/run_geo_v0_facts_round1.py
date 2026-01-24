@@ -197,6 +197,12 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
         pose_unknown_counts = defaultdict(int)
         pose_total_counts = defaultdict(int)
         
+        # Debug aggregation variables
+        cross_section_reasons = defaultdict(int)
+        cross_section_candidates_counts = []
+        body_axis_reasons = defaultdict(int)
+        landmark_reasons = defaultdict(int)
+        
         for result in key_results:
             if result is None:
                 continue
@@ -242,6 +248,32 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
                     pose_total_counts[pose_key] += 1
                     if pose[pose_key] == "unknown":
                         pose_unknown_counts[pose_key] += 1
+            
+            # Debug info aggregation
+            debug = meta.get("debug", {})
+            if debug:
+                # Cross-section debug
+                cross_section = debug.get("cross_section", {})
+                if cross_section:
+                    reason = cross_section.get("reason_not_found")
+                    if reason:
+                        cross_section_reasons[reason] += 1
+                    candidates_count = cross_section.get("candidates_count", 0)
+                    cross_section_candidates_counts.append(candidates_count)
+                
+                # Body axis debug
+                body_axis = debug.get("body_axis", {})
+                if body_axis:
+                    if not body_axis.get("valid", True):
+                        reason = body_axis.get("reason_invalid", "unknown")
+                        body_axis_reasons[reason] += 1
+                
+                # Landmark regions debug
+                landmark_regions = debug.get("landmark_regions", {})
+                if landmark_regions:
+                    reason = landmark_regions.get("reason_not_found")
+                    if reason:
+                        landmark_reasons[reason] += 1
         
         # Compute statistics
         total_count = len(key_results)
@@ -264,6 +296,22 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
             warning_counts[w_type] += 1
         warnings_top5 = sorted(warning_counts.items(), key=lambda x: x[1], reverse=True)[:5]
         
+        # Debug aggregation
+        debug_summary = {}
+        if cross_section_reasons:
+            debug_summary["cross_section_reasons"] = dict(cross_section_reasons)
+        if cross_section_candidates_counts:
+            debug_summary["cross_section_candidates_counts"] = {
+                "min": int(np.min(cross_section_candidates_counts)),
+                "median": float(np.median(cross_section_candidates_counts)),
+                "max": int(np.max(cross_section_candidates_counts)),
+                "zero_count": sum(1 for c in cross_section_candidates_counts if c == 0)
+            }
+        if body_axis_reasons:
+            debug_summary["body_axis_reasons"] = dict(body_axis_reasons)
+        if landmark_reasons:
+            debug_summary["landmark_reasons"] = dict(landmark_reasons)
+        
         summary[key] = {
             "total_count": total_count,
             "nan_count": nan_count,
@@ -279,7 +327,8 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
                 k: pose_unknown_counts[k] / pose_total_counts[k] 
                 if pose_total_counts[k] > 0 else 0.0
                 for k in pose_total_counts
-            }
+            },
+            "debug_summary": debug_summary if debug_summary else {}
         }
     
     return summary
@@ -370,14 +419,14 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_path = out_dir / "geo_v0_facts_round1.md"
+    report_path = out_dir / "geo_v0_facts_round2.md"
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
     
     # Also save to reports directory for PR
     reports_dir = Path("reports/validation")
     reports_dir.mkdir(parents=True, exist_ok=True)
-    report_final_path = reports_dir / "geo_v0_facts_round1.md"
+    report_final_path = reports_dir / "geo_v0_facts_round2.md"
     generate_report(summary_json, report_final_path)
     print(f"Saved report (for PR): {report_final_path}")
 
@@ -390,7 +439,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 1)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 2 - Debug Instrumentation)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -515,6 +564,83 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             f"{pose_unknown.get('strict_standing', 0.0):.2%} | "
             f"{pose_unknown.get('knee_flexion_forbidden', 0.0):.2%} |"
         )
+    lines.append("")
+    
+    # Section 4.5: Debug 정보 (실패 원인 분해)
+    lines.append("### 4.5 Debug 정보 (실패 원인 분해)")
+    lines.append("")
+    
+    # Cross-section reasons
+    lines.append("#### 4.5.1 CROSS_SECTION_NOT_FOUND 원인 분포")
+    lines.append("")
+    lines.append("| Key | Reason | Count |")
+    lines.append("|-----|--------|-------|")
+    for key in ALL_KEYS:
+        if key not in summary:
+            continue
+        s = summary[key]
+        debug_summary = s.get("debug_summary", {})
+        cross_section_reasons = debug_summary.get("cross_section_reasons", {})
+        if cross_section_reasons:
+            for reason, count in cross_section_reasons.items():
+                lines.append(f"| {key} | {reason} | {count} |")
+        else:
+            # Check if CROSS_SECTION_NOT_FOUND warning exists
+            warnings_top5 = s.get("warnings_top5", [])
+            if any("CROSS_SECTION_NOT_FOUND" in w[0] for w in warnings_top5):
+                lines.append(f"| {key} | (no debug info) | - |")
+    lines.append("")
+    
+    # Cross-section candidates count
+    lines.append("#### 4.5.2 Cross-section Candidates Count 통계")
+    lines.append("")
+    lines.append("| Key | Min | Median | Max | Zero Count |")
+    lines.append("|-----|-----|--------|-----|-----------|")
+    for key in ALL_KEYS:
+        if key not in summary:
+            continue
+        s = summary[key]
+        debug_summary = s.get("debug_summary", {})
+        candidates_stats = debug_summary.get("cross_section_candidates_counts", {})
+        if candidates_stats:
+            lines.append(
+                f"| {key} | {candidates_stats.get('min', 0)} | "
+                f"{candidates_stats.get('median', 0.0):.1f} | "
+                f"{candidates_stats.get('max', 0)} | "
+                f"{candidates_stats.get('zero_count', 0)} |"
+            )
+    lines.append("")
+    
+    # Body axis reasons
+    lines.append("#### 4.5.3 BODY_AXIS_TOO_SHORT 원인 분포")
+    lines.append("")
+    lines.append("| Key | Reason | Count |")
+    lines.append("|-----|--------|-------|")
+    for key in ALL_KEYS:
+        if key not in summary:
+            continue
+        s = summary[key]
+        debug_summary = s.get("debug_summary", {})
+        body_axis_reasons = debug_summary.get("body_axis_reasons", {})
+        if body_axis_reasons:
+            for reason, count in body_axis_reasons.items():
+                lines.append(f"| {key} | {reason} | {count} |")
+    lines.append("")
+    
+    # Landmark regions reasons
+    lines.append("#### 4.5.4 LANDMARK_REGIONS_NOT_FOUND 원인 분포")
+    lines.append("")
+    lines.append("| Key | Reason | Count |")
+    lines.append("|-----|--------|-------|")
+    for key in ALL_KEYS:
+        if key not in summary:
+            continue
+        s = summary[key]
+        debug_summary = s.get("debug_summary", {})
+        landmark_reasons = debug_summary.get("landmark_reasons", {})
+        if landmark_reasons:
+            for reason, count in landmark_reasons.items():
+                lines.append(f"| {key} | {reason} | {count} |")
     lines.append("")
     
     # Section 5: 이슈 분류

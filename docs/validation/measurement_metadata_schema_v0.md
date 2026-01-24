@@ -128,6 +128,35 @@
 - **pose.strict_standing** (bool | "unknown"): 엄격한 기립 자세
 - **pose.knee_flexion_forbidden** (bool | "unknown"): 무릎 굴곡 금지 여부
 
+#### debug (Optional, for failure analysis)
+다음 필드는 실패 원인 분석을 위해 선택적으로 포함할 수 있다:
+
+##### cross_section (cross-section 탐색 관련)
+- **debug.cross_section.target_height_ratio** (float): 목표 높이 비율 (0.0~1.0, y_min 기준)
+- **debug.cross_section.target_z_m** (float): 목표 높이 (meters, 절대값)
+- **debug.cross_section.search_window_mm** (float): 탐색 윈도우 크기 (mm)
+- **debug.cross_section.candidates_count** (int): 후보 단면 개수
+- **debug.cross_section.reason_not_found** (enum): 단면을 찾지 못한 이유
+  - `"empty_slice"`: tolerance 내 정점이 3개 미만
+  - `"invalid_axis"`: body axis가 유효하지 않음
+  - `"out_of_bounds"`: target_height가 범위를 벗어남
+  - `"degenerate_geometry"`: 기하학적으로 퇴화된 단면
+
+##### body_axis (body axis 유효성 관련)
+- **debug.body_axis.length_m** (float): body axis 길이 (meters)
+- **debug.body_axis.valid** (bool): body axis가 유효한지 여부
+- **debug.body_axis.reason_invalid** (string): body axis가 유효하지 않은 이유
+  - `"too_short"`: y_range < 1e-6m
+  - `"degenerate"`: y_min == y_max
+
+##### landmark_regions (landmark 영역 탐색 관련)
+- **debug.landmark_regions.required** (array of strings): 필요한 landmark 영역 목록
+  - 예: `["shoulder_region", "wrist_region"]`
+- **debug.landmark_regions.found** (array of strings): 찾은 landmark 영역 목록
+- **debug.landmark_regions.reason_not_found** (string): landmark 영역을 찾지 못한 이유
+  - `"no_vertices_in_region"`: 해당 영역에 정점이 없음
+  - `"region_out_of_bounds"`: 영역이 메쉬 범위를 벗어남
+
 ---
 
 ## D. 키 유형별 최소 세트 가이드

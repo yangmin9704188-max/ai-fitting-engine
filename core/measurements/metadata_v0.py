@@ -31,6 +31,7 @@ def create_metadata_v0(
     pose_strict_standing: Optional[bool | Literal["unknown"]] = None,
     pose_knee_flexion_forbidden: Optional[bool | Literal["unknown"]] = None,
     provenance_evidence_ref: Optional[str] = None,
+    debug_info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Create metadata JSON according to measurement_metadata_schema_v0.md.
@@ -130,6 +131,10 @@ def create_metadata_v0(
     # Add pose only if it has content
     if pose:
         metadata["pose"] = pose
+    
+    # Add debug info if provided
+    if debug_info:
+        metadata["debug"] = debug_info
     
     return metadata
 

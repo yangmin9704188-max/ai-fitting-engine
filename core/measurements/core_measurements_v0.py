@@ -98,35 +98,63 @@ def _find_cross_section(
     verts: np.ndarray,
     y_value: float,
     tolerance: float,
-    warnings: List[str]
-) -> Optional[np.ndarray]:
+    warnings: List[str],
+    y_min: Optional[float] = None,
+    y_max: Optional[float] = None,
+) -> tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
     """
     Find cross-section vertices at given y-value.
-    Returns 2D projected vertices (x, z) or None if degenerate.
+    Returns (2D projected vertices (x, z) or None, debug info dict or None).
     """
     y_coords = verts[:, 1]
-    mask = np.abs(y_coords - y_value) < tolerance
+    if y_min is None:
+        y_min = float(np.min(y_coords))
+    if y_max is None:
+        y_max = float(np.max(y_coords))
+    y_range = y_max - y_min
     
-    if np.sum(mask) < 3:
-        return None
+    # Debug info
+    debug_info = {
+        "target_z_m": float(y_value),
+        "target_height_ratio": float((y_value - y_min) / y_range) if y_range > 0 else 0.0,
+        "search_window_mm": float(tolerance * 1000.0),
+        "candidates_count": 0,
+        "reason_not_found": None
+    }
+    
+    # Check bounds
+    if y_value < y_min or y_value > y_max:
+        debug_info["reason_not_found"] = "out_of_bounds"
+        return None, debug_info
+    
+    mask = np.abs(y_coords - y_value) < tolerance
+    candidate_count = int(np.sum(mask))
+    debug_info["candidates_count"] = candidate_count
+    
+    if candidate_count < 3:
+        debug_info["reason_not_found"] = "empty_slice"
+        return None, debug_info
     
     slice_verts = verts[mask]
     # Project to x-z plane
     vertices_2d = slice_verts[:, [0, 2]]
-    return vertices_2d
+    return vertices_2d, debug_info
 
 
 def _compute_circumference_at_height(
     verts: np.ndarray,
     y_value: float,
     tolerance: float,
-    warnings: List[str]
-) -> Optional[float]:
-    """Compute circumference at given height."""
-    vertices_2d = _find_cross_section(verts, y_value, tolerance, warnings)
+    warnings: List[str],
+    y_min: Optional[float] = None,
+    y_max: Optional[float] = None,
+) -> tuple[Optional[float], Optional[Dict[str, Any]]]:
+    """Compute circumference at given height. Returns (perimeter or None, debug_info or None)."""
+    vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
-        return None
-    return _compute_perimeter(vertices_2d)
+        return None, debug_info
+    perimeter = _compute_perimeter(vertices_2d)
+    return perimeter, debug_info
 
 
 # -----------------------------
@@ -187,6 +215,13 @@ def measure_circumference_v0_with_metadata(
     
     if y_range < 1e-6:
         warnings.append("BODY_AXIS_TOO_SHORT")
+        debug_info = {
+            "body_axis": {
+                "length_m": float(y_range),
+                "valid": False,
+                "reason_invalid": "too_short"
+            }
+        }
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -199,6 +234,7 @@ def measure_circumference_v0_with_metadata(
             search_band_scan_limit_mm=10,
             pose_breath_state=breath_state,
             provenance_evidence_ref=get_evidence_ref(standard_key),
+            debug_info=debug_info,
         )
         return MeasurementResult(
             standard_key=standard_key,
@@ -277,9 +313,12 @@ def measure_circumference_v0_with_metadata(
     tolerance = slice_step * 0.5
     
     candidates = []
+    cross_section_debug_list = []
     for i in range(num_slices):
         y_value = y_start + i * slice_step
-        perimeter = _compute_circumference_at_height(verts, y_value, tolerance, warnings)
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max)
+        if debug_info:
+            cross_section_debug_list.append(debug_info)
         if perimeter is not None:
             candidates.append({
                 "y_value": y_value,
@@ -287,8 +326,32 @@ def measure_circumference_v0_with_metadata(
                 "slice_index": i
             })
     
+    # Build debug info
+    debug_info = {
+        "body_axis": {
+            "length_m": float(y_range),
+            "valid": True,
+            "reason_invalid": None
+        }
+    }
     if len(candidates) == 0:
         warnings.append("EMPTY_CANDIDATES")
+        # Aggregate cross-section debug info
+        if cross_section_debug_list:
+            reasons = [d.get("reason_not_found") for d in cross_section_debug_list if d.get("reason_not_found")]
+            candidates_counts = [d.get("candidates_count", 0) for d in cross_section_debug_list]
+            if reasons:
+                debug_info["cross_section"] = {
+                    "target_height_ratio": cross_section_debug_list[0].get("target_height_ratio"),
+                    "search_window_mm": cross_section_debug_list[0].get("search_window_mm"),
+                    "candidates_count": 0,
+                    "reason_not_found": reasons[0] if len(set(reasons)) == 1 else "mixed"
+                }
+        else:
+            debug_info["cross_section"] = {
+                "candidates_count": 0,
+                "reason_not_found": "no_debug_info"
+            }
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -303,6 +366,7 @@ def measure_circumference_v0_with_metadata(
             search_band_scan_limit_mm=10,
             pose_breath_state=breath_state,
             provenance_evidence_ref=get_evidence_ref(standard_key),
+            debug_info=debug_info,
         )
         return MeasurementResult(
             standard_key=standard_key,
@@ -334,7 +398,19 @@ def measure_circumference_v0_with_metadata(
     if value_m > 3.0:
         warnings.append(f"PERIMETER_LARGE: {value_m:.4f}m")
     
-    # Create metadata
+    # Create metadata with debug info
+    debug_info = {
+        "body_axis": {
+            "length_m": float(y_range),
+            "valid": True,
+            "reason_invalid": None
+        },
+        "cross_section": {
+            "candidates_count": len(candidates),
+            "target_height_ratio": float((selected["y_value"] - y_min) / y_range) if y_range > 0 else 0.0,
+            "search_window_mm": float(tolerance * 1000.0)
+        }
+    }
     metadata = create_metadata_v0(
         standard_key=standard_key,
         value_m=value_m,
@@ -350,6 +426,7 @@ def measure_circumference_v0_with_metadata(
         search_min_max_search_used=(standard_key == "MIN_CALF_CIRC_M"),
         pose_breath_state=breath_state,
         provenance_evidence_ref=get_evidence_ref(standard_key),
+        debug_info=debug_info,
     )
     
     return MeasurementResult(
@@ -424,6 +501,13 @@ def measure_width_depth_v0_with_metadata(
     if y_range < 1e-6:
         warnings.append("BODY_AXIS_TOO_SHORT")
         metric_type = "width" if "WIDTH" in standard_key else "depth"
+        debug_info = {
+            "body_axis": {
+                "length_m": float(y_range),
+                "valid": False,
+                "reason_invalid": "too_short"
+            }
+        }
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -437,6 +521,7 @@ def measure_width_depth_v0_with_metadata(
             pose_breath_state=breath_state,
             pose_arms_down=arms_down,
             provenance_evidence_ref=get_evidence_ref(standard_key),
+            debug_info=debug_info,
         )
         return MeasurementResult(
             standard_key=standard_key,
@@ -479,11 +564,20 @@ def measure_width_depth_v0_with_metadata(
     
     # Find cross-section
     tolerance = y_range * 0.02  # 2% of body height
-    vertices_2d = _find_cross_section(verts, y_target, tolerance, warnings)
+    vertices_2d, cross_section_debug = _find_cross_section(verts, y_target, tolerance, warnings, y_min, y_max)
     
     if vertices_2d is None:
         warnings.append("CROSS_SECTION_NOT_FOUND")
         metric_type = "width" if "WIDTH" in standard_key else "depth"
+        debug_info = {
+            "body_axis": {
+                "length_m": float(y_range),
+                "valid": True,
+                "reason_invalid": None
+            }
+        }
+        if cross_section_debug:
+            debug_info["cross_section"] = cross_section_debug
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -497,6 +591,7 @@ def measure_width_depth_v0_with_metadata(
             pose_breath_state=breath_state,
             pose_arms_down=arms_down,
             provenance_evidence_ref=get_evidence_ref(standard_key),
+            debug_info=debug_info,
         )
         return MeasurementResult(
             standard_key=standard_key,
@@ -524,7 +619,16 @@ def measure_width_depth_v0_with_metadata(
     
     metric_type = "width" if "WIDTH" in standard_key else "depth"
     
-    # Create metadata
+    # Create metadata with debug info
+    debug_info = {
+        "body_axis": {
+            "length_m": float(y_range),
+            "valid": True,
+            "reason_invalid": None
+        }
+    }
+    if cross_section_debug:
+        debug_info["cross_section"] = cross_section_debug
     metadata = create_metadata_v0(
         standard_key=standard_key,
         value_m=value_m,
@@ -538,6 +642,7 @@ def measure_width_depth_v0_with_metadata(
         pose_breath_state=breath_state,
         pose_arms_down=arms_down,
         provenance_evidence_ref=get_evidence_ref(standard_key),
+        debug_info=debug_info,
     )
     
     return MeasurementResult(
@@ -754,6 +859,35 @@ def measure_arm_length_v0_with_metadata(
             value_m = float('nan')
             landmark_confidence = "low"
             landmark_resolution = "nearest_cross_section_fallback"
+            found_regions = []
+            if np.sum(shoulder_mask) > 0:
+                found_regions.append("shoulder_region")
+            if np.sum(wrist_mask) > 0:
+                found_regions.append("wrist_region")
+            debug_info = {
+                "landmark_regions": {
+                    "required": ["shoulder_region", "wrist_region"],
+                    "found": found_regions,
+                    "reason_not_found": "no_vertices_in_region"
+                }
+            }
+            metadata = create_metadata_v0(
+                standard_key="ARM_LEN_M",
+                value_m=value_m,
+                method_path_type="surface_path",
+                method_metric_type="length",
+                warnings=warnings,
+                method_canonical_side="right",
+                method_landmark_confidence=landmark_confidence,
+                method_landmark_resolution=landmark_resolution,
+                provenance_evidence_ref=get_evidence_ref("ARM_LEN_M"),
+                debug_info=debug_info,
+            )
+            return MeasurementResult(
+                standard_key="ARM_LEN_M",
+                value_m=value_m,
+                metadata=metadata
+            )
         else:
             # Use rightmost points in each region (right arm)
             shoulder_verts = verts[shoulder_mask]
