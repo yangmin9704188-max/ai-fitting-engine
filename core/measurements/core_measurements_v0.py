@@ -1483,26 +1483,59 @@ def measure_height_v0_with_metadata(
     if standard_key == "KNEE_HEIGHT_M":
         canonical_side = "right"
     
+    # Compute bbox spans for all axes (for longest axis comparison)
+    x_coords = verts[:, 0]
     y_coords = verts[:, 1]
+    z_coords = verts[:, 2]
+    
+    x_min = float(np.min(x_coords))
+    x_max = float(np.max(x_coords))
     y_min = float(np.min(y_coords))
     y_max = float(np.max(y_coords))
+    z_min = float(np.min(z_coords))
+    z_max = float(np.max(z_coords))
+    
+    bbox_span_x = x_max - x_min
+    bbox_span_y = y_max - y_min
+    bbox_span_z = z_max - z_min
+    
+    # Determine longest axis
+    spans = {"x": bbox_span_x, "y": bbox_span_y, "z": bbox_span_z}
+    bbox_longest_axis = max(spans, key=spans.get)
+    bbox_longest_span_m = spans[bbox_longest_axis]
     
     if standard_key == "HEIGHT_M":
         # Height: vertex (top of head) to floor
         # For v0, use y_max as top and y_min as floor
-        value_m = y_max - y_min
+        axis_used = "y"
+        bbox_min_axis = y_min
+        bbox_max_axis = y_max
+        raw_span_m = y_max - y_min
+        value_m = raw_span_m  # No post-transform in v0
+        post_transform_span_m = value_m
+        scale_factor_raw_to_post = post_transform_span_m / raw_span_m if raw_span_m > 0 else 1.0
+        
         landmark_confidence = "medium"  # Vertex may be approximate
         landmark_resolution = "direct"
         
-        # Debug info for HEIGHT_M scale investigation
+        # Enhanced debug info for HEIGHT_M scale investigation
         debug_info = {
+            "bbox_comparison": {
+                "bbox_span_x": float(bbox_span_x),
+                "bbox_span_y": float(bbox_span_y),
+                "bbox_span_z": float(bbox_span_z),
+                "bbox_longest_axis": bbox_longest_axis,
+                "bbox_longest_span_m": float(bbox_longest_span_m)
+            },
             "height_calculation": {
-                "axis_used": "y",
-                "bbox_min": float(y_min),
-                "bbox_max": float(y_max),
-                "height_raw": float(value_m),
-                "height_after_scale": float(value_m),  # No scaling applied in v0
-                "scale_factor": 1.0
+                "axis_used": axis_used,
+                "bbox_min_axis": float(bbox_min_axis),
+                "bbox_max_axis": float(bbox_max_axis),
+                "raw_span_m": float(raw_span_m),
+                "post_transform_span_m": float(post_transform_span_m),
+                "scale_factor_raw_to_post": float(scale_factor_raw_to_post),
+                "source": "mesh_bbox",
+                "notes": "v0: direct bbox span, no transform/scale applied"
             }
         }
     elif standard_key == "CROTCH_HEIGHT_M":
@@ -1559,6 +1592,7 @@ def measure_height_v0_with_metadata(
         pose_strict_standing=True,
         pose_knee_flexion_forbidden=True,
         provenance_evidence_ref=get_evidence_ref(standard_key),
+        debug_info=debug_info if standard_key == "HEIGHT_M" else None,
     )
     
     return MeasurementResult(

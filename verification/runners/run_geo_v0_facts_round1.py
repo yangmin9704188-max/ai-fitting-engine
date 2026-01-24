@@ -67,13 +67,14 @@ def get_git_sha() -> Optional[str]:
         return None
 
 
-def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]]:
-    """Load NPZ dataset and return (verts_list, case_ids, case_classes).
+def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str], Optional[List[Dict[str, Any]]]]:
+    """Load NPZ dataset and return (verts_list, case_ids, case_classes, case_metadata).
     
     Returns:
         verts_list: List of vertex arrays
         case_ids: List of case identifiers
         case_classes: List of case classes ("valid" or "expected_fail")
+        case_metadata: Optional list of metadata dicts (scale normalization info)
     """
     data = np.load(npz_path, allow_pickle=True)
     
@@ -114,7 +115,16 @@ def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[s
                 else:
                     case_classes.append("expected_fail")
         
-        return verts_list, case_ids, case_classes
+        # Load case_metadata if available (for scale normalization info)
+        case_metadata_list = None
+        case_metadata = data.get("case_metadata", None)
+        if case_metadata is not None:
+            if case_metadata.dtype == object:
+                case_metadata_list = [case_metadata[i] for i in range(len(case_metadata))]
+            else:
+                case_metadata_list = [dict(meta) if isinstance(meta, dict) else {} for meta in case_metadata]
+        
+        return verts_list, case_ids, case_classes, case_metadata_list
     else:
         raise ValueError(f"NPZ file missing 'verts' key. Found keys: {list(data.keys())}")
 
@@ -308,6 +318,7 @@ def aggregate_results(
         slicer_independent_false_count = 0
         slice_shared_from_keys = defaultdict(int)
         height_calculation_list = []
+        bbox_comparison_list = []
         
         for result in key_results:
             if result is None:
@@ -379,11 +390,18 @@ def aggregate_results(
             # HEIGHT_M debug aggregation
             if key == "HEIGHT_M":
                 debug = meta.get("debug", {})
-                height_calc = debug.get("height_calculation", {}) if debug else {}
-                if height_calc:
-                    if "height_calculation_list" not in locals():
-                        height_calculation_list = []
-                    height_calculation_list.append(height_calc)
+                if debug:
+                    bbox_comp = debug.get("bbox_comparison", {})
+                    height_calc = debug.get("height_calculation", {})
+                    if bbox_comp or height_calc:
+                        if "height_calculation_list" not in locals():
+                            height_calculation_list = []
+                        if "bbox_comparison_list" not in locals():
+                            bbox_comparison_list = []
+                        if height_calc:
+                            height_calculation_list.append(height_calc)
+                        if bbox_comp:
+                            bbox_comparison_list.append(bbox_comp)
             
             # Debug info aggregation
             debug = meta.get("debug", {})
@@ -468,20 +486,85 @@ def aggregate_results(
             debug_summary["landmark_reasons"] = dict(landmark_reasons)
         
         # HEIGHT_M debug aggregation
-        if key == "HEIGHT_M" and height_calculation_list:
-            bbox_mins = [h.get("bbox_min") for h in height_calculation_list if h.get("bbox_min") is not None]
-            bbox_maxs = [h.get("bbox_max") for h in height_calculation_list if h.get("bbox_max") is not None]
-            height_raws = [h.get("height_raw") for h in height_calculation_list if h.get("height_raw") is not None]
-            scale_factors = [h.get("scale_factor") for h in height_calculation_list if h.get("scale_factor") is not None]
+        if key == "HEIGHT_M":
+            # Bbox comparison stats
+            if bbox_comparison_list:
+                longest_axes = [b.get("bbox_longest_axis") for b in bbox_comparison_list if b.get("bbox_longest_axis")]
+                longest_spans = [b.get("bbox_longest_span_m") for b in bbox_comparison_list if b.get("bbox_longest_span_m") is not None]
+                span_x_list = [b.get("bbox_span_x") for b in bbox_comparison_list if b.get("bbox_span_x") is not None]
+                span_y_list = [b.get("bbox_span_y") for b in bbox_comparison_list if b.get("bbox_span_y") is not None]
+                span_z_list = [b.get("bbox_span_z") for b in bbox_comparison_list if b.get("bbox_span_z") is not None]
+                
+                if longest_axes and longest_spans:
+                    longest_axis_dist = defaultdict(int)
+                    for ax in longest_axes:
+                        longest_axis_dist[ax] += 1
+                    
+                    debug_summary["bbox_comparison"] = {
+                        "bbox_longest_axis_distribution": dict(longest_axis_dist),
+                        "bbox_longest_span_m": {
+                            "min": float(np.min(longest_spans)),
+                            "median": float(np.median(longest_spans)),
+                            "max": float(np.max(longest_spans))
+                        },
+                        "bbox_span_x": {
+                            "min": float(np.min(span_x_list)) if span_x_list else None,
+                            "median": float(np.median(span_x_list)) if span_x_list else None,
+                            "max": float(np.max(span_x_list)) if span_x_list else None
+                        },
+                        "bbox_span_y": {
+                            "min": float(np.min(span_y_list)) if span_y_list else None,
+                            "median": float(np.median(span_y_list)) if span_y_list else None,
+                            "max": float(np.max(span_y_list)) if span_y_list else None
+                        },
+                        "bbox_span_z": {
+                            "min": float(np.min(span_z_list)) if span_z_list else None,
+                            "median": float(np.median(span_z_list)) if span_z_list else None,
+                            "max": float(np.max(span_z_list)) if span_z_list else None
+                        }
+                    }
             
-            if bbox_mins and bbox_maxs and height_raws:
-                debug_summary["height_calculation"] = {
-                    "axis_used": height_calculation_list[0].get("axis_used", "N/A"),
-                    "bbox_min_median": float(np.median(bbox_mins)),
-                    "bbox_max_median": float(np.median(bbox_maxs)),
-                    "height_raw_median": float(np.median(height_raws)),
-                    "scale_factor": scale_factors[0] if scale_factors else 1.0
-                }
+            # Height calculation stats
+            if height_calculation_list:
+                axis_used_list = [h.get("axis_used") for h in height_calculation_list if h.get("axis_used")]
+                raw_spans = [h.get("raw_span_m") for h in height_calculation_list if h.get("raw_span_m") is not None]
+                post_spans = [h.get("post_transform_span_m") for h in height_calculation_list if h.get("post_transform_span_m") is not None]
+                scale_factors = [h.get("scale_factor_raw_to_post") for h in height_calculation_list if h.get("scale_factor_raw_to_post") is not None]
+                
+                if axis_used_list and raw_spans and post_spans and scale_factors:
+                    axis_used_dist = defaultdict(int)
+                    for ax in axis_used_list:
+                        axis_used_dist[ax] += 1
+                    
+                    # Count suspicious scale factors (1.0, 0.5, 0.1, 0.01, 10, 100 ±2%)
+                    suspicious_counts = {
+                        "near_1.0": sum(1 for s in scale_factors if abs(s - 1.0) < 0.02),
+                        "near_0.5": sum(1 for s in scale_factors if abs(s - 0.5) < 0.01),
+                        "near_0.1": sum(1 for s in scale_factors if abs(s - 0.1) < 0.002),
+                        "near_0.01": sum(1 for s in scale_factors if abs(s - 0.01) < 0.0002),
+                        "near_10": sum(1 for s in scale_factors if abs(s - 10.0) < 0.2),
+                        "near_100": sum(1 for s in scale_factors if abs(s - 100.0) < 2.0)
+                    }
+                    
+                    debug_summary["height_calculation"] = {
+                        "axis_used_distribution": dict(axis_used_dist),
+                        "raw_span_m": {
+                            "min": float(np.min(raw_spans)),
+                            "median": float(np.median(raw_spans)),
+                            "max": float(np.max(raw_spans))
+                        },
+                        "post_transform_span_m": {
+                            "min": float(np.min(post_spans)),
+                            "median": float(np.median(post_spans)),
+                            "max": float(np.max(post_spans))
+                        },
+                        "scale_factor_raw_to_post": {
+                            "min": float(np.min(scale_factors)),
+                            "median": float(np.median(scale_factors)),
+                            "max": float(np.max(scale_factors))
+                        },
+                        "suspicious_scale_factor_counts": suspicious_counts
+                    }
         
         # Nearest valid plane fallback stats
         nearest_valid_plane_stats = {}
@@ -591,10 +674,18 @@ def main():
     
     # Load dataset
     print(f"Loading dataset: {args.npz}")
-    verts_list, case_ids, case_classes = load_npz_dataset(args.npz)
+    load_result = load_npz_dataset(args.npz)
+    if len(load_result) == 4:
+        verts_list, case_ids, case_classes, case_metadata_list = load_result
+    else:
+        verts_list, case_ids, case_classes = load_result
+        case_metadata_list = None
     print(f"  Loaded {len(verts_list)} cases")
     print(f"  Valid cases: {sum(1 for cc in case_classes if cc == 'valid')}")
     print(f"  Expected fail cases: {sum(1 for cc in case_classes if cc == 'expected_fail')}")
+    if case_metadata_list:
+        scale_applied_count = sum(1 for m in case_metadata_list if m and m.get("scale_applied", False))
+        print(f"  Scale normalization applied: {scale_applied_count} cases")
     
     # Limit samples
     if args.n_samples is not None:
@@ -602,6 +693,8 @@ def main():
             verts_list = verts_list[:args.n_samples]
             case_ids = case_ids[:args.n_samples]
             case_classes = case_classes[:args.n_samples]
+            if case_metadata_list:
+                case_metadata_list = case_metadata_list[:args.n_samples]
             print(f"  Limited to {args.n_samples} samples")
         elif args.n_samples > len(verts_list):
             print(f"  Warning: n_samples ({args.n_samples}) > available cases ({len(verts_list)}), using all {len(verts_list)} cases")
@@ -653,7 +746,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round7_slice_shared.md"
+    report_filename = "geo_v0_facts_round9_s0_scale_fix.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -673,8 +766,11 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     n_samples = summary_json.get("n_samples", 0)
     summary = summary_json.get("summary", {})
     
+    # Detect round from output_path or dataset_path
+    is_round9 = "round9" in str(output_path).lower() or "round9" in str(dataset_path).lower()
+    
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 7 - Slice Sharing)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -1025,46 +1121,272 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     if "HEIGHT_M" in summary:
         s = summary["HEIGHT_M"]
         debug_summary = s.get("debug_summary", {})
+        bbox_comp = debug_summary.get("bbox_comparison", {})
         height_calc = debug_summary.get("height_calculation", {})
         
+        # Bbox comparison
+        if bbox_comp:
+            lines.append("#### 5.3.1 Bbox 최장축 비교")
+            lines.append("")
+            longest_axis_dist = bbox_comp.get("bbox_longest_axis_distribution", {})
+            if longest_axis_dist:
+                lines.append("| Longest Axis | Count | Percentage |")
+                lines.append("|--------------|-------|------------|")
+                total = sum(longest_axis_dist.values())
+                for axis, count in sorted(longest_axis_dist.items(), key=lambda x: x[1], reverse=True):
+                    pct = (count / total * 100) if total > 0 else 0.0
+                    lines.append(f"| {axis} | {count} | {pct:.1f}% |")
+                lines.append("")
+            
+            longest_span = bbox_comp.get("bbox_longest_span_m", {})
+            if longest_span:
+                lines.append("**Bbox Longest Span**: ")
+                lines.append(f"min={longest_span.get('min', 'N/A'):.4f}m, ")
+                lines.append(f"median={longest_span.get('median', 'N/A'):.4f}m, ")
+                lines.append(f"max={longest_span.get('max', 'N/A'):.4f}m")
+                lines.append("")
+            
+            # Span comparison table
+            lines.append("| Axis | Span Min (m) | Span Median (m) | Span Max (m) |")
+            lines.append("|------|--------------|-----------------|--------------|")
+            for axis in ["x", "y", "z"]:
+                span_key = f"bbox_span_{axis}"
+                span_stats = bbox_comp.get(span_key, {})
+                if span_stats:
+                    lines.append(
+                        f"| {axis} | {span_stats.get('min', 'N/A'):.4f} | "
+                        f"{span_stats.get('median', 'N/A'):.4f} | {span_stats.get('max', 'N/A'):.4f} |"
+                    )
+                else:
+                    lines.append(f"| {axis} | N/A | N/A | N/A |")
+            lines.append("")
+        
+        # Height calculation
         if height_calc:
-            lines.append("| Statistic | Value |")
-            lines.append("|-----------|-------|")
-            lines.append(f"| Axis Used | {height_calc.get('axis_used', 'N/A')} |")
-            lines.append(f"| Bbox Min (median) | {height_calc.get('bbox_min_median', 'N/A')} |")
-            lines.append(f"| Bbox Max (median) | {height_calc.get('bbox_max_median', 'N/A')} |")
-            lines.append(f"| Height Raw (median) | {height_calc.get('height_raw_median', 'N/A')} |")
-            lines.append(f"| Scale Factor | {height_calc.get('scale_factor', 'N/A')} |")
+            lines.append("#### 5.3.2 HEIGHT_M 계산 통계")
+            lines.append("")
+            axis_used_dist = height_calc.get("axis_used_distribution", {})
+            if axis_used_dist:
+                lines.append("| Axis Used | Count | Percentage |")
+                lines.append("|-----------|-------|------------|")
+                total = sum(axis_used_dist.values())
+                for axis, count in sorted(axis_used_dist.items(), key=lambda x: x[1], reverse=True):
+                    pct = (count / total * 100) if total > 0 else 0.0
+                    lines.append(f"| {axis} | {count} | {pct:.1f}% |")
+                lines.append("")
+            
+            raw_span = height_calc.get("raw_span_m", {})
+            post_span = height_calc.get("post_transform_span_m", {})
+            scale_factor = height_calc.get("scale_factor_raw_to_post", {})
+            
+            if raw_span:
+                lines.append("**Raw Span (m)**: ")
+                lines.append(f"min={raw_span.get('min', 'N/A'):.4f}, ")
+                lines.append(f"median={raw_span.get('median', 'N/A'):.4f}, ")
+                lines.append(f"max={raw_span.get('max', 'N/A'):.4f}")
+                lines.append("")
+            
+            if post_span:
+                lines.append("**Post-Transform Span (m)**: ")
+                lines.append(f"min={post_span.get('min', 'N/A'):.4f}, ")
+                lines.append(f"median={post_span.get('median', 'N/A'):.4f}, ")
+                lines.append(f"max={post_span.get('max', 'N/A'):.4f}")
+                lines.append("")
+            
+            if scale_factor:
+                lines.append("**Scale Factor (raw->post)**: ")
+                lines.append(f"min={scale_factor.get('min', 'N/A'):.4f}, ")
+                lines.append(f"median={scale_factor.get('median', 'N/A'):.4f}, ")
+                lines.append(f"max={scale_factor.get('max', 'N/A'):.4f}")
+                lines.append("")
+            
+            # Suspicious scale factor counts
+            suspicious = height_calc.get("suspicious_scale_factor_counts", {})
+            if suspicious:
+                lines.append("**의심 배율 카운트**: ")
+                lines.append(f"near 1.0: {suspicious.get('near_1.0', 0)}, ")
+                lines.append(f"near 0.5: {suspicious.get('near_0.5', 0)}, ")
+                lines.append(f"near 0.1: {suspicious.get('near_0.1', 0)}, ")
+                lines.append(f"near 0.01: {suspicious.get('near_0.01', 0)}, ")
+                lines.append(f"near 10: {suspicious.get('near_10', 0)}, ")
+                lines.append(f"near 100: {suspicious.get('near_100', 0)}")
+                lines.append("")
+        
+        # Cause classification
+        if bbox_comp and height_calc:
+            lines.append("#### 5.3.3 원인 분류 (Facts 기반)")
+            lines.append("")
+            longest_axis_dist = bbox_comp.get("bbox_longest_axis_distribution", {})
+            axis_used_dist = height_calc.get("axis_used_distribution", {})
+            
+            # Case A: Axis selection error
+            case_a_evidence = []
+            if longest_axis_dist and axis_used_dist:
+                longest_axis = max(longest_axis_dist.items(), key=lambda x: x[1])[0] if longest_axis_dist else None
+                used_axis = max(axis_used_dist.items(), key=lambda x: x[1])[0] if axis_used_dist else None
+                if longest_axis != used_axis:
+                    case_a_evidence.append(f"bbox_longest_axis={longest_axis} != axis_used={used_axis}")
+            
+            # Case B: Scale conversion error
+            case_b_evidence = []
+            raw_span = height_calc.get("raw_span_m", {})
+            post_span = height_calc.get("post_transform_span_m", {})
+            scale_factor = height_calc.get("scale_factor_raw_to_post", {})
+            if raw_span and post_span and scale_factor:
+                raw_median = raw_span.get("median")
+                post_median = post_span.get("median")
+                scale_median = scale_factor.get("median")
+                if raw_median and post_median and scale_median:
+                    if 1.4 <= raw_median <= 2.0 and post_median < 1.0:
+                        case_b_evidence.append(f"raw_span={raw_median:.3f}m (human-like) but post_span={post_median:.3f}m (shrunk)")
+                    if abs(scale_median - 1.0) > 0.02:
+                        case_b_evidence.append(f"scale_factor={scale_median:.4f} != 1.0")
+            
+            # Case C: S0 coordinates already shrunk
+            case_c_evidence = []
+            if raw_span:
+                raw_median = raw_span.get("median")
+                if raw_median and raw_median < 1.0:
+                    case_c_evidence.append(f"raw_span_median={raw_median:.3f}m < 1.0m (mesh already shrunk)")
+            
+            lines.append("| Case | Evidence |")
+            lines.append("|------|----------|")
+            if case_a_evidence:
+                lines.append(f"| **Case A (Axis Selection Error)** | {'; '.join(case_a_evidence)} |")
+            if case_b_evidence:
+                lines.append(f"| **Case B (Scale Conversion Error)** | {'; '.join(case_b_evidence)} |")
+            if case_c_evidence:
+                lines.append(f"| **Case C (S0 Coordinates Shrunk)** | {'; '.join(case_c_evidence)} |")
+            if not case_a_evidence and not case_b_evidence and not case_c_evidence:
+                lines.append("| (원인 분류 불가 - 추가 분석 필요) | |")
+            lines.append("")
         else:
             lines.append("(HEIGHT_M debug info not available)")
     else:
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: Round 2 대비 변화 (Round 4)
-    lines.append("## 6. Round 2 대비 변화 (Round 4 - Valid Cases 기준)")
-    lines.append("")
-    lines.append("### 6.1 NaN율 변화 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Round 2 NaN율 | Round 4 NaN율 | 변화 | DoD (<=40%) |")
-    lines.append("|-----|---------------|---------------|------|-------------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
-    lines.append("### 6.2 CROSS_SECTION_NOT_FOUND 감소 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Round 2 Count | Round 4 Count | 감소 |")
-    lines.append("|-----|---------------|---------------|------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
-    lines.append("### 6.3 empty_slice_reason 분포 변화 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Reason | Round 2 Count | Round 4 Count | 변화 |")
-    lines.append("|-----|--------|---------------|---------------|------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9 only
+    if is_round9:
+        lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
+        lines.append("")
+        lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
+        lines.append("")
+        if "HEIGHT_M" in summary:
+            s = summary["HEIGHT_M"]
+            value_stats = s.get("value_stats", {})
+            valid_cases = s.get("valid_cases", {})
+            if value_stats:
+                lines.append("| Statistic | Round 8 (Before) | Round 9 (After) |")
+                lines.append("|-----------|------------------|----------------|")
+                lines.append(f"| HEIGHT_M Median | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                lines.append(f"| HEIGHT_M Min | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                lines.append(f"| HEIGHT_M Max | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+            lines.append("")
+            
+            # Bbox span statistics
+            debug_summary = s.get("debug_summary", {})
+            bbox_comp = debug_summary.get("bbox_comparison", {})
+            if bbox_comp:
+                longest_span = bbox_comp.get("bbox_longest_span_m", {})
+                span_y = bbox_comp.get("bbox_span_y", {})
+                if longest_span and span_y:
+                    lines.append("**Bbox Longest Span (m)**: ")
+                    lines.append(f"min={longest_span.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={longest_span.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={longest_span.get('max', 'N/A'):.4f}")
+                    lines.append("")
+                    lines.append("**Bbox Span Y (m)**: ")
+                    lines.append(f"min={span_y.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={span_y.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={span_y.get('max', 'N/A'):.4f}")
+                    lines.append("")
+        
+        # Scale factor statistics
+        if "HEIGHT_M" in summary:
+            s = summary["HEIGHT_M"]
+            debug_summary = s.get("debug_summary", {})
+            height_calc = debug_summary.get("height_calculation", {})
+            if height_calc:
+                scale_factor = height_calc.get("scale_factor_raw_to_post", {})
+                if scale_factor:
+                    lines.append("**Scale Factor (raw->post)**: ")
+                    lines.append(f"min={scale_factor.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={scale_factor.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={scale_factor.get('max', 'N/A'):.4f}")
+                    lines.append("")
+                    lines.append("(정상: scale_factor=1.0, mesh 좌표가 이미 정규화됨)")
+                    lines.append("")
+        
+        # Circumference to height ratios
+        lines.append("### 6.2 둘레/키 비율 (Valid Cases)")
+        lines.append("")
+        lines.append("| Ratio | Min | Median | Max |")
+        lines.append("|-------|-----|--------|-----|")
+        if "HEIGHT_M" in summary:
+            height_stats = summary["HEIGHT_M"].get("value_stats", {})
+            height_median = height_stats.get("median")
+            if height_median:
+                for key in ["BUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]:
+                    if key in summary:
+                        circ_stats = summary[key].get("value_stats", {})
+                        if circ_stats and height_median:
+                            circ_median = circ_stats.get("median")
+                            ratio = circ_median / height_median if height_median > 0 else None
+                            if ratio is not None:
+                                # Calculate min/max ratios
+                                circ_min = circ_stats.get("min")
+                                circ_max = circ_stats.get("max")
+                                height_min = height_stats.get("min")
+                                height_max = height_stats.get("max")
+                                ratio_min = circ_min / height_max if circ_min and height_max and height_max > 0 else None
+                                ratio_max = circ_max / height_min if circ_max and height_min and height_min > 0 else None
+                                
+                                ratio_name = key.split("_")[0].lower()
+                                if ratio_min is not None and ratio_max is not None:
+                                    lines.append(
+                                        f"| {ratio_name}/height | "
+                                        f"{ratio_min:.3f} | {ratio:.3f} | {ratio_max:.3f} |"
+                                    )
+        lines.append("")
+        
+        # Section 7: Round 7 회귀 체크 (Valid Cases 기준)
+        lines.append("## 7. Round 7 Slice-Sharing 회귀 체크 (Valid Cases 기준)")
+        lines.append("")
+        lines.append("### 7.1 Waist/Hip NaN율 (회귀 확인)")
+        lines.append("")
+        lines.append("| Key | Round 7 NaN율 | Round 9 NaN율 | 변화 |")
+        lines.append("|-----|---------------|---------------|------|")
+        for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            if key not in summary:
+                continue
+            s = summary[key]
+            valid_cases = s.get("valid_cases", {})
+            valid_nan_rate = valid_cases.get("nan_rate", 0.0)
+            lines.append(f"| {key} | (Round 7) | {valid_nan_rate:.2%} | - |")
+        lines.append("")
+        lines.append("### 7.2 Slice Sharing 유지 확인 (Valid Cases)")
+        lines.append("")
+        lines.append("| Key | Slice Shared Rate | Slicer Independent False Rate |")
+        lines.append("|-----|-------------------|-------------------------------|")
+        for key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            if key not in summary:
+                continue
+            s = summary[key]
+            slice_stats = s.get("slice_sharing_stats", {})
+            shared_rate = slice_stats.get("slice_shared_rate", 0.0)
+            independent_false_rate = slice_stats.get("slicer_independent_false_rate", 0.0)
+            lines.append(f"| {key} | {shared_rate:.2%} | {independent_false_rate:.2%} |")
+        lines.append("")
+    else:
+        # Fallback for other rounds
+        lines.append("## 6. Round Comparison")
+        lines.append("")
+        lines.append("(Round comparison data not available)")
+        lines.append("")
     
-    # Section 7: 이슈 분류
-    lines.append("## 7. 이슈 분류")
+    # Section 8: 이슈 분류
+    lines.append("## 8. 이슈 분류")
     lines.append("")
     
     issues = {
