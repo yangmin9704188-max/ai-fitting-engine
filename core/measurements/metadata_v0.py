@@ -9,10 +9,10 @@ import json
 
 def create_metadata_v0(
     standard_key: str,
-    value_m: Optional[float] = None,
-    value_kg: Optional[float] = None,
     method_path_type: Literal["straight_line", "surface_path", "closed_curve"],
     method_metric_type: Literal["circumference", "width", "depth", "height", "length", "mass"],
+    value_m: Optional[float] = None,
+    value_kg: Optional[float] = None,
     warnings: Optional[List[str]] = None,
     # Optional fields
     method_canonical_side: Optional[Literal["right", "left", "bilateral"]] = None,
