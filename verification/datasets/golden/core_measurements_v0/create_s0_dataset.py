@@ -126,6 +126,7 @@ def _estimate_radius_at_height(verts: np.ndarray, y_target: float, tolerance: fl
 cases = []
 case_ids = []
 case_classes = []  # "valid" or "expected_fail"
+case_metadata = []  # Scale normalization metadata
 
 # Case 1-5: Normal cases (body-like shapes with human-like scale)
 for i in range(5):
@@ -193,9 +194,31 @@ for i in range(5):
     if not is_valid:
         raise ValueError(f"normal_{i+1} failed invariant check: {error_msg}")
     
-    cases.append(verts)
+    # Apply scale normalization for valid cases
+    y_coords = verts[:, 1]
+    bbox_span_y_before = float(np.max(y_coords) - np.min(y_coords))
+    
+    # Target height: normal cases use 1.65~1.80m range
+    target_height_m = np.random.uniform(1.65, 1.80)
+    scale_factor = target_height_m / bbox_span_y_before if bbox_span_y_before > 0 else 1.0
+    
+    # Apply scale to all xyz coordinates (uniform scaling)
+    verts_scaled = verts * scale_factor
+    bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
+    
+    # Record metadata
+    metadata = {
+        "scale_applied": True,
+        "bbox_span_y_before": float(bbox_span_y_before),
+        "bbox_span_y_after": float(bbox_span_y_after),
+        "scale_factor_applied": float(scale_factor),
+        "target_height_m": float(target_height_m)
+    }
+    
+    cases.append(verts_scaled)
     case_ids.append(f"normal_{i+1}")
     case_classes.append("valid")
+    case_metadata.append(metadata)
 
 # Case 6-10: More varied shapes (still human-like)
 for i in range(5):
@@ -247,23 +270,62 @@ for i in range(5):
     if not is_valid:
         raise ValueError(f"varied_{i+1} failed invariant check: {error_msg}")
     
-    cases.append(verts)
+    # Apply scale normalization for valid cases
+    y_coords = verts[:, 1]
+    bbox_span_y_before = float(np.max(y_coords) - np.min(y_coords))
+    
+    # Target height: varied cases use 1.50~1.95m range
+    target_height_m = np.random.uniform(1.50, 1.95)
+    scale_factor = target_height_m / bbox_span_y_before if bbox_span_y_before > 0 else 1.0
+    
+    # Apply scale to all xyz coordinates (uniform scaling)
+    verts_scaled = verts * scale_factor
+    bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
+    
+    # Record metadata
+    metadata = {
+        "scale_applied": True,
+        "bbox_span_y_before": float(bbox_span_y_before),
+        "bbox_span_y_after": float(bbox_span_y_after),
+        "scale_factor_applied": float(scale_factor),
+        "target_height_m": float(target_height_m)
+    }
+    
+    cases.append(verts_scaled)
     case_ids.append(f"varied_{i+1}")
     case_classes.append("valid")
+    case_metadata.append(metadata)
 
 # Case 11-15: Edge cases (expected_fail - intentionally invalid)
 # Case 11: Degenerate y-range
 verts = np.random.randn(100, 3).astype(np.float32) * 0.001
 verts[:, 1] = 0.5  # All same y-value
+# No scale normalization for expected_fail cases
+metadata = {
+    "scale_applied": False,
+    "bbox_span_y_before": None,
+    "bbox_span_y_after": None,
+    "scale_factor_applied": None,
+    "target_height_m": None
+}
 cases.append(verts)
 case_ids.append("degenerate_y_range")
 case_classes.append("expected_fail")
+case_metadata.append(metadata)
 
 # Case 12: Minimal vertices
 verts = np.array([[0.0, 0.5, 0.0], [0.1, 0.5, 0.0], [0.0, 0.6, 0.0]], dtype=np.float32)
+metadata = {
+    "scale_applied": False,
+    "bbox_span_y_before": None,
+    "bbox_span_y_after": None,
+    "scale_factor_applied": None,
+    "target_height_m": None
+}
 cases.append(verts)
 case_ids.append("minimal_vertices")
 case_classes.append("expected_fail")
+case_metadata.append(metadata)
 
 # Case 13: Scale error suspected (cm-like scale)
 verts = np.random.randn(100, 3).astype(np.float32) * 10.0
@@ -272,16 +334,32 @@ for j in range(100):
     y = (j // 10) / 10.0 * 10.0
     z = ((j % 5) / 5.0) * 3.0 - 1.5
     verts[j] = [x, y, z]
+metadata = {
+    "scale_applied": False,
+    "bbox_span_y_before": None,
+    "bbox_span_y_after": None,
+    "scale_factor_applied": None,
+    "target_height_m": None
+}
 cases.append(verts)
 case_ids.append("scale_error_suspected")
 case_classes.append("expected_fail")
+case_metadata.append(metadata)
 
 # Case 14: Random noise (determinism check)
 np.random.seed(123)
 verts = np.random.randn(50, 3).astype(np.float32) * 0.15
+metadata = {
+    "scale_applied": False,
+    "bbox_span_y_before": None,
+    "bbox_span_y_after": None,
+    "scale_factor_applied": None,
+    "target_height_m": None
+}
 cases.append(verts)
 case_ids.append("random_noise_seed123")
 case_classes.append("expected_fail")
+case_metadata.append(metadata)
 
 # Case 15: Very tall/thin (may violate height range)
 verts = np.zeros((100, 3), dtype=np.float32)
@@ -292,9 +370,17 @@ for j in range(100):
     x = radius * np.cos(angle)
     z = radius * np.sin(angle)
     verts[j] = [x, y, z]
+metadata = {
+    "scale_applied": False,
+    "bbox_span_y_before": None,
+    "bbox_span_y_after": None,
+    "scale_factor_applied": None,
+    "target_height_m": None
+}
 cases.append(verts)
 case_ids.append("tall_thin")
 case_classes.append("expected_fail")
+case_metadata.append(metadata)
 
 # Self-check: Validate all valid cases
 print("\nValidating human-like invariants...")
@@ -313,11 +399,17 @@ verts_array = np.empty(len(cases), dtype=object)
 verts_array[:] = cases
 case_id_array = np.array(case_ids, dtype=object)
 case_class_array = np.array(case_classes, dtype=object)
+
+# Convert metadata list to array (for NPZ storage)
+case_metadata_array = np.empty(len(case_metadata), dtype=object)
+case_metadata_array[:] = case_metadata
+
 np.savez(
     str(output_path),
     verts=verts_array,
     case_id=case_id_array,
-    case_class=case_class_array
+    case_class=case_class_array,
+    case_metadata=case_metadata_array
 )
 
 print(f"\nCreated {output_path}")
@@ -325,3 +417,14 @@ print(f"  Cases: {len(cases)}")
 print(f"  Valid cases: {sum(1 for c in case_classes if c == 'valid')}")
 print(f"  Expected fail cases: {sum(1 for c in case_classes if c == 'expected_fail')}")
 print(f"  Case IDs: {case_ids}")
+
+# Print scale normalization summary
+print(f"\nScale Normalization Summary:")
+valid_indices = [i for i, cc in enumerate(case_classes) if cc == "valid"]
+for i in valid_indices:
+    meta = case_metadata[i]
+    if meta.get("scale_applied"):
+        print(f"  {case_ids[i]}: before={meta['bbox_span_y_before']:.4f}m, "
+              f"after={meta['bbox_span_y_after']:.4f}m, "
+              f"scale={meta['scale_factor_applied']:.4f}, "
+              f"target={meta['target_height_m']:.4f}m")

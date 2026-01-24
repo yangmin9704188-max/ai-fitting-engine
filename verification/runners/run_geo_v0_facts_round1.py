@@ -114,7 +114,16 @@ def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[s
                 else:
                     case_classes.append("expected_fail")
         
-        return verts_list, case_ids, case_classes
+        # Load case_metadata if available (for scale normalization info)
+        case_metadata_list = None
+        case_metadata = data.get("case_metadata", None)
+        if case_metadata is not None:
+            if case_metadata.dtype == object:
+                case_metadata_list = [case_metadata[i] for i in range(len(case_metadata))]
+            else:
+                case_metadata_list = [dict(meta) if isinstance(meta, dict) else {} for meta in case_metadata]
+        
+        return verts_list, case_ids, case_classes, case_metadata_list
     else:
         raise ValueError(f"NPZ file missing 'verts' key. Found keys: {list(data.keys())}")
 
@@ -664,10 +673,18 @@ def main():
     
     # Load dataset
     print(f"Loading dataset: {args.npz}")
-    verts_list, case_ids, case_classes = load_npz_dataset(args.npz)
+    load_result = load_npz_dataset(args.npz)
+    if len(load_result) == 4:
+        verts_list, case_ids, case_classes, case_metadata_list = load_result
+    else:
+        verts_list, case_ids, case_classes = load_result
+        case_metadata_list = None
     print(f"  Loaded {len(verts_list)} cases")
     print(f"  Valid cases: {sum(1 for cc in case_classes if cc == 'valid')}")
     print(f"  Expected fail cases: {sum(1 for cc in case_classes if cc == 'expected_fail')}")
+    if case_metadata_list:
+        scale_applied_count = sum(1 for m in case_metadata_list if m and m.get("scale_applied", False))
+        print(f"  Scale normalization applied: {scale_applied_count} cases")
     
     # Limit samples
     if args.n_samples is not None:
@@ -726,7 +743,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round8_height_debug.md"
+    report_filename = "geo_v0_facts_round9_s0_scale_fix.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -747,7 +764,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 8 - HEIGHT_M Debug)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
