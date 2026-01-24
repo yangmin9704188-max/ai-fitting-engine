@@ -1263,30 +1263,127 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: Round 2 대비 변화 (Round 4)
-    lines.append("## 6. Round 2 대비 변화 (Round 4 - Valid Cases 기준)")
-    lines.append("")
-    lines.append("### 6.1 NaN율 변화 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Round 2 NaN율 | Round 4 NaN율 | 변화 | DoD (<=40%) |")
-    lines.append("|-----|---------------|---------------|------|-------------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
-    lines.append("### 6.2 CROSS_SECTION_NOT_FOUND 감소 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Round 2 Count | Round 4 Count | 감소 |")
-    lines.append("|-----|---------------|---------------|------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
-    lines.append("### 6.3 empty_slice_reason 분포 변화 (Valid Cases)")
-    lines.append("")
-    lines.append("| Key | Reason | Round 2 Count | Round 4 Count | 변화 |")
-    lines.append("|-----|--------|---------------|---------------|------|")
-    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
-    lines.append("")
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9 only
+    if "round9" in str(output_path).lower() or "round9" in report_filename.lower():
+        lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
+        lines.append("")
+        lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
+        lines.append("")
+        if "HEIGHT_M" in summary:
+            s = summary["HEIGHT_M"]
+            value_stats = s.get("value_stats", {})
+            valid_cases = s.get("valid_cases", {})
+            if value_stats:
+                lines.append("| Statistic | Round 8 (Before) | Round 9 (After) |")
+                lines.append("|-----------|------------------|----------------|")
+                lines.append(f"| HEIGHT_M Median | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                lines.append(f"| HEIGHT_M Min | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                lines.append(f"| HEIGHT_M Max | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+            lines.append("")
+            
+            # Bbox span statistics
+            debug_summary = s.get("debug_summary", {})
+            bbox_comp = debug_summary.get("bbox_comparison", {})
+            if bbox_comp:
+                longest_span = bbox_comp.get("bbox_longest_span_m", {})
+                span_y = bbox_comp.get("bbox_span_y", {})
+                if longest_span and span_y:
+                    lines.append("**Bbox Longest Span (m)**: ")
+                    lines.append(f"min={longest_span.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={longest_span.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={longest_span.get('max', 'N/A'):.4f}")
+                    lines.append("")
+                    lines.append("**Bbox Span Y (m)**: ")
+                    lines.append(f"min={span_y.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={span_y.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={span_y.get('max', 'N/A'):.4f}")
+                    lines.append("")
+        
+        # Scale factor statistics
+        if "HEIGHT_M" in summary:
+            s = summary["HEIGHT_M"]
+            debug_summary = s.get("debug_summary", {})
+            height_calc = debug_summary.get("height_calculation", {})
+            if height_calc:
+                scale_factor = height_calc.get("scale_factor_raw_to_post", {})
+                if scale_factor:
+                    lines.append("**Scale Factor (raw->post)**: ")
+                    lines.append(f"min={scale_factor.get('min', 'N/A'):.4f}, ")
+                    lines.append(f"median={scale_factor.get('median', 'N/A'):.4f}, ")
+                    lines.append(f"max={scale_factor.get('max', 'N/A'):.4f}")
+                    lines.append("")
+                    lines.append("(정상: scale_factor=1.0, mesh 좌표가 이미 정규화됨)")
+                    lines.append("")
+        
+        # Circumference to height ratios
+        lines.append("### 6.2 둘레/키 비율 (Valid Cases)")
+        lines.append("")
+        lines.append("| Ratio | Min | Median | Max |")
+        lines.append("|-------|-----|--------|-----|")
+        if "HEIGHT_M" in summary:
+            height_stats = summary["HEIGHT_M"].get("value_stats", {})
+            height_median = height_stats.get("median")
+            if height_median:
+                for key in ["BUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]:
+                    if key in summary:
+                        circ_stats = summary[key].get("value_stats", {})
+                        if circ_stats and height_median:
+                            circ_median = circ_stats.get("median")
+                            ratio = circ_median / height_median if height_median > 0 else None
+                            if ratio is not None:
+                                # Calculate min/max ratios
+                                circ_min = circ_stats.get("min")
+                                circ_max = circ_stats.get("max")
+                                height_min = height_stats.get("min")
+                                height_max = height_stats.get("max")
+                                ratio_min = circ_min / height_max if circ_min and height_max and height_max > 0 else None
+                                ratio_max = circ_max / height_min if circ_max and height_min and height_min > 0 else None
+                                
+                                ratio_name = key.split("_")[0].lower()
+                                if ratio_min is not None and ratio_max is not None:
+                                    lines.append(
+                                        f"| {ratio_name}/height | "
+                                        f"{ratio_min:.3f} | {ratio:.3f} | {ratio_max:.3f} |"
+                                    )
+        lines.append("")
+        
+        # Section 7: Round 7 회귀 체크 (Valid Cases 기준)
+        lines.append("## 7. Round 7 Slice-Sharing 회귀 체크 (Valid Cases 기준)")
+        lines.append("")
+        lines.append("### 7.1 Waist/Hip NaN율 (회귀 확인)")
+        lines.append("")
+        lines.append("| Key | Round 7 NaN율 | Round 9 NaN율 | 변화 |")
+        lines.append("|-----|---------------|---------------|------|")
+        for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            if key not in summary:
+                continue
+            s = summary[key]
+            valid_cases = s.get("valid_cases", {})
+            valid_nan_rate = valid_cases.get("nan_rate", 0.0)
+            lines.append(f"| {key} | (Round 7) | {valid_nan_rate:.2%} | - |")
+        lines.append("")
+        lines.append("### 7.2 Slice Sharing 유지 확인 (Valid Cases)")
+        lines.append("")
+        lines.append("| Key | Slice Shared Rate | Slicer Independent False Rate |")
+        lines.append("|-----|-------------------|-------------------------------|")
+        for key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
+            if key not in summary:
+                continue
+            s = summary[key]
+            slice_stats = s.get("slice_sharing_stats", {})
+            shared_rate = slice_stats.get("slice_shared_rate", 0.0)
+            independent_false_rate = slice_stats.get("slicer_independent_false_rate", 0.0)
+            lines.append(f"| {key} | {shared_rate:.2%} | {independent_false_rate:.2%} |")
+        lines.append("")
+    else:
+        # Fallback for other rounds
+        lines.append("## 6. Round Comparison")
+        lines.append("")
+        lines.append("(Round comparison data not available)")
+        lines.append("")
     
-    # Section 7: 이슈 분류
-    lines.append("## 7. 이슈 분류")
+    # Section 8: 이슈 분류
+    lines.append("## 8. 이슈 분류")
     lines.append("")
     
     issues = {
