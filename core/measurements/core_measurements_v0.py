@@ -101,10 +101,15 @@ def _find_cross_section(
     warnings: List[str],
     y_min: Optional[float] = None,
     y_max: Optional[float] = None,
+    target_mode: str = "ratio",
+    allow_nearest_fallback: bool = False,
 ) -> tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
     """
     Find cross-section vertices at given y-value.
     Returns (2D projected vertices (x, z) or None, debug info dict or None).
+    
+    Args:
+        allow_nearest_fallback: If True, when target is out of bounds, use nearest valid plane
     """
     y_coords = verts[:, 1]
     if y_min is None:
@@ -113,18 +118,48 @@ def _find_cross_section(
         y_max = float(np.max(y_coords))
     y_range = y_max - y_min
     
-    # Debug info
+    # Enhanced debug info
     debug_info = {
+        "target_mode": target_mode,
         "target_z_m": float(y_value),
         "target_height_ratio": float((y_value - y_min) / y_range) if y_range > 0 else 0.0,
+        "axis_name": "y_up",
+        "axis_length_m": float(y_range),
+        "bbox_min": float(y_min),
+        "bbox_max": float(y_max),
+        "slice_half_thickness_m": float(tolerance),
         "search_window_mm": float(tolerance * 1000.0),
         "candidates_count": 0,
-        "reason_not_found": None
+        "reason_not_found": None,
+        "fallback_used": False,
+        "fallback_distance_mm": None
     }
     
+    # Check axis validity
+    if y_range < 1e-6:
+        debug_info["reason_not_found"] = "axis_invalid"
+        return None, debug_info
+    
     # Check bounds
+    original_y_value = y_value
+    fallback_distance_mm = 0.0
+    
     if y_value < y_min or y_value > y_max:
-        debug_info["reason_not_found"] = "out_of_bounds"
+        if allow_nearest_fallback:
+            # Use nearest valid plane (not band_scan, just single plane selection)
+            y_value = max(y_min, min(y_max, y_value))
+            fallback_distance_mm = abs(y_value - original_y_value) * 1000.0
+            debug_info["fallback_used"] = True
+            debug_info["fallback_distance_mm"] = float(fallback_distance_mm)
+            if fallback_distance_mm > 10.0:
+                warnings.append(f"FALLBACK_DISTANCE_LARGE: {fallback_distance_mm:.2f}mm")
+        else:
+            debug_info["reason_not_found"] = "out_of_bounds_target"
+            return None, debug_info
+    
+    # Check if slice is too thin
+    if tolerance < 1e-6:
+        debug_info["reason_not_found"] = "too_thin_slice"
         return None, debug_info
     
     mask = np.abs(y_coords - y_value) < tolerance
@@ -132,7 +167,10 @@ def _find_cross_section(
     debug_info["candidates_count"] = candidate_count
     
     if candidate_count < 3:
-        debug_info["reason_not_found"] = "empty_slice"
+        if candidate_count == 0:
+            debug_info["reason_not_found"] = "mesh_empty_at_height"
+        else:
+            debug_info["reason_not_found"] = "empty_slice"
         return None, debug_info
     
     slice_verts = verts[mask]
@@ -562,9 +600,44 @@ def measure_width_depth_v0_with_metadata(
             metadata=metadata
         )
     
-    # Find cross-section
-    tolerance = y_range * 0.02  # 2% of body height
-    vertices_2d, cross_section_debug = _find_cross_section(verts, y_target, tolerance, warnings, y_min, y_max)
+    # Find cross-section with enhanced handling for waist/hip
+    # For waist/hip, use slightly larger tolerance and allow nearest fallback
+    is_waist_hip = standard_key in ["WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]
+    
+    if is_waist_hip:
+        # Increase tolerance for waist/hip (min 5mm, max 3% of body height)
+        base_tolerance = y_range * 0.02  # 2%
+        min_tolerance = 0.005  # 5mm minimum
+        tolerance = max(min_tolerance, min(base_tolerance, y_range * 0.03))
+        if tolerance > base_tolerance:
+            warnings.append("SLICE_THICKNESS_ADJUSTED")
+    else:
+        tolerance = y_range * 0.02  # 2% of body height
+    
+    # Allow nearest fallback for waist/hip
+    allow_fallback = is_waist_hip
+    vertices_2d, cross_section_debug = _find_cross_section(
+        verts, y_target, tolerance, warnings, y_min, y_max,
+        target_mode="ratio",
+        allow_nearest_fallback=allow_fallback
+    )
+    
+    # If failed and is waist/hip, try with adjusted tolerance
+    if vertices_2d is None and is_waist_hip and cross_section_debug:
+        reason = cross_section_debug.get("reason_not_found")
+        if reason in ["too_thin_slice", "mesh_empty_at_height"]:
+            # Try with larger tolerance (up to 5% of body height)
+            larger_tolerance = min(y_range * 0.05, tolerance * 2.0)
+            if larger_tolerance > tolerance:
+                warnings.append("SLICE_THICKNESS_ADJUSTED")
+                vertices_2d, cross_section_debug = _find_cross_section(
+                    verts, y_target, larger_tolerance, warnings, y_min, y_max,
+                    target_mode="ratio",
+                    allow_nearest_fallback=False  # Already tried fallback
+                )
+                if cross_section_debug:
+                    cross_section_debug["slice_half_thickness_m"] = float(larger_tolerance)
+                    cross_section_debug["slice_thickness_adjusted"] = True
     
     if vertices_2d is None:
         warnings.append("CROSS_SECTION_NOT_FOUND")
@@ -578,6 +651,10 @@ def measure_width_depth_v0_with_metadata(
         }
         if cross_section_debug:
             debug_info["cross_section"] = cross_section_debug
+        # Record landmark_resolution if fallback was used
+        landmark_resolution = None
+        if cross_section_debug and cross_section_debug.get("fallback_used"):
+            landmark_resolution = "nearest_valid_plane"
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -585,6 +662,7 @@ def measure_width_depth_v0_with_metadata(
             method_metric_type=metric_type,
             warnings=warnings,
             method_fixed_cross_section_required=True,
+            method_landmark_resolution=landmark_resolution,
             proxy_proxy_used=proxy_used,
             proxy_proxy_type="plane_clamp" if proxy_used else None,
             proxy_proxy_tool=proxy_tool,
@@ -629,6 +707,12 @@ def measure_width_depth_v0_with_metadata(
     }
     if cross_section_debug:
         debug_info["cross_section"] = cross_section_debug
+    
+    # Record landmark_resolution if fallback was used
+    landmark_resolution = None
+    if cross_section_debug and cross_section_debug.get("fallback_used"):
+        landmark_resolution = "nearest_valid_plane"
+    
     metadata = create_metadata_v0(
         standard_key=standard_key,
         value_m=value_m,
@@ -636,6 +720,7 @@ def measure_width_depth_v0_with_metadata(
         method_metric_type=metric_type,
         warnings=warnings,
         method_fixed_cross_section_required=True,
+        method_landmark_resolution=landmark_resolution,
         proxy_proxy_used=proxy_used,
         proxy_proxy_type="plane_clamp" if proxy_used else None,
         proxy_proxy_tool=proxy_tool,

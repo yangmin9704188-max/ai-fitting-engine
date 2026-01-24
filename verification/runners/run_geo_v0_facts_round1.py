@@ -260,6 +260,12 @@ def aggregate_results(all_results: List[Dict[str, MeasurementResult]]) -> Dict[s
                         cross_section_reasons[reason] += 1
                     candidates_count = cross_section.get("candidates_count", 0)
                     cross_section_candidates_counts.append(candidates_count)
+                    # Record empty_slice_reason details
+                    if reason == "empty_slice":
+                        # Check if it's actually mesh_empty_at_height (candidates_count == 0)
+                        if candidates_count == 0:
+                            cross_section_reasons["mesh_empty_at_height"] += 1
+                            cross_section_reasons["empty_slice"] -= 1  # Avoid double counting
                 
                 # Body axis debug
                 body_axis = debug.get("body_axis", {})
@@ -419,14 +425,15 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_path = out_dir / "geo_v0_facts_round2.md"
+    report_filename = "geo_v0_facts_round3_waist_hip_fix.md"
+    report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
     
     # Also save to reports directory for PR
     reports_dir = Path("reports/validation")
     reports_dir.mkdir(parents=True, exist_ok=True)
-    report_final_path = reports_dir / "geo_v0_facts_round2.md"
+    report_final_path = reports_dir / report_filename
     generate_report(summary_json, report_final_path)
     print(f"Saved report (for PR): {report_final_path}")
 
@@ -439,7 +446,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 2 - Debug Instrumentation)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 3 - Waist/Hip Cross-Section Fix)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -570,25 +577,27 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     lines.append("### 4.5 Debug 정보 (실패 원인 분해)")
     lines.append("")
     
-    # Cross-section reasons
+    # Cross-section reasons with detailed breakdown
     lines.append("#### 4.5.1 CROSS_SECTION_NOT_FOUND 원인 분포")
     lines.append("")
-    lines.append("| Key | Reason | Count |")
-    lines.append("|-----|--------|-------|")
+    lines.append("| Key | Reason | Count | Percentage |")
+    lines.append("|-----|--------|-------|------------|")
     for key in ALL_KEYS:
         if key not in summary:
             continue
         s = summary[key]
         debug_summary = s.get("debug_summary", {})
         cross_section_reasons = debug_summary.get("cross_section_reasons", {})
+        total_count = s.get("total_count", 0)
         if cross_section_reasons:
-            for reason, count in cross_section_reasons.items():
-                lines.append(f"| {key} | {reason} | {count} |")
+            for reason, count in sorted(cross_section_reasons.items(), key=lambda x: x[1], reverse=True):
+                pct = (count / total_count * 100) if total_count > 0 else 0.0
+                lines.append(f"| {key} | {reason} | {count} | {pct:.1f}% |")
         else:
             # Check if CROSS_SECTION_NOT_FOUND warning exists
             warnings_top5 = s.get("warnings_top5", [])
             if any("CROSS_SECTION_NOT_FOUND" in w[0] for w in warnings_top5):
-                lines.append(f"| {key} | (no debug info) | - |")
+                lines.append(f"| {key} | (no debug info) | - | - |")
     lines.append("")
     
     # Cross-section candidates count
@@ -643,8 +652,30 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                 lines.append(f"| {key} | {reason} | {count} |")
     lines.append("")
     
-    # Section 5: 이슈 분류
-    lines.append("## 5. 이슈 분류")
+    # Section 5: Round 2 대비 변화 (Round 3)
+    lines.append("## 5. Round 2 대비 변화 (Round 3)")
+    lines.append("")
+    lines.append("### 5.1 NaN율 변화")
+    lines.append("")
+    lines.append("| Key | Round 2 NaN율 | Round 3 NaN율 | 변화 |")
+    lines.append("|-----|---------------|---------------|------|")
+    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
+    lines.append("")
+    lines.append("### 5.2 CROSS_SECTION_NOT_FOUND 감소")
+    lines.append("")
+    lines.append("| Key | Round 2 Count | Round 3 Count | 감소 |")
+    lines.append("|-----|---------------|---------------|------|")
+    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
+    lines.append("")
+    lines.append("### 5.3 empty_slice_reason 분포 변화")
+    lines.append("")
+    lines.append("| Key | Reason | Round 2 Count | Round 3 Count | 변화 |")
+    lines.append("|-----|--------|---------------|---------------|------|")
+    lines.append("| (Round 2 데이터가 없으면 수동으로 비교 필요) |")
+    lines.append("")
+    
+    # Section 6: 이슈 분류
+    lines.append("## 6. 이슈 분류")
     lines.append("")
     
     issues = {
