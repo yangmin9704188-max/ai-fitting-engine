@@ -315,10 +315,13 @@ def main():
     print(f"  Loaded {len(verts_list)} cases")
     
     # Limit samples
-    if args.n_samples is not None and args.n_samples < len(verts_list):
-        verts_list = verts_list[:args.n_samples]
-        case_ids = case_ids[:args.n_samples]
-        print(f"  Limited to {args.n_samples} samples")
+    if args.n_samples is not None:
+        if args.n_samples < len(verts_list):
+            verts_list = verts_list[:args.n_samples]
+            case_ids = case_ids[:args.n_samples]
+            print(f"  Limited to {args.n_samples} samples")
+        elif args.n_samples > len(verts_list):
+            print(f"  Warning: n_samples ({args.n_samples}) > available cases ({len(verts_list)}), using all {len(verts_list)} cases")
     
     # Process all cases
     print("\nProcessing cases...")
@@ -351,12 +354,14 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     
     # Save summary JSON
+    from datetime import datetime
     summary_json = {
         "git_sha": git_sha,
         "dataset_path": args.npz,
         "n_samples": len(verts_list),
         "case_ids": case_ids,
-        "summary": summary
+        "summary": summary,
+        "timestamp": datetime.now().isoformat()
     }
     
     summary_path = out_dir / "facts_summary.json"
