@@ -7,6 +7,9 @@ Expected fail cases (degenerate_*, etc.) are intentionally invalid for testing.
 """
 
 import numpy as np
+import json
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 
@@ -189,12 +192,12 @@ for i in range(5):
         z = radius * np.sin(angle) + np.random.randn() * 0.005
         verts[j] = [x, y, z]
     
-    # Validate invariants
-    is_valid, error_msg = check_human_like_invariants(verts, f"normal_{i+1}", "valid")
-    if not is_valid:
-        raise ValueError(f"normal_{i+1} failed invariant check: {error_msg}")
+    # ========================================================================
+    # CRITICAL: Apply scale normalization BEFORE invariant check
+    # ========================================================================
+    case_id = f"normal_{i+1}"
     
-    # Apply scale normalization for valid cases
+    # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
     bbox_span_y_before = float(np.max(y_coords) - np.min(y_coords))
     
@@ -206,10 +209,39 @@ for i in range(5):
     verts_scaled = verts * scale_factor
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
+    # Validate invariants using SCALED vertices (not original)
+    is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
+    
+    if not is_valid:
+        # Save debug JSON before raising
+        debug_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_path = debug_dir / f"s0_invariant_fail_{timestamp}.json"
+        
+        debug_data = {
+            "case_id": case_id,
+            "case_class": "valid",
+            "bbox_span_y_before": float(bbox_span_y_before),
+            "bbox_span_y_after": float(bbox_span_y_after),
+            "target_height_m": float(target_height_m),
+            "scale_factor_applied": float(scale_factor),
+            "scale_was_applied": True,
+            "invariant_check_input_height": float(bbox_span_y_after),
+            "error_message": error_msg,
+            "timestamp": timestamp
+        }
+        
+        with open(debug_path, "w") as f:
+            json.dump(debug_data, f, indent=2)
+        
+        print(f"\n[INVARIANT FAIL] Saved debug JSON to: {debug_path.resolve()}")
+        raise ValueError(f"{case_id} failed invariant check: {error_msg}")
+    
     # Hard proof log: print scale application evidence
-    print(f"  [SCALE] {f'normal_{i+1}'}: before={bbox_span_y_before:.4f}m, "
+    print(f"  [SCALE] {case_id}: before={bbox_span_y_before:.4f}m, "
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
-          f"after={bbox_span_y_after:.4f}m")
+          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m")
     
     # Record metadata
     metadata = {
@@ -222,7 +254,7 @@ for i in range(5):
     
     # CRITICAL: Append scaled vertices, not original
     cases.append(verts_scaled)
-    case_ids.append(f"normal_{i+1}")
+    case_ids.append(case_id)
     case_classes.append("valid")
     case_metadata.append(metadata)
 
@@ -271,12 +303,12 @@ for i in range(5):
         z = radius * np.sin(angle) + np.random.randn() * 0.005
         verts[j] = [x, y, z]
     
-    # Validate invariants
-    is_valid, error_msg = check_human_like_invariants(verts, f"varied_{i+1}", "valid")
-    if not is_valid:
-        raise ValueError(f"varied_{i+1} failed invariant check: {error_msg}")
+    # ========================================================================
+    # CRITICAL: Apply scale normalization BEFORE invariant check
+    # ========================================================================
+    case_id = f"varied_{i+1}"
     
-    # Apply scale normalization for valid cases
+    # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
     bbox_span_y_before = float(np.max(y_coords) - np.min(y_coords))
     
@@ -288,10 +320,39 @@ for i in range(5):
     verts_scaled = verts * scale_factor
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
+    # Validate invariants using SCALED vertices (not original)
+    is_valid, error_msg = check_human_like_invariants(verts_scaled, case_id, "valid")
+    
+    if not is_valid:
+        # Save debug JSON before raising
+        debug_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_path = debug_dir / f"s0_invariant_fail_{timestamp}.json"
+        
+        debug_data = {
+            "case_id": case_id,
+            "case_class": "valid",
+            "bbox_span_y_before": float(bbox_span_y_before),
+            "bbox_span_y_after": float(bbox_span_y_after),
+            "target_height_m": float(target_height_m),
+            "scale_factor_applied": float(scale_factor),
+            "scale_was_applied": True,
+            "invariant_check_input_height": float(bbox_span_y_after),
+            "error_message": error_msg,
+            "timestamp": timestamp
+        }
+        
+        with open(debug_path, "w") as f:
+            json.dump(debug_data, f, indent=2)
+        
+        print(f"\n[INVARIANT FAIL] Saved debug JSON to: {debug_path.resolve()}")
+        raise ValueError(f"{case_id} failed invariant check: {error_msg}")
+    
     # Hard proof log: print scale application evidence
-    print(f"  [SCALE] {f'varied_{i+1}'}: before={bbox_span_y_before:.4f}m, "
+    print(f"  [SCALE] {case_id}: before={bbox_span_y_before:.4f}m, "
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
-          f"after={bbox_span_y_after:.4f}m")
+          f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m")
     
     # Record metadata
     metadata = {
@@ -304,7 +365,7 @@ for i in range(5):
     
     # CRITICAL: Append scaled vertices, not original
     cases.append(verts_scaled)
-    case_ids.append(f"varied_{i+1}")
+    case_ids.append(case_id)
     case_classes.append("valid")
     case_metadata.append(metadata)
 
@@ -433,6 +494,9 @@ for i, (case_id, case_class, verts_to_save) in enumerate(zip(case_ids, case_clas
 output_path = Path(__file__).parent / "s0_synthetic_cases.npz"
 output_path_abs = output_path.resolve()
 
+# Print absolute path (required)
+print(f"\n[NPZ OUTPUT] Absolute path: {output_path_abs}")
+
 # Hard proof: Verify scaled vertices are actually in cases array before saving
 print("\n[PROOF] Verifying scaled vertices before NPZ save...")
 for i, (case_id, case_class, verts_to_save) in enumerate(zip(case_ids, case_classes, cases)):
@@ -480,12 +544,13 @@ np.savez(
     **data_dict
 )
 
-print(f"\n[PROOF] Wrote NPZ to: {output_path_abs}")
-print(f"[PROOF] NPZ file exists: {output_path_abs.exists()}")
+print(f"\n[NPZ SAVE] Wrote NPZ to: {output_path_abs}")
+print(f"[NPZ SAVE] File exists: {output_path_abs.exists()}")
 if output_path_abs.exists():
     file_stat = output_path_abs.stat()
-    print(f"[PROOF] NPZ file size: {file_stat.st_size / 1024:.1f} KB")
-    print(f"[PROOF] NPZ file mtime: {file_stat.st_mtime}")
+    print(f"[NPZ SAVE] File size: {file_stat.st_size / 1024:.1f} KB")
+    print(f"[NPZ SAVE] File mtime: {file_stat.st_mtime}")
+    print(f"[NPZ SAVE] Absolute path (for runner): {output_path_abs}")
 
 # ============================================================================
 # RE-OPEN PROOF (핵심 DoD): 저장 직후 파일을 다시 열어서 검증
