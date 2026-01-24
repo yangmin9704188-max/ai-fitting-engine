@@ -211,13 +211,19 @@
 │   │   └── summarize_sanity_checks.py
 │   ├── read_me.txt
 │   └── README_VERIFICATION.md
+├── .cursorrules
+├── .gitignore
 ├── DB_GUIDE.md
+├── EVIDENCE_VALIDATION_ENTRYPOINT_INVESTIGATION.md
 ├── Makefile
+├── pending_review.json
 ├── README.md
 ├── SYNC_HUB.md
-├── SYNC_HUB_템플릿.md
-├── pending_review.json
-└── triggers.json
+├── SYNC_HUB_FILE_INDEX.md
+├── triggers.json
+├── VALIDATE_EVIDENCE_INVESTIGATION.md
+├── 전체 프로젝트 누적 성과.txt
+└── 표준화용어_인체 공학 표준화 용어.xls
 ```
 
 ---
@@ -463,13 +469,25 @@
 
 ---
 
-## Root Level Documentation
+## Root Level Files
 
+### Configuration Files
+- `.cursorrules`
+- `.gitignore`
+- `Makefile`
+- `pending_review.json`
+- `triggers.json`
+
+### Documentation Files
 - `DB_GUIDE.md`
+- `EVIDENCE_VALIDATION_ENTRYPOINT_INVESTIGATION.md`
 - `README.md`
 - `SYNC_HUB.md`
-- `SYNC_HUB_템플릿.md`
+- `SYNC_HUB_FILE_INDEX.md`
+- `VALIDATE_EVIDENCE_INVESTIGATION.md`
+- `전체 프로젝트 누적 성과.txt`
+- `표준화용어_인체 공학 표준화 용어.xls`
 
 ---
 
-*Generated: 2026-01-21*
+*Generated: 2026-01-24*
