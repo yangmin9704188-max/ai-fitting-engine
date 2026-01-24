@@ -136,17 +136,19 @@ for i in range(5):
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
-    # Generate human-like circumferences
-    # Bust: 0.35-0.85 of height
-    bust_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["BUST"])
+    # ========================================================================
+    # CRITICAL: Generate circumferences using CIRCUMFERENCE_RANGES directly
+    # to avoid scale-induced overflow (e.g., bust_circ > 1.4m after scaling)
+    # ========================================================================
+    # Use CIRCUMFERENCE_RANGES directly (not height-based ratios)
+    # This ensures circumferences stay within human-like ranges even after scaling
+    bust_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["BUST"])
     bust_radius = bust_circ / (2 * np.pi)
     
-    # Waist: 0.30-0.75 of height
-    waist_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["WAIST"])
+    waist_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["WAIST"])
     waist_radius = waist_circ / (2 * np.pi)
     
-    # Hip: 0.35-0.90 of height
-    hip_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["HIP"])
+    hip_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["HIP"])
     hip_radius = hip_circ / (2 * np.pi)
     
     # Neck: 0.25-0.55m
@@ -263,14 +265,19 @@ for i in range(5):
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
-    # Generate varied but still human-like proportions
-    bust_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["BUST"])
+    # ========================================================================
+    # CRITICAL: Generate circumferences using CIRCUMFERENCE_RANGES directly
+    # to avoid scale-induced overflow (e.g., bust_circ > 1.4m after scaling)
+    # ========================================================================
+    # Use CIRCUMFERENCE_RANGES directly (not height-based ratios)
+    # This ensures circumferences stay within human-like ranges even after scaling
+    bust_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["BUST"])
     bust_radius = bust_circ / (2 * np.pi)
     
-    waist_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["WAIST"])
+    waist_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["WAIST"])
     waist_radius = waist_circ / (2 * np.pi)
     
-    hip_circ = height * np.random.uniform(*CIRCUMFERENCE_TO_HEIGHT_RATIOS["HIP"])
+    hip_circ = np.random.uniform(*CIRCUMFERENCE_RANGES["HIP"])
     hip_radius = hip_circ / (2 * np.pi)
     
     neck_radius = np.random.uniform(*CIRCUMFERENCE_RANGES["NECK"]) / (2 * np.pi)

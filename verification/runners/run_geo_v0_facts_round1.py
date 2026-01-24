@@ -813,8 +813,11 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     is_round10 = "round10" in str(output_path).lower()
     is_round11 = "round11" in str(output_path).lower()
     is_round12 = "round12" in str(output_path).lower()
+    is_round13 = "round13" in str(output_path).lower()
     
-    if is_round12:
+    if is_round13:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 13 - Bust Invariant Fix)")
+    elif is_round12:
         lines.append("# Geometric v0 Facts-Only Summary (Round 12 - Post Generator Fix)")
     elif is_round11:
         lines.append("# Geometric v0 Facts-Only Summary (Round 11 - S0 Scale Re-open Proof)")
@@ -1319,8 +1322,8 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10/11/12
-    if is_round9 or is_round10 or is_round11 or is_round12:
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10/11/12/13
+    if is_round9 or is_round10 or is_round11 or is_round12 or is_round13:
         lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
         lines.append("")
         lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
