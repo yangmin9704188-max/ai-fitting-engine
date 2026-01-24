@@ -179,6 +179,63 @@ def _find_cross_section(
     return vertices_2d, debug_info
 
 
+def _find_nearest_valid_plane(
+    verts: np.ndarray,
+    y_target: float,
+    tolerance: float,
+    max_shift_mm: float,
+    y_min: float,
+    y_max: float,
+) -> tuple[Optional[np.ndarray], Optional[float], Optional[Dict[str, Any]]]:
+    """
+    Find nearest valid plane within max_shift_mm from target.
+    Returns (vertices_2d or None, shift_mm or None, debug_info or None).
+    
+    This is NOT band_scan - it's a single nearest valid plane selection.
+    """
+    y_coords = verts[:, 1]
+    max_shift_m = max_shift_mm / 1000.0  # Convert to meters
+    
+    # Search in ±max_shift_m range
+    search_min = max(y_min, y_target - max_shift_m)
+    search_max = min(y_max, y_target + max_shift_m)
+    
+    # Sample candidate planes (step size: tolerance/2)
+    step = tolerance * 0.5
+    num_steps = int((search_max - search_min) / step) + 1
+    
+    best_vertices = None
+    best_shift_mm = None
+    best_candidates_count = 0
+    
+    for i in range(num_steps):
+        y_candidate = search_min + i * step
+        if y_candidate > search_max:
+            break
+        
+        mask = np.abs(y_coords - y_candidate) < tolerance
+        candidate_count = int(np.sum(mask))
+        
+        if candidate_count >= 3:  # Valid plane found
+            shift_mm = abs(y_candidate - y_target) * 1000.0
+            if best_vertices is None or shift_mm < best_shift_mm:
+                best_vertices = verts[mask]
+                best_shift_mm = shift_mm
+                best_candidates_count = candidate_count
+    
+    if best_vertices is not None:
+        # Project to x-z plane
+        vertices_2d = best_vertices[:, [0, 2]]
+        debug_info = {
+            "nearest_valid_plane_used": True,
+            "nearest_valid_plane_shift_mm": float(best_shift_mm),
+            "nearest_valid_plane_candidates_count": best_candidates_count
+        }
+        return vertices_2d, best_shift_mm, debug_info
+    
+    return None, None, None
+
+
 def _compute_circumference_at_height(
     verts: np.ndarray,
     y_value: float,
@@ -622,10 +679,29 @@ def measure_width_depth_v0_with_metadata(
         allow_nearest_fallback=allow_fallback
     )
     
-    # If failed and is waist/hip, try with adjusted tolerance
+    # If failed and is waist/hip, try nearest valid plane fallback
+    nearest_fallback_used = False
+    nearest_fallback_shift_mm = None
+    nearest_fallback_debug = None
+    
     if vertices_2d is None and is_waist_hip and cross_section_debug:
         reason = cross_section_debug.get("reason_not_found")
-        if reason in ["too_thin_slice", "mesh_empty_at_height"]:
+        if reason in ["mesh_empty_at_height", "out_of_bounds_target"]:
+            # Try nearest valid plane fallback (<=10mm shift)
+            fallback_vertices, fallback_shift_mm, fallback_debug = _find_nearest_valid_plane(
+                verts, y_target, tolerance, max_shift_mm=10.0, y_min=y_min, y_max=y_max
+            )
+            if fallback_vertices is not None and fallback_shift_mm is not None:
+                if fallback_shift_mm <= 10.0:  # Policy limit
+                    vertices_2d = fallback_vertices
+                    nearest_fallback_used = True
+                    nearest_fallback_shift_mm = fallback_shift_mm
+                    nearest_fallback_debug = fallback_debug
+                    warnings.append("NEAREST_VALID_PLANE_FALLBACK")
+                else:
+                    # Shift exceeds policy limit - do not use
+                    pass
+        elif reason in ["too_thin_slice"]:
             # Try with larger tolerance (up to 5% of body height)
             larger_tolerance = min(y_range * 0.05, tolerance * 2.0)
             if larger_tolerance > tolerance:
@@ -651,10 +727,17 @@ def measure_width_depth_v0_with_metadata(
         }
         if cross_section_debug:
             debug_info["cross_section"] = cross_section_debug
+        if nearest_fallback_debug:
+            debug_info["nearest_valid_plane"] = nearest_fallback_debug
         # Record landmark_resolution if fallback was used
         landmark_resolution = None
-        if cross_section_debug and cross_section_debug.get("fallback_used"):
+        if nearest_fallback_used:
             landmark_resolution = "nearest_valid_plane"
+        elif cross_section_debug and cross_section_debug.get("fallback_used"):
+            landmark_resolution = "nearest_valid_plane"
+        # Record search metadata for nearest valid plane fallback
+        search_nearest_valid_plane_used = nearest_fallback_used
+        search_nearest_valid_plane_shift_mm = int(nearest_fallback_shift_mm) if nearest_fallback_shift_mm is not None else None
         metadata = create_metadata_v0(
             standard_key=standard_key,
             value_m=float('nan'),
@@ -663,6 +746,9 @@ def measure_width_depth_v0_with_metadata(
             warnings=warnings,
             method_fixed_cross_section_required=True,
             method_landmark_resolution=landmark_resolution,
+            search_band_scan_used=False,  # Always false (fallback is not scan)
+            search_nearest_valid_plane_used=search_nearest_valid_plane_used,
+            search_nearest_valid_plane_shift_mm=search_nearest_valid_plane_shift_mm,
             proxy_proxy_used=proxy_used,
             proxy_proxy_type="plane_clamp" if proxy_used else None,
             proxy_proxy_tool=proxy_tool,
@@ -707,11 +793,19 @@ def measure_width_depth_v0_with_metadata(
     }
     if cross_section_debug:
         debug_info["cross_section"] = cross_section_debug
+    if nearest_fallback_debug:
+        debug_info["nearest_valid_plane"] = nearest_fallback_debug
     
     # Record landmark_resolution if fallback was used
     landmark_resolution = None
-    if cross_section_debug and cross_section_debug.get("fallback_used"):
+    if nearest_fallback_used:
         landmark_resolution = "nearest_valid_plane"
+    elif cross_section_debug and cross_section_debug.get("fallback_used"):
+        landmark_resolution = "nearest_valid_plane"
+    
+    # Record search metadata for nearest valid plane fallback
+    search_nearest_valid_plane_used = nearest_fallback_used
+    search_nearest_valid_plane_shift_mm = int(nearest_fallback_shift_mm) if nearest_fallback_shift_mm is not None else None
     
     metadata = create_metadata_v0(
         standard_key=standard_key,
@@ -721,6 +815,9 @@ def measure_width_depth_v0_with_metadata(
         warnings=warnings,
         method_fixed_cross_section_required=True,
         method_landmark_resolution=landmark_resolution,
+        search_band_scan_used=False,  # Always false (fallback is not scan)
+        search_nearest_valid_plane_used=search_nearest_valid_plane_used,
+        search_nearest_valid_plane_shift_mm=search_nearest_valid_plane_shift_mm,
         proxy_proxy_used=proxy_used,
         proxy_proxy_type="plane_clamp" if proxy_used else None,
         proxy_proxy_tool=proxy_tool,
