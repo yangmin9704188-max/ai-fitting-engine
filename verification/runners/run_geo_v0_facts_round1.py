@@ -87,11 +87,32 @@ def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[s
             else:
                 verts_list = [verts_array]
         
-        case_ids = data.get("case_id", [f"case_{i}" for i in range(len(verts_list))])
-        if isinstance(case_ids, np.ndarray):
-            case_ids = case_ids.tolist()
+        case_ids = data.get("case_id", None)
+        if case_ids is not None:
+            if case_ids.dtype == object:
+                case_ids = [str(case_ids[i]) for i in range(len(case_ids))]
+            else:
+                case_ids = [str(cid) for cid in case_ids]
+        else:
+            case_ids = [f"case_{i}" for i in range(len(verts_list))]
         
-        return verts_list, case_ids
+        # Load case_class if available (for backward compatibility)
+        case_classes = data.get("case_class", None)
+        if case_classes is not None:
+            if case_classes.dtype == object:
+                case_classes = [str(case_classes[i]) for i in range(len(case_classes))]
+            else:
+                case_classes = [str(cc) for cc in case_classes]
+        else:
+            # Fallback: infer from case_id pattern
+            case_classes = []
+            for cid in case_ids:
+                if cid.startswith("normal_") or cid.startswith("varied_"):
+                    case_classes.append("valid")
+                else:
+                    case_classes.append("expected_fail")
+        
+        return verts_list, case_ids, case_classes
     else:
         raise ValueError(f"NPZ file missing 'verts' key. Found keys: {list(data.keys())}")
 
@@ -478,8 +499,10 @@ def main():
     
     # Load dataset
     print(f"Loading dataset: {args.npz}")
-    verts_list, case_ids = load_npz_dataset(args.npz)
+    verts_list, case_ids, case_classes = load_npz_dataset(args.npz)
     print(f"  Loaded {len(verts_list)} cases")
+    print(f"  Valid cases: {sum(1 for cc in case_classes if cc == 'valid')}")
+    print(f"  Expected fail cases: {sum(1 for cc in case_classes if cc == 'expected_fail')}")
     
     # Limit samples
     if args.n_samples is not None:
