@@ -65,8 +65,14 @@ def get_git_sha() -> Optional[str]:
         return None
 
 
-def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str]]:
-    """Load NPZ dataset and return (verts_list, case_ids)."""
+def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]]:
+    """Load NPZ dataset and return (verts_list, case_ids, case_classes).
+    
+    Returns:
+        verts_list: List of vertex arrays
+        case_ids: List of case identifiers
+        case_classes: List of case classes ("valid" or "expected_fail")
+    """
     data = np.load(npz_path, allow_pickle=True)
     
     if "verts" in data:
@@ -81,11 +87,32 @@ def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str]]:
             else:
                 verts_list = [verts_array]
         
-        case_ids = data.get("case_id", [f"case_{i}" for i in range(len(verts_list))])
-        if isinstance(case_ids, np.ndarray):
-            case_ids = case_ids.tolist()
+        case_ids = data.get("case_id", None)
+        if case_ids is not None:
+            if case_ids.dtype == object:
+                case_ids = [str(case_ids[i]) for i in range(len(case_ids))]
+            else:
+                case_ids = [str(cid) for cid in case_ids]
+        else:
+            case_ids = [f"case_{i}" for i in range(len(verts_list))]
         
-        return verts_list, case_ids
+        # Load case_class if available (for backward compatibility)
+        case_classes = data.get("case_class", None)
+        if case_classes is not None:
+            if case_classes.dtype == object:
+                case_classes = [str(case_classes[i]) for i in range(len(case_classes))]
+            else:
+                case_classes = [str(cc) for cc in case_classes]
+        else:
+            # Fallback: infer from case_id pattern
+            case_classes = []
+            for cid in case_ids:
+                if cid.startswith("normal_") or cid.startswith("varied_"):
+                    case_classes.append("valid")
+                else:
+                    case_classes.append("expected_fail")
+        
+        return verts_list, case_ids, case_classes
     else:
         raise ValueError(f"NPZ file missing 'verts' key. Found keys: {list(data.keys())}")
 
@@ -176,16 +203,27 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     return results
 
 
-def is_valid_case(case_id: str) -> bool:
-    """Check if case is valid (normal_* or varied_*)."""
+def is_valid_case(case_id: str, case_class: Optional[str] = None) -> bool:
+    """Check if case is valid (normal_* or varied_*, or case_class='valid')."""
+    if case_class is not None:
+        return case_class == "valid"
     return case_id.startswith("normal_") or case_id.startswith("varied_")
 
 
-def aggregate_results(all_results: List[Dict[str, MeasurementResult]], case_ids: List[str]) -> Dict[str, Any]:
+def aggregate_results(
+    all_results: List[Dict[str, MeasurementResult]],
+    case_ids: List[str],
+    case_classes: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """Aggregate results across all cases, with separate valid/expected_fail aggregation."""
     summary = {}
-    valid_case_indices = [i for i, cid in enumerate(case_ids) if is_valid_case(cid)]
-    expected_fail_case_indices = [i for i, cid in enumerate(case_ids) if not is_valid_case(cid)]
+    if case_classes is None:
+        # Fallback to pattern-based detection
+        valid_case_indices = [i for i, cid in enumerate(case_ids) if is_valid_case(cid)]
+        expected_fail_case_indices = [i for i, cid in enumerate(case_ids) if not is_valid_case(cid)]
+    else:
+        valid_case_indices = [i for i, cc in enumerate(case_classes) if is_valid_case(case_ids[i], cc)]
+        expected_fail_case_indices = [i for i, cc in enumerate(case_classes) if not is_valid_case(case_ids[i], cc)]
     
     for key in ALL_KEYS:
         # Separate valid and expected fail results
@@ -461,14 +499,17 @@ def main():
     
     # Load dataset
     print(f"Loading dataset: {args.npz}")
-    verts_list, case_ids = load_npz_dataset(args.npz)
+    verts_list, case_ids, case_classes = load_npz_dataset(args.npz)
     print(f"  Loaded {len(verts_list)} cases")
+    print(f"  Valid cases: {sum(1 for cc in case_classes if cc == 'valid')}")
+    print(f"  Expected fail cases: {sum(1 for cc in case_classes if cc == 'expected_fail')}")
     
     # Limit samples
     if args.n_samples is not None:
         if args.n_samples < len(verts_list):
             verts_list = verts_list[:args.n_samples]
             case_ids = case_ids[:args.n_samples]
+            case_classes = case_classes[:args.n_samples]
             print(f"  Limited to {args.n_samples} samples")
         elif args.n_samples > len(verts_list):
             print(f"  Warning: n_samples ({args.n_samples}) > available cases ({len(verts_list)}), using all {len(verts_list)} cases")
@@ -489,7 +530,7 @@ def main():
     
     # Aggregate
     print("\nAggregating results...")
-    summary = aggregate_results(all_results, case_ids)
+    summary = aggregate_results(all_results, case_ids, case_classes)
     
     # Get git SHA
     git_sha = get_git_sha()
@@ -520,7 +561,7 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report
-    report_filename = "geo_v0_facts_round5_waist_hip_fallback_working.md"
+    report_filename = "geo_v0_facts_round6_s0_humanlike.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -541,7 +582,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     summary = summary_json.get("summary", {})
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 5 - Nearest Valid Plane Fallback Working)")
+    lines.append("# Geometric v0 Facts-Only Summary (Round 6 - S0 Human-like Scale)")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -550,6 +591,29 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     lines.append(f"- **Git SHA**: `{git_sha}`")
     lines.append(f"- **실행 일시**: {summary_json.get('timestamp', 'N/A')}")
     lines.append("")
+    
+    # Add scale statistics if available
+    if "HEIGHT_M" in summary:
+        height_stats = summary["HEIGHT_M"].get("value_stats", {})
+        if height_stats:
+            lines.append("### 1.1 S0 Dataset Scale Statistics")
+            lines.append("")
+            lines.append(f"- **HEIGHT_M**: min={height_stats.get('min', 'N/A'):.3f}m, "
+                        f"median={height_stats.get('median', 'N/A'):.3f}m, "
+                        f"max={height_stats.get('max', 'N/A'):.3f}m")
+            
+            # Calculate circumference to height ratios
+            for key in ["BUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]:
+                if key in summary:
+                    circ_stats = summary[key].get("value_stats", {})
+                    if circ_stats and height_stats.get("median"):
+                        circ_median = circ_stats.get("median")
+                        height_median = height_stats.get("median")
+                        ratio = circ_median / height_median if height_median > 0 else None
+                        if ratio is not None:
+                            lines.append(f"- **{key}**: median={circ_median:.3f}m, "
+                                        f"{key.split('_')[0]}/height ratio={ratio:.3f}")
+            lines.append("")
     
     # Section 2: Key별 요약 테이블 (Valid Cases Only for DoD)
     lines.append("## 2. Key별 요약 (Valid Cases Only - DoD 평가 기준)")
