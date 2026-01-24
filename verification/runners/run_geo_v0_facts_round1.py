@@ -673,7 +673,9 @@ def main():
     args = parser.parse_args()
     
     # Load dataset
+    npz_path_abs = Path(args.npz).resolve()
     print(f"Loading dataset: {args.npz}")
+    print(f"  [PROOF] NPZ absolute path: {npz_path_abs}")
     load_result = load_npz_dataset(args.npz)
     if len(load_result) == 4:
         verts_list, case_ids, case_classes, case_metadata_list = load_result
@@ -686,6 +688,20 @@ def main():
     if case_metadata_list:
         scale_applied_count = sum(1 for m in case_metadata_list if m and m.get("scale_applied", False))
         print(f"  Scale normalization applied: {scale_applied_count} cases")
+        
+        # Hard proof: Verify loaded vertices match metadata
+        print(f"\n[PROOF] Verifying loaded vertices match scale metadata (sample 3 valid cases):")
+        valid_indices = [i for i, cc in enumerate(case_classes) if cc == "valid"][:3]
+        for i in valid_indices:
+            meta = case_metadata_list[i] if case_metadata_list and i < len(case_metadata_list) else None
+            if meta and meta.get("scale_applied"):
+                verts_loaded = verts_list[i]
+                y_coords = verts_loaded[:, 1]
+                bbox_span_y_loaded = float(np.max(y_coords) - np.min(y_coords))
+                target_height = meta.get("target_height_m")
+                scale_factor = meta.get("scale_factor_applied")
+                print(f"  {case_ids[i]}: loaded_span={bbox_span_y_loaded:.4f}m, "
+                      f"target={target_height:.4f}m, scale={scale_factor:.4f}")
     
     # Limit samples
     if args.n_samples is not None:
@@ -745,8 +761,13 @@ def main():
         json.dump(summary_json, f, indent=2, ensure_ascii=False)
     print(f"\nSaved summary: {summary_path}")
     
-    # Generate markdown report
-    report_filename = "geo_v0_facts_round9_s0_scale_fix.md"
+    # Generate markdown report (detect round from out_dir)
+    if "round10" in str(out_dir).lower():
+        report_filename = "geo_v0_facts_round10_s0_scale_proof.md"
+    elif "round9" in str(out_dir).lower():
+        report_filename = "geo_v0_facts_round9_s0_scale_fix.md"
+    else:
+        report_filename = "geo_v0_facts_round1.md"
     report_path = out_dir / report_filename
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
@@ -770,7 +791,16 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     is_round9 = "round9" in str(output_path).lower() or "round9" in str(dataset_path).lower()
     
     lines = []
-    lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
+    # Detect round from output_path
+    is_round9 = "round9" in str(output_path).lower()
+    is_round10 = "round10" in str(output_path).lower()
+    
+    if is_round10:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 10 - S0 Scale Proof)")
+    elif is_round9:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
+    else:
+        lines.append("# Geometric v0 Facts-Only Summary")
     lines.append("")
     lines.append("## 1. 실행 조건")
     lines.append("")
@@ -1266,8 +1296,8 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9 only
-    if is_round9:
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10
+    if is_round9 or is_round10:
         lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
         lines.append("")
         lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
@@ -1277,11 +1307,18 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             value_stats = s.get("value_stats", {})
             valid_cases = s.get("valid_cases", {})
             if value_stats:
-                lines.append("| Statistic | Round 8 (Before) | Round 9 (After) |")
-                lines.append("|-----------|------------------|----------------|")
-                lines.append(f"| HEIGHT_M Median | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
-                lines.append(f"| HEIGHT_M Min | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
-                lines.append(f"| HEIGHT_M Max | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+                if is_round10:
+                    lines.append("| Statistic | Round 8 (Before) | Round 9 (No Change) | Round 10 (After Fix) |")
+                    lines.append("|-----------|------------------|-------------------|---------------------|")
+                    lines.append(f"| HEIGHT_M Median | 0.8625m | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Min | 0.765m | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Max | 0.960m | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+                else:
+                    lines.append("| Statistic | Round 8 (Before) | Round 9 (After) |")
+                    lines.append("|-----------|------------------|----------------|")
+                    lines.append(f"| HEIGHT_M Median | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Min | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Max | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
             lines.append("")
             
             # Bbox span statistics
@@ -1350,12 +1387,29 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                                     )
         lines.append("")
         
+        # Round 10: Scale application proof logs summary
+        if is_round10:
+            lines.append("### 6.3 Scale 적용 증거 로그 요약")
+            lines.append("")
+            lines.append("(create_s0_dataset.py 실행 로그에서 다음 정보 확인)")
+            lines.append("")
+            lines.append("| Case ID | bbox_span_y_before | target_height_m | scale_factor | bbox_span_y_after |")
+            lines.append("|---------|-------------------|-----------------|--------------|------------------|")
+            lines.append("| (로그에서 샘플 2~3개 복사) |")
+            lines.append("")
+            lines.append("**확인 사항**:")
+            lines.append("- scale_factor가 1.0이 아님")
+            lines.append("- bbox_span_y_after ≈ target_height_m (tolerance 5cm)")
+            lines.append("- NPZ 저장 경로가 runner 로드 경로와 일치")
+            lines.append("")
+        
         # Section 7: Round 7 회귀 체크 (Valid Cases 기준)
         lines.append("## 7. Round 7 Slice-Sharing 회귀 체크 (Valid Cases 기준)")
         lines.append("")
         lines.append("### 7.1 Waist/Hip NaN율 (회귀 확인)")
         lines.append("")
-        lines.append("| Key | Round 7 NaN율 | Round 9 NaN율 | 변화 |")
+        round_label = "Round 10" if is_round10 else "Round 9"
+        lines.append(f"| Key | Round 7 NaN율 | {round_label} NaN율 | 변화 |")
         lines.append("|-----|---------------|---------------|------|")
         for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
             if key not in summary:
