@@ -405,6 +405,30 @@ for i, (verts, case_id, case_class) in enumerate(zip(cases, case_ids, case_class
     else:
         print(f"  - {case_id} (expected_fail): skipped check")
 
+# Hard proof: Verify scaled vertices are actually in cases array before saving
+print("\n[PROOF] Verifying scaled vertices before NPZ save...")
+for i, (case_id, case_class, verts_to_save) in enumerate(zip(case_ids, case_classes, cases)):
+    if case_class == "valid":
+        y_coords = verts_to_save[:, 1]
+        bbox_span_y_saved = float(np.max(y_coords) - np.min(y_coords))
+        meta = case_metadata[i]
+        target_height = meta.get("target_height_m")
+        scale_factor = meta.get("scale_factor_applied")
+        
+        # Assert that saved vertices match expected scaled height
+        if target_height is not None and scale_factor is not None:
+            tolerance = 0.05  # 5cm tolerance
+            diff = abs(bbox_span_y_saved - target_height)
+            if diff > tolerance:
+                raise ValueError(
+                    f"[PROOF FAIL] {case_id}: bbox_span_y_saved={bbox_span_y_saved:.4f}m != "
+                    f"target={target_height:.4f}m (diff={diff:.4f}m > {tolerance:.4f}m tolerance). "
+                    f"Scale may not have been applied correctly!"
+                )
+            else:
+                print(f"  ✓ {case_id}: bbox_span_y_saved={bbox_span_y_saved:.4f}m ≈ target={target_height:.4f}m "
+                      f"(scale={scale_factor:.4f}, diff={diff:.4f}m)")
+
 # Save as NPZ
 output_path = Path(__file__).parent / "s0_synthetic_cases.npz"
 output_path_abs = output_path.resolve()
@@ -445,6 +469,9 @@ np.savez(
 )
 
 print(f"\n[PROOF] Wrote NPZ to: {output_path_abs}")
+print(f"[PROOF] NPZ file exists: {output_path_abs.exists()}")
+if output_path_abs.exists():
+    print(f"[PROOF] NPZ file size: {output_path_abs.stat().st_size / 1024:.1f} KB")
 
 print(f"\nCreated {output_path}")
 print(f"  Cases: {len(cases)}")
