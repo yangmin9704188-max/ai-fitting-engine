@@ -37,9 +37,9 @@ HeightLengthKey = Literal[
 class MeasurementResult:
     """Measurement result with value and metadata."""
     standard_key: str
+    metadata: Dict[str, Any]  # metadata JSON (schema v0)
     value_m: Optional[float] = None  # meters
     value_kg: Optional[float] = None  # kilograms
-    metadata: Dict[str, Any]  # metadata JSON (schema v0)
 
 
 # -----------------------------
