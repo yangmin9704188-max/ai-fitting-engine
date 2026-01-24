@@ -812,8 +812,11 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     is_round9 = "round9" in str(output_path).lower()
     is_round10 = "round10" in str(output_path).lower()
     is_round11 = "round11" in str(output_path).lower()
+    is_round12 = "round12" in str(output_path).lower()
     
-    if is_round11:
+    if is_round12:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 12 - Post Generator Fix)")
+    elif is_round11:
         lines.append("# Geometric v0 Facts-Only Summary (Round 11 - S0 Scale Re-open Proof)")
     elif is_round10:
         lines.append("# Geometric v0 Facts-Only Summary (Round 10 - S0 Scale Proof)")
@@ -1316,8 +1319,8 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
         lines.append("(HEIGHT_M not in summary)")
     lines.append("")
     
-    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10/11
-    if is_round9 or is_round10 or is_round11:
+    # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9/10/11/12
+    if is_round9 or is_round10 or is_round11 or is_round12:
         lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
         lines.append("")
         lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
@@ -1327,7 +1330,13 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
             value_stats = s.get("value_stats", {})
             valid_cases = s.get("valid_cases", {})
             if value_stats:
-                if is_round11:
+                if is_round12:
+                    lines.append("| Statistic | Round 8/9/10/11 (Before) | Round 12 (After Generator Fix) |")
+                    lines.append("|-----------|--------------------------|-------------------------------|")
+                    lines.append(f"| HEIGHT_M Median | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Min | 0.765m | {value_stats.get('min', 'N/A'):.4f}m |")
+                    lines.append(f"| HEIGHT_M Max | 0.960m | {value_stats.get('max', 'N/A'):.4f}m |")
+                elif is_round11:
                     lines.append("| Statistic | Round 8 (Before) | Round 9/10 (No Change) | Round 11 (After Re-open Proof) |")
                     lines.append("|-----------|------------------|----------------------|------------------------------|")
                     lines.append(f"| HEIGHT_M Median | 0.8625m | 0.8625m | {value_stats.get('median', 'N/A'):.4f}m |")
