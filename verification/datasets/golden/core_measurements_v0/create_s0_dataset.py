@@ -12,7 +12,7 @@ import os
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 # Set seed for reproducibility
 np.random.seed(42)
