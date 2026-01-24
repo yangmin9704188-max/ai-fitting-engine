@@ -766,6 +766,9 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     n_samples = summary_json.get("n_samples", 0)
     summary = summary_json.get("summary", {})
     
+    # Detect round from output_path or dataset_path
+    is_round9 = "round9" in str(output_path).lower() or "round9" in str(dataset_path).lower()
+    
     lines = []
     lines.append("# Geometric v0 Facts-Only Summary (Round 9 - S0 Scale Fix)")
     lines.append("")
@@ -1264,7 +1267,7 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     lines.append("")
     
     # Section 6: S0 Scale Normalization 통계 (Valid Cases) - Round 9 only
-    if "round9" in str(output_path).lower() or "round9" in report_filename.lower():
+    if is_round9:
         lines.append("## 6. S0 Scale Normalization 통계 (Valid Cases)")
         lines.append("")
         lines.append("### 6.1 HEIGHT_M 및 Bbox Span 통계")
