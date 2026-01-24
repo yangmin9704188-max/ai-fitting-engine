@@ -50,6 +50,12 @@
 - **자동 proxy/추정 대체 금지**: all-null 키에 대해 다른 키나 추정값으로 자동 대체하지 않는다.
 - Proxy 사용 시(필수인 경우): provenance 기록 필수(Warning only, 자동 보정 금지).
 
+### A7. Allowed DoF & Pose Constraints (SizeKorea Evidence-based)
+- **band_scan_limit**: <= ±10mm (기본은 forbidden; landmark 미해결 시에만 최소 범위로 허용)
+- **canonical_side**: right (SizeKorea가 우측 측정을 명시한 키에 적용: THIGH_CIRC_M, MIN_CALF_CIRC_M, KNEE_HEIGHT_M, ARM_LEN_M)
+- **plane_clamp 정책**: plane_clamp는 proxy로만 허용되며(provenance 기록 필수), 이는 도구(가로자/큰수평자/아크릴판)로 평면화된 관측치를 반영한 것이라 canonical metric(표준 의미) 자체가 아님을 명시한다.
+- **자동 보정 금지**: auto_pose_correction=forbidden / proxy 자동 대체 금지 / auto substitution 금지
+
 ---
 
 ## B. Critical: Multi-definition Groups (No Auto Substitution)
@@ -136,7 +142,9 @@
 - Pose: 기립, 맨발, 시선 정면
 - Sensitivity: 자세/척추 신전, 측정 오차(머리카락)
 - Confusions: KNEE_HEIGHT_M, CROTCH_HEIGHT_M
-- Basis: 신장(키) 표준항목 준거 :contentReference[oaicite:11]{index=11}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#height_m)
+- Pose Constraints: standing; vertical alignment
+- Allowed DoF: vertical_distance=required; auto_pose_correction=forbidden; pose_violation=warn_only
 
 #### WEIGHT_KG
 - Type: weight
@@ -145,7 +153,9 @@
 - Pose: 가벼운 복장, 측정 시간대 영향 가능
 - Sensitivity: 수분/식사/시간대
 - Confusions: BMI(파생값)와 혼동 금지
-- Basis: 체중 표준항목 준거 :contentReference[oaicite:12]{index=12}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#weight_kg)
+- Pose Constraints: standing; weight evenly distributed
+- Allowed DoF: (N/A - weight measurement)
 
 ---
 
@@ -162,12 +172,14 @@
 
 #### NECK_CIRC_M
 - Type: circumference
-- Landmark: 목의 기준 높이(일반적으로 목둘레 측정 위치)
+- Landmark: 방패연골아래점
 - Path/Plane: 수평 둘레
-- Pose: 고개 중립, 어깨 긴장 완화
+- Pose: 고개 중립, 어깨 긴장 완화, breath_state=neutral_mid
 - Sensitivity: 자세/근육 긴장, 호흡 영향 약
 - Confusions: HEAD_CIRC_M, CHEST 계열
-- Basis: 목둘레 표준항목 준거 :contentReference[oaicite:14]{index=14}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#neck_circ_m)
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### NECK_WIDTH_M
 - Type: width
@@ -220,19 +232,23 @@
 - Type: circumference
 - Landmark: 유방의 가장 돌출된 지점("젖가슴 최대")을 지나는 수평 단면
 - Path/Plane: 수평 둘레(최대 둘레)
-- Pose: 기립, 자연 호흡(과흡기/과호기 금지)
+- Pose: 기립, 자연 호흡(과흡기/과호기 금지), breath_state=neutral_mid
 - Sensitivity: 호흡/브라 착용/측정 위치, 체형·연령 영향 큼
 - Confusions: CHEST_CIRC_M_REF, UNDERBUST_CIRC_M
-- Basis: 젖가슴둘레 표준항목 준거 :contentReference[oaicite:21]{index=21}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#bust_circ_m)
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### UNDERBUST_CIRC_M
 - Type: circumference
 - Landmark: 유방 바로 아래의 흉곽 단면(밑가슴)
 - Path/Plane: 수평 둘레(흉곽 anchor)
-- Pose: 기립, 자연 호흡
+- Pose: 기립, 자연 호흡, breath_state=neutral_mid
 - Sensitivity: 호흡 영향(상체 둘레 중 상대적으로 큼), 자세
 - Confusions: WAIST_CIRC_M, CHEST_CIRC_M_REF
-- Basis: 젖가슴아래둘레 표준항목 준거 :contentReference[oaicite:22]{index=22}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#underbust_circ_m)
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### UNDERBUST_WIDTH_M
 - Type: width
@@ -258,19 +274,23 @@
 - Type: width
 - Landmark: 가슴(흉곽/가슴높이) 단면의 좌우 폭
 - Path/Plane: 수평 단면 좌우 직선 폭
-- Pose: 기립, 팔 내림
+- Pose: 기립, 팔 내림, breath_state=neutral_mid
 - Sensitivity: 자세(어깨 말림), 호흡
 - Confusions: SHOULDER_WIDTH_M, UNDERBUST_WIDTH_M
-- Basis: 가슴너비 표준항목 준거 :contentReference[oaicite:27]{index=27}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#chest_width_m)
+- Pose Constraints: breath_state=neutral_mid; arms_down_required
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 #### CHEST_DEPTH_M
 - Type: depth
 - Landmark: 가슴 단면의 전후 두께
 - Path/Plane: 수평 단면 전후 직선 길이
-- Pose: 기립
+- Pose: 기립, breath_state=neutral_mid
 - Sensitivity: 호흡/자세
 - Confusions: UNDERBUST_DEPTH_M, WAIST_DEPTH_M
-- Basis: 가슴두께 표준항목 준거 :contentReference[oaicite:28]{index=28}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#chest_depth_m)
+- Pose Constraints: breath_state=neutral_mid
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 ---
 
@@ -280,47 +300,57 @@
 - Type: circumference
 - Landmark: 허리 기준선(일반적으로 몸통의 가장 잘록한 부위)
 - Path/Plane: 수평 둘레
-- Pose: 기립, 자연 호흡
+- Pose: 기립, 자연 호흡, breath_state=neutral_mid
 - Sensitivity: 호흡/자세/복부 힘주기
 - Confusions: NAVEL_WAIST_CIRC_M, ABDOMEN_CIRC_M
-- Basis: 허리둘레 표준항목 준거 :contentReference[oaicite:29]{index=29}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#waist_circ_m)
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### NAVEL_WAIST_CIRC_M
 - Type: circumference
 - Landmark: 배꼽 높이의 몸통 단면
 - Path/Plane: 수평 둘레
-- Pose: 기립
+- Pose: 기립, breath_state=neutral_mid
 - Sensitivity: 복부 지방/자세 영향 큼
 - Confusions: WAIST_CIRC_M, ABDOMEN_CIRC_M
-- Basis: 배꼽수준허리둘레 표준항목 준거 :contentReference[oaicite:30]{index=30}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#navel_waist_circ_m)
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### ABDOMEN_CIRC_M
 - Type: circumference
 - Landmark: 복부에서 가장 돌출된 부위를 지나는 수평 둘레
 - Path/Plane: 수평 둘레
-- Pose: 기립
+- Pose: 기립, breath_state=neutral_mid
 - Sensitivity: 복부 힘주기/자세/호흡
 - Confusions: NAVEL_WAIST_CIRC_M
-- Basis: 배둘레 표준항목 준거 :contentReference[oaicite:31]{index=31}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#abdomen_circ_m)
 - Observed note: 데이터셋에서 관측된 측정 높이 차이는 Validation/Warnings로만 기록되며, Semantic 정의는 불변이다.
+- Pose Constraints: standing; tape horizontal; breath_state=neutral_mid
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; breath_state=neutral_mid(when specified); pose_violation=warn_only; substitution=forbidden
 
 #### WAIST_WIDTH_M
 - Type: width
 - Landmark: 허리 단면 좌우 폭
 - Path/Plane: 수평 단면 좌우 직선 폭
-- Pose: 기립
+- Pose: 기립, breath_state=neutral_mid
 - Sensitivity: 자세
 - Confusions: WAIST_DEPTH_M, NAVEL_WAIST_WIDTH_M
-- Basis: 허리너비 표준항목 준거 :contentReference[oaicite:32]{index=32}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#waist_width_m)
+- Pose Constraints: breath_state=neutral_mid
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 #### WAIST_DEPTH_M
 - Type: depth
 - Landmark: 허리 단면 전후 두께
 - Path/Plane: 수평 단면 전후 직선 길이
-- Pose: 기립
+- Pose: 기립, breath_state=neutral_mid
 - Sensitivity: 자세/복부 힘주기
 - Confusions: WAIST_WIDTH_M, NAVEL_WAIST_DEPTH_M
-- Basis: 허리두께 표준항목 준거 :contentReference[oaicite:33]{index=33}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#waist_depth_m)
+- Pose Constraints: breath_state=neutral_mid
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 #### NAVEL_WAIST_WIDTH_M
 - Type: width
@@ -351,7 +381,9 @@
 - Pose: 기립, 다리 과도한 벌림 금지
 - Sensitivity: 자세/골반 기울기
 - Confusions: UPPER_HIP_CIRC_M, TOP_HIP_CIRC_M
-- Basis: 엉덩이둘레 표준항목 준거 :contentReference[oaicite:36]{index=36}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#hip_circ_m)
+- Pose Constraints: standing; tape horizontal
+- Allowed DoF: fixed_height=required; band_scan=forbidden; min/max_search=forbidden; pose_violation=warn_only; substitution=forbidden
 
 #### HIP_WIDTH_M
 - Type: width
@@ -360,7 +392,9 @@
 - Pose: 기립
 - Sensitivity: 자세
 - Confusions: HIP_DEPTH_M
-- Basis: 엉덩이너비 표준항목 준거 :contentReference[oaicite:37]{index=37}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#hip_width_m)
+- Pose Constraints: standing
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 #### HIP_DEPTH_M
 - Type: depth
@@ -369,7 +403,9 @@
 - Pose: 기립
 - Sensitivity: 자세
 - Confusions: HIP_WIDTH_M
-- Basis: 엉덩이두께 표준항목 준거 :contentReference[oaicite:38]{index=38}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#hip_depth_m)
+- Pose Constraints: standing
+- Allowed DoF: fixed_cross_section=required; linear_distance=required; plane_clamp=proxy_only(with_provenance); scan=forbidden; pose_violation=warn_only
 
 #### UPPER_HIP_CIRC_M
 - Type: circumference
@@ -425,11 +461,13 @@
 #### ARM_LEN_M
 - Type: length
 - Landmark: 어깨점(견봉)–손목점(또는 측정 표준의 손목 기준점)
-- Path/Plane: 직선 또는 표준 경로 길이(측정 표준 준거)
-- Pose: 팔 자연스럽게 내림/약간 펼침(표준에 따름)
+- Path/Plane: 체표길이(surface path)
+- Pose: 팔 자연스럽게 내림/약간 펼침(표준에 따름), right-side measurement
 - Sensitivity: 팔 각도/어깨 자세
 - Confusions: BACK_LEN_M, SHOULDER_WIDTH_M
-- Basis: 팔길이 표준항목 준거 :contentReference[oaicite:46]{index=46}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#arm_len_m)
+- Pose Constraints: right-side measurement
+- Allowed DoF: path_type=surface_path(체표길이); canonical_side=right; symmetry_avg=forbidden; pose_violation=warn_only
 
 ---
 
@@ -470,19 +508,23 @@
 - Type: height
 - Landmark: 샅점(회음부 최저점 근처)–바닥
 - Path/Plane: 수직 높이
-- Pose: 기립
+- Pose: 기립, strict_standing, knee_flexion=forbidden
 - Sensitivity: 다리 벌림/골반 기울기
 - Confusions: KNEE_HEIGHT_M, HEIGHT_M
-- Basis: 샅높이 표준항목 준거 :contentReference[oaicite:50]{index=50}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#crotch_height_m)
+- Pose Constraints: strict_standing; knee_flexion=forbidden; board_level=required(아크릴판 수평)
+- Allowed DoF: vertical_distance=required; auto_pose_correction=forbidden; pose_violation=warn_only
 
 #### KNEE_HEIGHT_M
 - Type: height
 - Landmark: 무릎 기준점–바닥
 - Path/Plane: 수직 높이
-- Pose: 기립
+- Pose: 기립, strict_standing, knee_flexion=forbidden, right-side measurement
 - Sensitivity: 무릎 굴곡
 - Confusions: CROTCH_HEIGHT_M
-- Basis: 무릎높이 표준항목 준거 :contentReference[oaicite:51]{index=51}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#knee_height_m)
+- Pose Constraints: strict_standing; knee_flexion=forbidden; right-side measurement
+- Allowed DoF: vertical_distance=required; auto_pose_correction=forbidden; canonical_side=right; pose_violation=warn_only
 
 ---
 
@@ -492,10 +534,12 @@
 - Type: circumference
 - Landmark: 허벅지 기준(대퇴) 둘레(보통 대퇴 최대에 가까움)
 - Path/Plane: 대퇴 축에 수직 단면 둘레
-- Pose: 기립
+- Pose: 기립, right-side measurement
 - Sensitivity: 다리 벌림/근육 수축
 - Confusions: MID_THIGH_CIRC_M
-- Basis: 넙다리둘레 표준항목 준거 :contentReference[oaicite:52]{index=52}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#thigh_circ_m)
+- Pose Constraints: standing; right-side measurement
+- Allowed DoF: canonical_side=right; symmetry_avg=forbidden; fixed_height=required; band_scan=forbidden; pose_violation=warn_only
 
 #### MID_THIGH_CIRC_M
 - Type: circumference
@@ -537,10 +581,12 @@
 - Type: circumference
 - Landmark: 복사뼈를 포함하지 않는 발목 위 종아리 최소 둘레
 - Path/Plane: 하퇴 축에 수직 단면 둘레(최소, 복사뼈 제외)
-- Pose: 기립
+- Pose: 기립, right-side measurement
 - Sensitivity: 측정 위치(최소점 탐색) 민감
 - Confusions: ANKLE_MAX_CIRC_M, CALF_CIRC_M
-- Basis: 종아리최소둘레 표준항목 준거 :contentReference[oaicite:57]{index=57}
+- Basis: [SizeKorea Evidence](../semantic/evidence/sizekorea_measurement_methods_v0.md#min_calf_circ_m)
+- Pose Constraints: standing; right-side measurement
+- Allowed DoF: canonical_side=right; symmetry_avg=forbidden; fixed_height=required; band_scan=forbidden; pose_violation=warn_only
 
 #### ANKLE_MAX_CIRC_M
 - Type: circumference
