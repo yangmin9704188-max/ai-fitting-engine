@@ -182,6 +182,17 @@ SoT = `/SYNC_HUB.md`, 운영 신호 = `/docs/sync/CURRENT_STATE.md`. PR에 core/
 
 Reference: `docs/semantic/measurement_semantics_v0.md` (Freeze Declaration 섹션 참조)
 
+8.3 Round 13: S0 FAST MODE + Scale Persisted + Runner E2E Success
+
+**Round 13 Facts (2026-01-25)**:
+- S0 synthetic dataset 생성기에 FAST MODE 추가 (`--only-case` / `ONLY_CASE` env var)
+- Scale normalization이 NPZ에 실제로 반영됨 (re-open proof 통과)
+- Runner가 NPZ 로드/처리/리포트 저장까지 성공 (e2e 통과)
+- Valid case 1개 (normal_1) 기준: HEIGHT_M median=1.710m, WAIST/HIP width/depth NaN율=0%, slice sharing=100%
+- Expected fail cases 5개 정상 포함 및 처리됨
+
+Reference: `reports/validation/geo_v0_facts_round13_fastmode_normal1_runner.md`
+
 9. Provenance
 
 Snapshot Tag: snapshot-20260122-bust-underbust-mvp1
