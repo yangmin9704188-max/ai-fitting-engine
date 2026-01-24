@@ -67,13 +67,14 @@ def get_git_sha() -> Optional[str]:
         return None
 
 
-def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str]]:
-    """Load NPZ dataset and return (verts_list, case_ids, case_classes).
+def load_npz_dataset(npz_path: str) -> tuple[List[np.ndarray], List[str], List[str], Optional[List[Dict[str, Any]]]]:
+    """Load NPZ dataset and return (verts_list, case_ids, case_classes, case_metadata).
     
     Returns:
         verts_list: List of vertex arrays
         case_ids: List of case identifiers
         case_classes: List of case classes ("valid" or "expected_fail")
+        case_metadata: Optional list of metadata dicts (scale normalization info)
     """
     data = np.load(npz_path, allow_pickle=True)
     
@@ -692,6 +693,8 @@ def main():
             verts_list = verts_list[:args.n_samples]
             case_ids = case_ids[:args.n_samples]
             case_classes = case_classes[:args.n_samples]
+            if case_metadata_list:
+                case_metadata_list = case_metadata_list[:args.n_samples]
             print(f"  Limited to {args.n_samples} samples")
         elif args.n_samples > len(verts_list):
             print(f"  Warning: n_samples ({args.n_samples}) > available cases ({len(verts_list)}), using all {len(verts_list)} cases")
