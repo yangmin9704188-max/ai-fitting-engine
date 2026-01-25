@@ -13,10 +13,27 @@ verification/reports/
 verification/runs/
 verification/datasets/runs/
 verification/tmp/
+verification/local_artifacts/
+!verification/local_artifacts/README.md
 *.npy
 *.npz
 *.pt
 *.pth
+
+# Local test reports (not official baselines)
+reports/validation/geo_v0_facts_round2.md
+reports/validation/geo_v0_facts_round3_waist_hip_fix.md
+reports/validation/geo_v0_facts_round4_waist_hip_fix.md
+reports/validation/geo_v0_facts_round5_waist_hip_fallback_working.md
+reports/validation/geo_v0_facts_round6_s0_humanlike.md
+reports/validation/geo_v0_facts_round7_slice_shared.md
+reports/validation/geo_v0_facts_round8_height_debug.md
+reports/validation/geo_v0_facts_round9_s0_scale_fix.md
+reports/validation/geo_v0_facts_round10_s0_scale_proof.md
+
+# Temporary/local files
+*.xls
+*.xlsx
 
 
 
