@@ -1,0 +1,7 @@
+{
+  "curated_v0": {
+    "baseline_tag_alias": "curated-v0-realdata-v0.1",
+    "baseline_run_dir": "verification/runs/facts/curated_v0/round20_20260125_164801",
+    "baseline_report": "reports/validation/curated_v0_facts_round1.md"
+  }
+}
