@@ -86,6 +86,7 @@ Generated: docs/ops/COMMANDS.md
 - ✅ PR 트리거 설정
 - ✅ 경로 필터 설정 (Makefile, generator, COMMANDS.md)
 - ✅ 검사만 수행, 자동 커밋/푸시 없음
+- **변경**: PR 차단 게이트에서 제외, workflow_dispatch로 전환 (수동 실행만 가능)
 
 ## Rollback
 - `tools/ops/generate_commands_md.py` 삭제 가능
