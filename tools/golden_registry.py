@@ -230,23 +230,106 @@ def upsert_golden_entry(
         raise
 
 
+def apply_patch_entry(
+    patch_path: Path,
+    registry_path: Path,
+    force: bool = False
+) -> None:
+    """
+    Apply a patch entry to golden registry.
+    If conflicts exist and force=False, exit with non-zero code.
+    """
+    # Load patch
+    try:
+        with open(patch_path, "r", encoding="utf-8") as f:
+            patch_data = json.load(f)
+    except Exception as e:
+        print(f"Error: Failed to load patch file: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    proposed_entry = patch_data.get("proposed_entry")
+    if not proposed_entry:
+        print("Error: patch file missing 'proposed_entry'", file=sys.stderr)
+        sys.exit(1)
+    
+    conflicts = patch_data.get("conflicts", [])
+    
+    # Check conflicts
+    if conflicts and not force:
+        print("Warning: Conflicts detected in patch:", file=sys.stderr)
+        for conflict in conflicts:
+            print(f"  - {conflict['type']}: value={conflict['value']}, existing_ids={conflict['existing_ids']}", file=sys.stderr)
+        print("Use --force to apply anyway.", file=sys.stderr)
+        sys.exit(1)
+    
+    if conflicts and force:
+        print("Warning: Applying patch with conflicts (--force enabled):", file=sys.stderr)
+        for conflict in conflicts:
+            print(f"  - {conflict['type']}: value={conflict['value']}, existing_ids={conflict['existing_ids']}", file=sys.stderr)
+    
+    # Load registry
+    registry = load_golden_registry(registry_path)
+    
+    # Convert proposed_entry to registry entry format
+    # Note: proposed_entry has lane/run_dir/baseline_tag_alias, but registry entries have npz_path/npz_sha256
+    # We need to construct a minimal entry or extend the registry schema
+    # For now, we'll create a minimal entry with run_dir and npz_sha256 if available
+    
+    new_entry = {
+        "run_dir": proposed_entry.get("run_dir"),
+        "npz_sha256": proposed_entry.get("npz_sha256"),
+        "lane": proposed_entry.get("lane"),
+        "baseline_tag_alias": proposed_entry.get("baseline_tag_alias"),
+        "evidence_paths": proposed_entry.get("evidence_paths", {}),
+        "notes": f"Added from patch at {datetime.now().isoformat()}"
+    }
+    
+    # Append entry
+    registry["entries"].append(new_entry)
+    registry["updated_at"] = datetime.now().isoformat()
+    
+    # Atomic write
+    temp_path = registry_path.with_suffix(".json.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(registry, f, indent=2, ensure_ascii=False)
+        
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(temp_path), str(registry_path))
+        
+        print(f"Applied patch: {registry_path} ({len(registry['entries'])} entries)")
+    except Exception as e:
+        print(f"Error: Failed to write golden registry: {e}", file=sys.stderr)
+        if temp_path.exists():
+            temp_path.unlink()
+        sys.exit(1)
+
+
 def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Update golden registry from NPZ file"
+        description="Update golden registry from NPZ file or apply patch"
     )
-    parser.add_argument(
+    
+    # Mutually exclusive: either --npz_path or --add-entry
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--npz_path",
         type=str,
-        required=True,
-        help="Path to NPZ file"
+        help="Path to NPZ file (for direct upsert)"
     )
+    group.add_argument(
+        "--add-entry",
+        type=str,
+        help="Path to patch JSON file (for patch-based entry)"
+    )
+    
     parser.add_argument(
         "--source_path_abs",
         type=str,
         default=None,
-        help="Source file absolute path (optional)"
+        help="Source file absolute path (optional, for --npz_path mode)"
     )
     parser.add_argument(
         "--registry_path",
@@ -254,21 +337,41 @@ def main():
         default="docs/verification/golden_registry.json",
         help="Golden registry path"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force apply patch even if conflicts exist (for --add-entry mode)"
+    )
     
     args = parser.parse_args()
     
-    npz_path = (project_root / args.npz_path).resolve()
     registry_path = project_root / args.registry_path
     
-    source_path_abs = None
-    if args.source_path_abs:
-        source_path_abs = str(Path(args.source_path_abs).resolve())
-    
-    upsert_golden_entry(
-        registry_path=registry_path,
-        npz_path=npz_path,
-        source_path_abs=source_path_abs
-    )
+    if args.add_entry:
+        # Apply patch mode
+        patch_path = (project_root / args.add_entry).resolve()
+        if not patch_path.exists():
+            print(f"Error: Patch file not found: {patch_path}", file=sys.stderr)
+            sys.exit(1)
+        
+        apply_patch_entry(
+            patch_path=patch_path,
+            registry_path=registry_path,
+            force=args.force
+        )
+    else:
+        # Direct upsert mode (existing behavior)
+        npz_path = (project_root / args.npz_path).resolve()
+        
+        source_path_abs = None
+        if args.source_path_abs:
+            source_path_abs = str(Path(args.source_path_abs).resolve())
+        
+        upsert_golden_entry(
+            registry_path=registry_path,
+            npz_path=npz_path,
+            source_path_abs=source_path_abs
+        )
 
 
 if __name__ == "__main__":

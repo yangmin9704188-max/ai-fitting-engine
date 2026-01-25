@@ -1,0 +1,19 @@
+{
+  "schema_version": "golden_registry_patch@1",
+  "generated_at": "[timestamp]",
+  "generated_by": "tools/postprocess_round.py",
+  "proposed_entry": {
+    "lane": "[lane]",
+    "run_dir": "[run_dir]",
+    "baseline_tag_alias": "[baseline_tag_alias or null]",
+    "npz_sha256": "[npz_sha256 or null]",
+    "evidence_paths": {
+      "round_charter": "[path or null]",
+      "prompt_snapshot": "[path or null]",
+      "kpi_diff": "[path or null]",
+      "lineage": "[path or null]",
+      "kpi": "[path or null]"
+    }
+  },
+  "conflicts": []
+}
