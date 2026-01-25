@@ -21,6 +21,36 @@ project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
 
+def normalize_path_to_relative(path_str: Optional[str]) -> Optional[str]:
+    """
+    Normalize path to repo-relative path (forward slashes, no absolute paths).
+    Returns None if path_str is None or cannot be normalized.
+    """
+    if not path_str:
+        return None
+    
+    try:
+        # Convert backslashes to forward slashes (Windows compatibility)
+        normalized = path_str.replace("\\", "/")
+        
+        # If absolute path, try to convert to relative
+        path_obj = Path(normalized)
+        if path_obj.is_absolute():
+            try:
+                # Try to make it relative to project_root
+                normalized = str(path_obj.relative_to(project_root))
+                # Ensure forward slashes
+                normalized = normalized.replace("\\", "/")
+            except ValueError:
+                # Cannot make relative, return as-is but with forward slashes
+                pass
+        
+        return normalized
+    except Exception:
+        # If normalization fails, return original with forward slashes
+        return path_str.replace("\\", "/") if path_str else None
+
+
 def extract_round_info(run_dir: Path) -> tuple[str, Optional[int], str]:
     """Extract lane, round_num, round_id from run_dir path."""
     # Example: verification/runs/facts/curated_v0/round20_20260125_164801
@@ -48,8 +78,36 @@ def extract_round_info(run_dir: Path) -> tuple[str, Optional[int], str]:
     return lane, round_num, round_id
 
 
+def normalize_registry_paths(registry: Dict[str, Any]) -> None:
+    """Normalize all paths in registry to repo-relative (forward slashes)."""
+    if "lanes" not in registry:
+        return
+    
+    for lane_data in registry["lanes"].values():
+        # Normalize baseline paths
+        if lane_data.get("baseline"):
+            baseline = lane_data["baseline"]
+            baseline["run_dir"] = normalize_path_to_relative(baseline.get("run_dir"))
+            baseline["report"] = normalize_path_to_relative(baseline.get("report"))
+        
+        # Normalize latest paths
+        if lane_data.get("latest"):
+            latest = lane_data["latest"]
+            latest["run_dir"] = normalize_path_to_relative(latest.get("run_dir"))
+        
+        # Normalize round entry paths
+        for round_entry in lane_data.get("rounds", []):
+            round_entry["run_dir"] = normalize_path_to_relative(round_entry.get("run_dir"))
+            round_entry["facts_summary"] = normalize_path_to_relative(round_entry.get("facts_summary"))
+            round_entry["report"] = normalize_path_to_relative(round_entry.get("report"))
+            round_entry["kpi"] = normalize_path_to_relative(round_entry.get("kpi"))
+            round_entry["kpi_diff"] = normalize_path_to_relative(round_entry.get("kpi_diff"))
+            round_entry["source_npz"] = normalize_path_to_relative(round_entry.get("source_npz"))
+            # source_path_abs is intentionally kept as absolute (external reference)
+
+
 def load_registry(registry_path: Path) -> Dict[str, Any]:
-    """Load round registry."""
+    """Load round registry and normalize paths."""
     if not registry_path.exists():
         return {
             "schema_version": "round_registry@1",
@@ -68,6 +126,9 @@ def load_registry(registry_path: Path) -> Dict[str, Any]:
         # Ensure lanes
         if "lanes" not in registry:
             registry["lanes"] = {}
+        
+        # Normalize all paths in loaded registry
+        normalize_registry_paths(registry)
         
         return registry
     except Exception as e:
@@ -93,8 +154,11 @@ def ensure_baseline(registry: Dict[str, Any], lane: str, baselines: Dict[str, An
     
     lane_data = registry["lanes"][lane]
     
-    # If baseline already exists, don't change it
+    # If baseline already exists, normalize its paths but don't change values
     if lane_data.get("baseline") is not None:
+        baseline = lane_data["baseline"]
+        baseline["run_dir"] = normalize_path_to_relative(baseline.get("run_dir"))
+        baseline["report"] = normalize_path_to_relative(baseline.get("report"))
         return
     
     # Set initial baseline from baselines.json
@@ -107,8 +171,8 @@ def ensure_baseline(registry: Dict[str, Any], lane: str, baselines: Dict[str, An
         if baseline_alias and baseline_run_dir:
             lane_data["baseline"] = {
                 "alias": baseline_alias,
-                "run_dir": baseline_run_dir,
-                "report": baseline_report
+                "run_dir": normalize_path_to_relative(baseline_run_dir),
+                "report": normalize_path_to_relative(baseline_report)
             }
 
 
@@ -139,6 +203,8 @@ def extract_source_info(facts_summary_path: Optional[Path]) -> tuple[Optional[st
                     source_npz = str(source_npz_path.relative_to(project_root))
                 except ValueError:
                     source_npz = str(source_npz_path)
+            # Normalize path (forward slashes)
+            source_npz = normalize_path_to_relative(source_npz)
         
         # Extract source_path_abs
         source_path_abs = facts_data.get("source_path_abs")
@@ -191,40 +257,58 @@ def update_registry(
     # Check artifacts
     artifacts = check_artifacts_exist(current_run_dir)
     
-    # Create or update round entry
+    # Determine report path (standardized to lanes/<lane>/)
+    report_path = None
+    # Check if report already exists in registry (preserve existing)
+    existing_idx = find_round_entry(rounds, round_id)
+    if existing_idx is not None:
+        existing_entry = rounds[existing_idx]
+        report_path = existing_entry.get("report")
+    
+    # If no existing report, try baseline
+    if not report_path and lane_data.get("baseline") and lane_data["baseline"].get("report"):
+        report_path = lane_data["baseline"]["report"]
+    
+    # If still no report, use standardized lanes path (but don't create file yet)
+    if not report_path:
+        # Standardized path: reports/validation/lanes/<lane>/<round_id>_facts.md
+        report_path = f"reports/validation/lanes/{lane}/{round_id}_facts.md"
+    
+    # Normalize report path
+    report_path = normalize_path_to_relative(report_path)
+    
+    # Create or update round entry (all paths normalized)
     round_entry = {
         "round_id": round_id,
         "round_num": round_num,
-        "run_dir": str(current_run_dir.relative_to(project_root)),
-        "facts_summary": str(facts_summary_path.relative_to(project_root)) if facts_summary_path else None,
-        "report": None,  # TODO: extract from facts_summary or registry if available
-        "kpi": str((current_run_dir / "KPI.md").relative_to(project_root)) if artifacts["kpi"] else None,
-        "kpi_diff": str((current_run_dir / "KPI_DIFF.md").relative_to(project_root)) if artifacts["kpi_diff"] else None,
+        "run_dir": normalize_path_to_relative(str(current_run_dir.relative_to(project_root))),
+        "facts_summary": normalize_path_to_relative(str(facts_summary_path.relative_to(project_root))) if facts_summary_path else None,
+        "report": report_path,
+        "kpi": normalize_path_to_relative(str((current_run_dir / "KPI.md").relative_to(project_root))) if artifacts["kpi"] else None,
+        "kpi_diff": normalize_path_to_relative(str((current_run_dir / "KPI_DIFF.md").relative_to(project_root))) if artifacts["kpi_diff"] else None,
         "coverage_backlog_touched": coverage_backlog_touched,
         "created_at": datetime.now().isoformat(),
-        "source_npz": source_npz,
-        "source_path_abs": source_path_abs,
+        "source_npz": normalize_path_to_relative(source_npz),
+        "source_path_abs": source_path_abs,  # Keep absolute for source_path_abs (external reference)
         "notes": ""
     }
     
-    # Try to get report from baseline if available
-    if lane_data.get("baseline") and lane_data["baseline"].get("report"):
-        round_entry["report"] = lane_data["baseline"]["report"]
-    
-    # Find existing entry
-    existing_idx = find_round_entry(rounds, round_id)
-    
+    # Update existing entry or append new
     if existing_idx is not None:
+        # Preserve existing report path if it exists and is not None
+        existing_report = rounds[existing_idx].get("report")
+        if existing_report:
+            round_entry["report"] = normalize_path_to_relative(existing_report)
         # Update existing entry
         rounds[existing_idx] = round_entry
     else:
         # Append new entry
         rounds.append(round_entry)
     
-    # Update latest
+    # Update latest (normalized)
     lane_data["latest"] = {
         "round_id": round_id,
-        "run_dir": str(current_run_dir.relative_to(project_root))
+        "run_dir": normalize_path_to_relative(str(current_run_dir.relative_to(project_root)))
     }
     
     # Update registry metadata
