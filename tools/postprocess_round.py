@@ -942,6 +942,239 @@ def generate_candidate_stubs(
     print(f"Generated: {baseline_path.relative_to(project_root)}")
 
 
+def detect_golden_registry_conflicts(
+    proposed_entry: Dict[str, Any],
+    registry_path: Path
+) -> List[Dict[str, Any]]:
+    """
+    Detect conflicts between proposed_entry and existing golden registry.
+    Returns list of conflict objects (facts-only).
+    """
+    conflicts = []
+    
+    if not registry_path.exists():
+        return conflicts
+    
+    try:
+        with open(registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+    except Exception:
+        return conflicts
+    
+    entries = registry.get("entries", [])
+    
+    # Check for duplicate run_dir
+    proposed_run_dir = proposed_entry.get("run_dir")
+    if proposed_run_dir:
+        existing_ids = []
+        for i, entry in enumerate(entries):
+            # Check if entry has run_dir field (may not exist in old entries)
+            if entry.get("run_dir") == proposed_run_dir:
+                existing_ids.append(i)
+        
+        if existing_ids:
+            conflicts.append({
+                "type": "duplicate_run_dir",
+                "existing_ids": existing_ids,
+                "value": proposed_run_dir
+            })
+    
+    # Check for duplicate npz_sha256
+    proposed_sha256 = proposed_entry.get("npz_sha256")
+    if proposed_sha256:
+        existing_ids = []
+        for i, entry in enumerate(entries):
+            if entry.get("npz_sha256") == proposed_sha256:
+                existing_ids.append(i)
+        
+        if existing_ids:
+            conflicts.append({
+                "type": "duplicate_npz_sha256",
+                "existing_ids": existing_ids,
+                "value": proposed_sha256
+            })
+    
+    return conflicts
+
+
+def generate_golden_registry_patch(
+    current_run_dir: Path,
+    lane: str,
+    baseline_alias: Optional[str],
+    facts_summary_path: Path,
+    kpi_path: Optional[Path],
+    kpi_diff_path: Optional[Path],
+    lineage_path: Optional[Path],
+    charter_path: Optional[Path],
+    snapshot_path: Optional[Path]
+) -> None:
+    """
+    Generate GOLDEN_REGISTRY_PATCH.json and README.
+    Always overwrite (not idempotent for content).
+    """
+    candidates_dir = current_run_dir / "CANDIDATES"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Load facts_summary for npz_sha256 extraction
+    facts_data = {}
+    npz_sha256 = None
+    try:
+        with open(facts_summary_path, "r", encoding="utf-8") as f:
+            facts_data = json.load(f)
+        
+        # Try to extract npz_sha256 from facts_summary or compute from NPZ
+        npz_path_str = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+        if npz_path_str:
+            npz_path = Path(npz_path_str)
+            if npz_path.is_absolute():
+                npz_path_obj = npz_path
+            else:
+                npz_path_obj = project_root / npz_path
+            
+            if npz_path_obj.exists():
+                # Try to compute hash (only for small files)
+                from tools.golden_registry import compute_file_hash
+                npz_sha256 = compute_file_hash(npz_path_obj, max_size_mb=50)
+    except Exception:
+        pass
+    
+    # Build evidence_paths (repo-relative)
+    evidence_paths = {}
+    
+    if charter_path and charter_path.exists():
+        try:
+            rel_charter = str(charter_path.relative_to(project_root))
+            evidence_paths["round_charter"] = rel_charter
+        except Exception:
+            evidence_paths["round_charter"] = None
+    else:
+        evidence_paths["round_charter"] = None
+    
+    if snapshot_path and snapshot_path.exists():
+        try:
+            rel_snapshot = str(snapshot_path.relative_to(project_root))
+            evidence_paths["prompt_snapshot"] = rel_snapshot
+        except Exception:
+            evidence_paths["prompt_snapshot"] = None
+    else:
+        evidence_paths["prompt_snapshot"] = None
+    
+    if kpi_diff_path and kpi_diff_path.exists():
+        try:
+            rel_kpi_diff = str(kpi_diff_path.relative_to(project_root))
+            evidence_paths["kpi_diff"] = rel_kpi_diff
+        except Exception:
+            evidence_paths["kpi_diff"] = None
+    else:
+        evidence_paths["kpi_diff"] = None
+    
+    if lineage_path and lineage_path.exists():
+        try:
+            rel_lineage = str(lineage_path.relative_to(project_root))
+            evidence_paths["lineage"] = rel_lineage
+        except Exception:
+            evidence_paths["lineage"] = None
+    else:
+        evidence_paths["lineage"] = None
+    
+    if kpi_path and kpi_path.exists():
+        try:
+            rel_kpi = str(kpi_path.relative_to(project_root))
+            evidence_paths["kpi"] = rel_kpi
+        except Exception:
+            evidence_paths["kpi"] = None
+    else:
+        evidence_paths["kpi"] = None
+    
+    # Build proposed_entry
+    run_dir_rel = str(current_run_dir.relative_to(project_root))
+    
+    proposed_entry = {
+        "lane": lane,
+        "run_dir": run_dir_rel,
+        "baseline_tag_alias": baseline_alias if baseline_alias else None,
+        "npz_sha256": npz_sha256,
+        "evidence_paths": evidence_paths
+    }
+    
+    # Detect conflicts
+    registry_path = project_root / "docs" / "verification" / "golden_registry.json"
+    conflicts = detect_golden_registry_conflicts(proposed_entry, registry_path)
+    
+    # Build patch JSON
+    patch_data = {
+        "schema_version": "golden_registry_patch@1",
+        "generated_at": datetime.now().isoformat(),
+        "generated_by": "tools/postprocess_round.py",
+        "proposed_entry": proposed_entry,
+        "conflicts": conflicts
+    }
+    
+    # Write patch JSON
+    patch_json_path = candidates_dir / "GOLDEN_REGISTRY_PATCH.json"
+    with open(patch_json_path, "w", encoding="utf-8") as f:
+        json.dump(patch_data, f, indent=2, ensure_ascii=False)
+    
+    # Generate README
+    readme_content = f"""# Golden Registry Patch
+
+**Generated at**: {patch_data['generated_at']}
+**Generated by**: {patch_data['generated_by']}
+
+## Proposed Entry
+
+- **lane**: {lane}
+- **run_dir**: {run_dir_rel}
+- **baseline_tag_alias**: {baseline_alias if baseline_alias else 'null'}
+- **npz_sha256**: {npz_sha256 if npz_sha256 else 'null'}
+
+### Evidence Paths
+
+- **round_charter**: {evidence_paths['round_charter'] or 'null'}
+- **prompt_snapshot**: {evidence_paths['prompt_snapshot'] or 'null'}
+- **kpi_diff**: {evidence_paths['kpi_diff'] or 'null'}
+- **lineage**: {evidence_paths['lineage'] or 'null'}
+- **kpi**: {evidence_paths['kpi'] or 'null'}
+
+## Conflicts
+
+"""
+    
+    if conflicts:
+        readme_content += f"**Warning**: {len(conflicts)} conflict(s) detected:\n\n"
+        for conflict in conflicts:
+            readme_content += f"- **{conflict['type']}**: value=`{conflict['value']}`, existing_ids={conflict['existing_ids']}\n"
+        readme_content += "\n"
+    else:
+        readme_content += "No conflicts detected.\n\n"
+    
+    # Add apply command example
+    patch_json_rel = str(patch_json_path.relative_to(project_root))
+    readme_content += f"""## Apply Command
+
+To apply this patch to the golden registry:
+
+```bash
+py tools/golden_registry.py --add-entry {patch_json_rel} --registry docs/verification/golden_registry.json
+```
+
+If conflicts are detected and you want to force apply:
+
+```bash
+py tools/golden_registry.py --add-entry {patch_json_rel} --registry docs/verification/golden_registry.json --force
+```
+
+**Note**: This patch is a proposal only. The golden registry is not automatically modified.
+"""
+    
+    readme_path = candidates_dir / "GOLDEN_REGISTRY_PATCH_README.md"
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(readme_content)
+    
+    print(f"Generated: {patch_json_path.relative_to(project_root)}")
+    print(f"Generated: {readme_path.relative_to(project_root)}")
+
+
 def update_round_registry(
     registry_path: Path,
     current_run_dir: Path,
@@ -1224,6 +1457,19 @@ def main():
         current_run_dir=current_run_dir,
         lane=lane,
         round_id=round_id,
+        facts_summary_path=facts_summary_path,
+        kpi_path=kpi_path,
+        kpi_diff_path=kpi_diff_path_obj if kpi_diff_path_obj.exists() else None,
+        lineage_path=lineage_path_obj if lineage_path_obj.exists() else None,
+        charter_path=charter_path,
+        snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
+    )
+    
+    # Generate golden registry patch (always overwrite)
+    generate_golden_registry_patch(
+        current_run_dir=current_run_dir,
+        lane=lane,
+        baseline_alias=baseline_alias,
         facts_summary_path=facts_summary_path,
         kpi_path=kpi_path,
         kpi_diff_path=kpi_diff_path_obj if kpi_diff_path_obj.exists() else None,
