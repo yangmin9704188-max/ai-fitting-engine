@@ -19,7 +19,7 @@ help:
 	@echo "  make postprocess-baseline"
 	@echo "  make curated_v0_baseline"
 	@echo "  make golden-apply PATCH=<patch.json> [FORCE=1]"
-	@echo "  make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments]"
+	@echo "  make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments] [SLUG=...] [DRY_RUN=1]"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make sync-dry ARGS=\"--set snapshot.status=candidate\""
@@ -35,6 +35,7 @@ help:
 	@echo "  make golden-apply PATCH=verification/runs/facts/curated_v0/round20_20260125_164801/CANDIDATES/GOLDEN_REGISTRY_PATCH.json"
 	@echo "  make golden-apply PATCH=<path> FORCE=1"
 	@echo "  make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801"
+	@echo "  make judgment FROM_RUN=<run_dir> DRY_RUN=1 SLUG=smoke"
 
 sync-dry:
 	python tools/sync_state.py --dry-run $(ARGS)
@@ -106,16 +107,20 @@ golden-apply:
 		python tools/golden_registry.py --add-entry $(PATCH) --registry $(GOLDEN_REGISTRY); \
 	fi
 
-# Judgment creation (if tools/judgments.py exists)
+# Judgment creation
 judgment:
 	@if [ -z "$(FROM_RUN)" ]; then \
-		echo "Error: FROM_RUN is required. Usage: make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments]"; \
+		echo "Error: FROM_RUN is required. Usage: make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments] [SLUG=...] [DRY_RUN=1]"; \
 		echo "Example: make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801"; \
 		exit 1; \
 	fi
 	@OUT_DIR="$(if $(OUT_DIR),$(OUT_DIR),docs/judgments)"; \
-	if [ -f "tools/judgments.py" ]; then \
-		python tools/judgments.py --from-run $(FROM_RUN) --out-dir $$OUT_DIR; \
-	else \
-		echo "tools/judgments.py not found (ops-round8). Skipping."; \
-	fi
+	DRY_RUN_FLAG=""; \
+	if [ "$(DRY_RUN)" = "1" ]; then \
+		DRY_RUN_FLAG="--dry-run"; \
+	fi; \
+	SLUG_FLAG=""; \
+	if [ -n "$(SLUG)" ]; then \
+		SLUG_FLAG="--slug $(SLUG)"; \
+	fi; \
+	python tools/judgments.py --from-run $(FROM_RUN) --out-dir $$OUT_DIR $$SLUG_FLAG $$DRY_RUN_FLAG
