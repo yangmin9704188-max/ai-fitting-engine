@@ -446,28 +446,64 @@ for i in range(5):
     y_max_scaled = float(np.max(y_coords_scaled))
     y_range_scaled = y_max_scaled - y_min_scaled
     
-    # Calculate bust estimate from scaled vertices (for comparison only)
     bust_y_scaled = y_min_scaled + 0.575 * y_range_scaled
+    waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
+    hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
+    
     bust_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
     bust_circ_est_from_verts = 2 * np.pi * bust_radius_est_from_verts if bust_radius_est_from_verts is not None else None
+    waist_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, waist_y_scaled, tolerance=0.12)
+    waist_circ_est_from_verts = 2 * np.pi * waist_radius_est_from_verts if waist_radius_est_from_verts is not None else None
+    hip_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, hip_y_scaled, tolerance=0.12)
+    hip_circ_est_from_verts = 2 * np.pi * hip_radius_est_from_verts if hip_radius_est_from_verts is not None else None
 
     # -----------------------------------------------------------------------
-    # B) XZ verts alignment (fastmode / normal_1): match bust_circ_from_verts to theoretical
+    # B) XZ verts alignment (fastmode / normal_1): match bust/waist/hip circ_from_verts to theoretical
+    # Use single torso_xz_factor = min(bust, waist, hip) to avoid sequential scaling distortion.
     # -----------------------------------------------------------------------
     xz_scale_factor: Optional[float] = None
+    bust_xz_scale_factor: Optional[float] = None
+    waist_xz_scale_factor: Optional[float] = None
+    hip_xz_scale_factor: Optional[float] = None
     bust_radius_from_verts_before = bust_radius_est_from_verts
     bust_circ_from_verts_before = bust_circ_est_from_verts
+    waist_radius_from_verts_before = waist_radius_est_from_verts
+    waist_circ_from_verts_before = waist_circ_est_from_verts
+    hip_radius_from_verts_before = hip_radius_est_from_verts
+    hip_circ_from_verts_before = hip_circ_est_from_verts
     bust_radius_from_verts_after: Optional[float] = None
     bust_circ_from_verts_after: Optional[float] = None
-    if case_id == "normal_1" and bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
-        desired_radius = bust_circ_est / (2 * np.pi)
-        xz_scale_factor = desired_radius / bust_radius_est_from_verts
-        center_x = float(np.mean(verts_scaled[:, 0]))
-        center_z = float(np.mean(verts_scaled[:, 2]))
-        verts_scaled[:, 0] = center_x + (verts_scaled[:, 0] - center_x) * xz_scale_factor
-        verts_scaled[:, 2] = center_z + (verts_scaled[:, 2] - center_z) * xz_scale_factor
-        bust_radius_from_verts_after = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
-        bust_circ_from_verts_after = 2 * np.pi * bust_radius_from_verts_after if bust_radius_from_verts_after is not None else None
+    waist_radius_from_verts_after: Optional[float] = None
+    waist_circ_from_verts_after: Optional[float] = None
+    hip_radius_from_verts_after: Optional[float] = None
+    hip_circ_from_verts_after: Optional[float] = None
+
+    if case_id == "normal_1":
+        factors: List[float] = []
+        if bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
+            bust_xz_scale_factor = (bust_circ_est / (2 * np.pi)) / bust_radius_est_from_verts
+            factors.append(bust_xz_scale_factor)
+        if waist_radius_est_from_verts is not None and waist_radius_est_from_verts > 0:
+            waist_xz_scale_factor = (waist_circ_est / (2 * np.pi)) / waist_radius_est_from_verts
+            factors.append(waist_xz_scale_factor)
+        if hip_radius_est_from_verts is not None and hip_radius_est_from_verts > 0:
+            hip_xz_scale_factor = (hip_circ_est / (2 * np.pi)) / hip_radius_est_from_verts
+            factors.append(hip_xz_scale_factor)
+        if factors:
+            xz_scale_factor = min(factors)
+            center_x = float(np.mean(verts_scaled[:, 0]))
+            center_z = float(np.mean(verts_scaled[:, 2]))
+            verts_scaled[:, 0] = center_x + (verts_scaled[:, 0] - center_x) * xz_scale_factor
+            verts_scaled[:, 2] = center_z + (verts_scaled[:, 2] - center_z) * xz_scale_factor
+            bust_r = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+            bust_radius_from_verts_after = bust_r
+            bust_circ_from_verts_after = 2 * np.pi * bust_r if bust_r is not None else None
+            waist_r = _estimate_radius_at_height(verts_scaled, waist_y_scaled, tolerance=0.12)
+            waist_radius_from_verts_after = waist_r
+            waist_circ_from_verts_after = 2 * np.pi * waist_r if waist_r is not None else None
+            hip_r = _estimate_radius_at_height(verts_scaled, hip_y_scaled, tolerance=0.12)
+            hip_radius_from_verts_after = hip_r
+            hip_circ_from_verts_after = 2 * np.pi * hip_r if hip_r is not None else None
     
     # ========================================================================
     # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
@@ -515,7 +551,18 @@ for i in range(5):
                 "bust_circ_from_verts_before": float(bust_circ_from_verts_before) if bust_circ_from_verts_before is not None else None,
                 "bust_radius_from_verts_after": float(bust_radius_from_verts_after) if bust_radius_from_verts_after is not None else None,
                 "bust_circ_from_verts_after": float(bust_circ_from_verts_after) if bust_circ_from_verts_after is not None else None,
-                "xz_scale_factor": float(xz_scale_factor) if xz_scale_factor is not None else None,
+                "bust_xz_scale_factor": float(bust_xz_scale_factor) if bust_xz_scale_factor is not None else None,
+                "waist_radius_from_verts_before": float(waist_radius_from_verts_before) if waist_radius_from_verts_before is not None else None,
+                "waist_circ_from_verts_before": float(waist_circ_from_verts_before) if waist_circ_from_verts_before is not None else None,
+                "waist_radius_from_verts_after": float(waist_radius_from_verts_after) if waist_radius_from_verts_after is not None else None,
+                "waist_circ_from_verts_after": float(waist_circ_from_verts_after) if waist_circ_from_verts_after is not None else None,
+                "waist_xz_scale_factor": float(waist_xz_scale_factor) if waist_xz_scale_factor is not None else None,
+                "hip_radius_from_verts_before": float(hip_radius_from_verts_before) if hip_radius_from_verts_before is not None else None,
+                "hip_circ_from_verts_before": float(hip_circ_from_verts_before) if hip_circ_from_verts_before is not None else None,
+                "hip_radius_from_verts_after": float(hip_radius_from_verts_after) if hip_radius_from_verts_after is not None else None,
+                "hip_circ_from_verts_after": float(hip_circ_from_verts_after) if hip_circ_from_verts_after is not None else None,
+                "hip_xz_scale_factor": float(hip_xz_scale_factor) if hip_xz_scale_factor is not None else None,
+                "torso_xz_scale_factor": float(xz_scale_factor) if xz_scale_factor is not None else None,
             },
             "clamp_applied": clamp_applied,
             "clamped_keys": clamped_keys
@@ -530,16 +577,26 @@ for i in range(5):
         print(f"  bust_circ_original={bust_circ:.4f}m")
         print(f"  bust_circ_after_scale_theoretical={bust_circ * scale_factor:.4f}m")
         print(f"  bust_circ_estimate_actual={bust_circ_est:.4f}m")
-        print(f"  bust_radius_after_scale_theoretical={bust_radius * scale_factor:.4f}m")
-        print(f"  bust_radius_estimated={bust_radius_est:.4f}m")
         if bust_radius_from_verts_before is not None:
-            print(f"  bust_radius_from_verts_before={bust_radius_from_verts_before:.4f}m")
-            print(f"  bust_circ_from_verts_before={bust_circ_from_verts_before:.4f}m")
-        if xz_scale_factor is not None:
-            print(f"  xz_scale_factor={xz_scale_factor:.4f}")
+            print(f"  bust_radius_from_verts_before={bust_radius_from_verts_before:.4f}m bust_circ_from_verts_before={bust_circ_from_verts_before:.4f}m")
         if bust_radius_from_verts_after is not None:
-            print(f"  bust_radius_from_verts_after={bust_radius_from_verts_after:.4f}m")
-            print(f"  bust_circ_from_verts_after={bust_circ_from_verts_after:.4f}m")
+            print(f"  bust_radius_from_verts_after={bust_radius_from_verts_after:.4f}m bust_circ_from_verts_after={bust_circ_from_verts_after:.4f}m")
+        if bust_xz_scale_factor is not None:
+            print(f"  bust_xz_scale_factor={bust_xz_scale_factor:.4f}")
+        if waist_radius_from_verts_before is not None:
+            print(f"  waist_radius_from_verts_before={waist_radius_from_verts_before:.4f}m waist_circ_from_verts_before={waist_circ_from_verts_before:.4f}m")
+        if waist_radius_from_verts_after is not None:
+            print(f"  waist_radius_from_verts_after={waist_radius_from_verts_after:.4f}m waist_circ_from_verts_after={waist_circ_from_verts_after:.4f}m")
+        if waist_xz_scale_factor is not None:
+            print(f"  waist_xz_scale_factor={waist_xz_scale_factor:.4f}")
+        if hip_radius_from_verts_before is not None:
+            print(f"  hip_radius_from_verts_before={hip_radius_from_verts_before:.4f}m hip_circ_from_verts_before={hip_circ_from_verts_before:.4f}m")
+        if hip_radius_from_verts_after is not None:
+            print(f"  hip_radius_from_verts_after={hip_radius_from_verts_after:.4f}m hip_circ_from_verts_after={hip_circ_from_verts_after:.4f}m")
+        if hip_xz_scale_factor is not None:
+            print(f"  hip_xz_scale_factor={hip_xz_scale_factor:.4f}")
+        if xz_scale_factor is not None:
+            print(f"  torso_xz_scale_factor (applied)={xz_scale_factor:.4f}")
         print(f"  clamp_applied={clamp_applied}")
         print(f"  Saved trace to: {trace_path.resolve()}")
     
