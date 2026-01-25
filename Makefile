@@ -1,4 +1,4 @@
-.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round ops_guard postprocess postprocess-baseline curated_v0_baseline golden-apply judgment
+.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round ops_guard postprocess postprocess-baseline curated_v0_baseline golden-apply judgment commands-update
 
 # Default variables (override with make VAR=value)
 BASELINE_RUN_DIR ?= verification/runs/facts/curated_v0/round20_20260125_164801
@@ -20,6 +20,7 @@ help:
 	@echo "  make curated_v0_baseline"
 	@echo "  make golden-apply PATCH=<patch.json> [FORCE=1]"
 	@echo "  make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments] [SLUG=...] [DRY_RUN=1]"
+	@echo "  make commands-update"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make sync-dry ARGS=\"--set snapshot.status=candidate\""
@@ -124,3 +125,7 @@ judgment:
 		SLUG_FLAG="--slug $(SLUG)"; \
 	fi; \
 	python tools/judgments.py --from-run $(FROM_RUN) --out-dir $$OUT_DIR $$SLUG_FLAG $$DRY_RUN_FLAG
+
+# Commands documentation generator
+commands-update:
+	@python tools/ops/generate_commands_md.py
