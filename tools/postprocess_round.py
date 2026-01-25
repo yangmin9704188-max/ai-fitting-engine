@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -781,6 +782,166 @@ def ensure_visual_skip_evidence(
     print(f"Recorded visual skip evidence: {skipped_path.relative_to(project_root)}")
 
 
+def compute_relative_path_from_candidates(target_path: Path, candidates_dir: Path) -> str:
+    """
+    Compute relative path from CANDIDATES directory to target path.
+    Returns path with forward slashes (for markdown links).
+    """
+    try:
+        # Use os.path.relpath for reliable relative path calculation
+        rel = os.path.relpath(str(target_path.resolve()), str(candidates_dir.resolve()))
+        # Normalize to forward slashes for markdown
+        rel = rel.replace("\\", "/")
+        return rel
+    except Exception:
+        # Fallback: try pathlib relative_to
+        try:
+            rel = str(target_path.resolve().relative_to(candidates_dir.resolve()))
+            rel = rel.replace("\\", "/")
+            return rel
+        except Exception:
+            # If all else fails, return a safe relative path
+            return f"../{target_path.name}"
+
+
+def generate_candidate_stubs(
+    current_run_dir: Path,
+    lane: str,
+    round_id: str,
+    facts_summary_path: Path,
+    kpi_path: Optional[Path],
+    kpi_diff_path: Optional[Path],
+    lineage_path: Optional[Path],
+    charter_path: Optional[Path],
+    snapshot_path: Optional[Path]
+) -> None:
+    """
+    Generate candidate stub documents (GOLDEN_CANDIDATE.md, BASELINE_CANDIDATE.md).
+    Always overwrite (not idempotent for content, but stable relative links).
+    """
+    candidates_dir = current_run_dir / "CANDIDATES"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Load templates
+    golden_template_path = project_root / "docs" / "ops" / "templates" / "golden_candidate_stub.md"
+    baseline_template_path = project_root / "docs" / "ops" / "templates" / "baseline_candidate_stub.md"
+    
+    # Load template content
+    golden_template = ""
+    baseline_template = ""
+    
+    if golden_template_path.exists():
+        with open(golden_template_path, "r", encoding="utf-8") as f:
+            golden_template = f.read()
+    else:
+        # Fallback stub
+        golden_template = "# Golden Candidate: [Round ID]\n\n**NOTE: 이 문서는 참고용 후보 스텁입니다. 확정 시 별도 보관(예: docs/judgments/)을 권장합니다.**\n\n## Metadata\n- **lane**: [lane]\n- **run_dir**: [run_dir]\n- **generated_by**: `tools/postprocess_round.py`\n\n## Evidence Links\n\n## KPI_DIFF Summary\n\n## Warning Summary\n\n## Next Actions (권고/체크리스트)\n"
+    
+    if baseline_template_path.exists():
+        with open(baseline_template_path, "r", encoding="utf-8") as f:
+            baseline_template = f.read()
+    else:
+        # Fallback stub
+        baseline_template = "# Baseline Candidate: [Round ID]\n\n**NOTE: 이 문서는 참고용 후보 스텁입니다. 확정 시 별도 보관(예: docs/judgments/)을 권장합니다.**\n\n## Metadata\n- **lane**: [lane]\n- **run_dir**: [run_dir]\n- **generated_by**: `tools/postprocess_round.py`\n\n## Evidence Links\n\n## KPI_DIFF Summary\n\n## Warning Summary\n\n## Next Actions (권고/체크리스트)\n"
+    
+    # Compute relative paths from CANDIDATES directory
+    evidence_links = []
+    
+    if kpi_diff_path and kpi_diff_path.exists():
+        rel_kpi_diff = compute_relative_path_from_candidates(kpi_diff_path, candidates_dir)
+        evidence_links.append(f"- [KPI_DIFF.md]({rel_kpi_diff})")
+    
+    if lineage_path and lineage_path.exists():
+        rel_lineage = compute_relative_path_from_candidates(lineage_path, candidates_dir)
+        evidence_links.append(f"- [LINEAGE.md]({rel_lineage})")
+    
+    if kpi_path and kpi_path.exists():
+        rel_kpi = compute_relative_path_from_candidates(kpi_path, candidates_dir)
+        evidence_links.append(f"- [KPI.md]({rel_kpi})")
+    
+    if charter_path and charter_path.exists():
+        rel_charter = compute_relative_path_from_candidates(charter_path, candidates_dir)
+        evidence_links.append(f"- [ROUND_CHARTER.md]({rel_charter})")
+    
+    if snapshot_path and snapshot_path.exists():
+        rel_snapshot = compute_relative_path_from_candidates(snapshot_path, candidates_dir)
+        evidence_links.append(f"- [PROMPT_SNAPSHOT.md]({rel_snapshot})")
+    
+    evidence_links_section = "\n".join(evidence_links) if evidence_links else "- (No evidence files found)"
+    
+    # Replace template placeholders
+    run_dir_rel = str(current_run_dir.relative_to(project_root))
+    timestamp = datetime.now().isoformat()
+    
+    # Generate GOLDEN_CANDIDATE.md
+    golden_content = golden_template
+    golden_content = golden_content.replace("[Round ID]", round_id)
+    golden_content = golden_content.replace("[lane]", lane)
+    golden_content = golden_content.replace("[run_dir]", run_dir_rel)
+    golden_content = golden_content.replace("[timestamp]", timestamp)
+    
+    # Replace Evidence Links section
+    if "## Evidence Links" in golden_content:
+        # Find the section and replace content until next ##
+        lines = golden_content.split("\n")
+        new_lines = []
+        in_evidence_section = False
+        for line in lines:
+            if line.strip() == "## Evidence Links":
+                in_evidence_section = True
+                new_lines.append(line)
+                new_lines.append("")
+                new_lines.append("다음 증거 파일을 확인하세요 (CANDIDATES 기준 상대경로):")
+                new_lines.append("")
+                new_lines.append(evidence_links_section)
+                new_lines.append("")
+            elif in_evidence_section and line.startswith("##"):
+                in_evidence_section = False
+                new_lines.append(line)
+            elif not in_evidence_section:
+                new_lines.append(line)
+        golden_content = "\n".join(new_lines)
+    
+    golden_path = candidates_dir / "GOLDEN_CANDIDATE.md"
+    with open(golden_path, "w", encoding="utf-8") as f:
+        f.write(golden_content)
+    
+    # Generate BASELINE_CANDIDATE.md
+    baseline_content = baseline_template
+    baseline_content = baseline_content.replace("[Round ID]", round_id)
+    baseline_content = baseline_content.replace("[lane]", lane)
+    baseline_content = baseline_content.replace("[run_dir]", run_dir_rel)
+    baseline_content = baseline_content.replace("[timestamp]", timestamp)
+    
+    # Replace Evidence Links section
+    if "## Evidence Links" in baseline_content:
+        lines = baseline_content.split("\n")
+        new_lines = []
+        in_evidence_section = False
+        for line in lines:
+            if line.strip() == "## Evidence Links":
+                in_evidence_section = True
+                new_lines.append(line)
+                new_lines.append("")
+                new_lines.append("다음 증거 파일을 확인하세요 (CANDIDATES 기준 상대경로):")
+                new_lines.append("")
+                new_lines.append(evidence_links_section)
+                new_lines.append("")
+            elif in_evidence_section and line.startswith("##"):
+                in_evidence_section = False
+                new_lines.append(line)
+            elif not in_evidence_section:
+                new_lines.append(line)
+        baseline_content = "\n".join(new_lines)
+    
+    baseline_path = candidates_dir / "BASELINE_CANDIDATE.md"
+    with open(baseline_path, "w", encoding="utf-8") as f:
+        f.write(baseline_content)
+    
+    print(f"Generated: {golden_path.relative_to(project_root)}")
+    print(f"Generated: {baseline_path.relative_to(project_root)}")
+
+
 def update_round_registry(
     registry_path: Path,
     current_run_dir: Path,
@@ -1052,6 +1213,23 @@ def main():
         facts_summary_path=facts_summary_path,
         visual_metadata=visual_metadata,
         lane=lane
+    )
+    
+    # Generate candidate stubs (always overwrite)
+    lineage_path_obj = current_run_dir / "LINEAGE.md"
+    kpi_diff_path_obj = current_run_dir / "KPI_DIFF.md"
+    snapshot_path_obj = current_run_dir / "PROMPT_SNAPSHOT.md"
+    
+    generate_candidate_stubs(
+        current_run_dir=current_run_dir,
+        lane=lane,
+        round_id=round_id,
+        facts_summary_path=facts_summary_path,
+        kpi_path=kpi_path,
+        kpi_diff_path=kpi_diff_path_obj if kpi_diff_path_obj.exists() else None,
+        lineage_path=lineage_path_obj if lineage_path_obj.exists() else None,
+        charter_path=charter_path,
+        snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
     )
     
     print("\nPostprocessing complete!")
