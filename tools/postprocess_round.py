@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Round Postprocessing Tool (round1)
+Round Postprocessing Tool (round3)
 
 라운드 마감 단일 엔트리포인트:
 - KPI 생성 (KPI.md)
+- KPI_DIFF 생성 (KPI_DIFF.md)
 - Prev/Baseline 자동 해석
 - Round Registry 기록
+- Coverage Backlog 갱신
 """
 
 from __future__ import annotations
@@ -182,6 +184,21 @@ def generate_kpi_diff(
     print(f"Generated: {diff_path}")
 
 
+def update_coverage_backlog(
+    facts_summary_path: Path,
+    run_dir: Path,
+    registry_path: Path
+) -> None:
+    """Update coverage backlog using coverage_backlog.py."""
+    from tools.coverage_backlog import update_coverage_backlog as update_backlog
+    
+    update_backlog(
+        facts_summary_path=facts_summary_path,
+        run_dir=run_dir,
+        registry_path=registry_path
+    )
+
+
 def get_git_commit() -> Optional[str]:
     """Get current git commit SHA."""
     try:
@@ -245,7 +262,7 @@ def update_round_registry(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Round postprocessing tool (round1)"
+        description="Round postprocessing tool (round3)"
     )
     parser.add_argument(
         "--current_run_dir",
@@ -331,6 +348,13 @@ def main():
         baseline_run_dir=baseline_run_dir,
         prev_run_dir=prev_run_dir,
         baselines=baselines
+    )
+    
+    # Update coverage backlog
+    update_coverage_backlog(
+        facts_summary_path=facts_summary_path,
+        run_dir=current_run_dir,
+        registry_path=registry_path
     )
     
     print("\nPostprocessing complete!")
