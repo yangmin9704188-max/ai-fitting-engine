@@ -23,7 +23,7 @@ project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
 
-def find_facts_summary(run_dir: Path) -> Path:
+def find_facts_summary(run_dir: Path, required: bool = True) -> Optional[Path]:
     """Find facts_summary.json in run_dir with priority."""
     # Priority 1: direct path
     facts_path = run_dir / "facts_summary.json"
@@ -37,10 +37,13 @@ def find_facts_summary(run_dir: Path) -> Path:
             if candidate.exists():
                 return candidate
     
-    print(f"Error: facts_summary.json not found in {run_dir}", file=sys.stderr)
-    print(f"  Searched: {run_dir}/facts_summary.json", file=sys.stderr)
-    print(f"  And subdirectories", file=sys.stderr)
-    sys.exit(2)
+    if required:
+        print(f"Error: facts_summary.json not found in {run_dir}", file=sys.stderr)
+        print(f"  Searched: {run_dir}/facts_summary.json", file=sys.stderr)
+        print(f"  And subdirectories", file=sys.stderr)
+        sys.exit(2)
+    
+    return None
 
 
 def infer_lane_from_path(run_dir: Path) -> str:
@@ -140,6 +143,43 @@ def generate_kpi(run_dir: Path, facts_summary_path: Path) -> Path:
     
     print(f"Generated: {kpi_md_path}")
     return kpi_md_path
+
+
+def generate_kpi_diff(
+    current_run_dir: Path,
+    current_facts_path: Path,
+    prev_run_dir: Optional[Path],
+    baseline_run_dir: Optional[Path]
+) -> None:
+    """Generate KPI_DIFF.md using summarize_facts_kpi.py."""
+    from tools.summarize_facts_kpi import generate_kpi_diff as gen_diff
+    
+    # Find prev and baseline facts_summary.json
+    prev_facts_path = find_facts_summary(prev_run_dir, required=False) if prev_run_dir else None
+    baseline_facts_path = find_facts_summary(baseline_run_dir, required=False) if baseline_run_dir else None
+    
+    if not prev_facts_path and prev_run_dir:
+        print(f"Warning: prev facts_summary.json not found in {prev_run_dir}", file=sys.stderr)
+    
+    if not baseline_facts_path and baseline_run_dir:
+        print(f"Warning: baseline facts_summary.json not found in {baseline_run_dir}", file=sys.stderr)
+    
+    # Generate diff
+    diff_md = gen_diff(
+        current_path=current_facts_path,
+        prev_path=prev_facts_path,
+        baseline_path=baseline_facts_path,
+        current_run_dir=str(current_run_dir.relative_to(project_root)),
+        prev_run_dir=str(prev_run_dir.relative_to(project_root)) if prev_run_dir else None,
+        baseline_run_dir=str(baseline_run_dir.relative_to(project_root)) if baseline_run_dir else None
+    )
+    
+    # Save KPI_DIFF.md
+    diff_path = current_run_dir / "KPI_DIFF.md"
+    with open(diff_path, "w", encoding="utf-8") as f:
+        f.write(diff_md)
+    
+    print(f"Generated: {diff_path}")
 
 
 def get_git_commit() -> Optional[str]:
@@ -265,11 +305,21 @@ def main():
         print("Prev: None")
     
     # Find facts_summary.json
-    facts_summary_path = find_facts_summary(current_run_dir)
+    facts_summary_path = find_facts_summary(current_run_dir, required=True)
+    if not facts_summary_path:
+        sys.exit(2)
     print(f"Facts summary: {facts_summary_path.relative_to(project_root)}")
     
     # Generate KPI
     kpi_path = generate_kpi(current_run_dir, facts_summary_path)
+    
+    # Generate KPI_DIFF
+    generate_kpi_diff(
+        current_run_dir=current_run_dir,
+        current_facts_path=facts_summary_path,
+        prev_run_dir=prev_run_dir,
+        baseline_run_dir=baseline_run_dir
+    )
     
     # Update registry
     update_round_registry(

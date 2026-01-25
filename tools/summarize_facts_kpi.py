@@ -249,6 +249,215 @@ def generate_kpi_json(summary_data: Dict[str, Any]) -> Dict[str, Any]:
     return kpi_data
 
 
+def load_facts_summary_safe(path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    """Load facts_summary.json safely, return None if not found."""
+    if path is None or not path.exists():
+        return None
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def generate_kpi_diff(
+    current_path: Path,
+    prev_path: Optional[Path],
+    baseline_path: Optional[Path],
+    current_run_dir: str,
+    prev_run_dir: Optional[str],
+    baseline_run_dir: Optional[str]
+) -> str:
+    """Generate KPI_DIFF.md markdown."""
+    from datetime import datetime
+    
+    # Load data
+    current_data = load_facts_summary_safe(current_path)
+    prev_data = load_facts_summary_safe(prev_path) if prev_path else None
+    baseline_data = load_facts_summary_safe(baseline_path) if baseline_path else None
+    
+    lines = ["# KPI Diff", ""]
+    
+    # A) Header
+    lines.append("## Header")
+    lines.append(f"- **Current run dir**: `{current_run_dir}`")
+    lines.append(f"- **Prev run dir**: `{prev_run_dir or 'N/A'}`")
+    lines.append(f"- **Baseline run dir**: `{baseline_run_dir or 'N/A'}`")
+    lines.append(f"- **Generated at**: {datetime.now().isoformat()}")
+    lines.append("")
+    
+    if not current_data:
+        lines.append("Error: Current facts_summary.json not found or invalid.")
+        return "\n".join(lines)
+    
+    # Check if prev fell back to baseline
+    prev_fell_back = False
+    if prev_run_dir and baseline_run_dir and prev_run_dir == baseline_run_dir:
+        prev_fell_back = True
+    
+    # B) NaN Rate Top5 변화
+    lines.append("## NaN Rate Top5 Changes")
+    current_nan = get_nan_rates(current_data)
+    prev_nan_dict = {k: v for k, v in get_nan_rates(prev_data)} if prev_data else {}
+    baseline_nan_dict = {k: v for k, v in get_nan_rates(baseline_data)} if baseline_data else {}
+    
+    if current_nan:
+        lines.append("| Key | Current | Prev | Baseline | Δ Prev | Δ Baseline |")
+        lines.append("|-----|---------|------|----------|--------|-------------|")
+        for key, curr_rate in current_nan[:5]:
+            prev_rate = prev_nan_dict.get(key, "N/A")
+            base_rate = baseline_nan_dict.get(key, "N/A")
+            
+            if isinstance(prev_rate, (int, float)):
+                delta_prev = curr_rate - prev_rate
+                prev_str = f"{prev_rate:.2f}%"
+                delta_prev_str = f"{delta_prev:+.2f}%p"
+            else:
+                prev_str = "N/A"
+                delta_prev_str = "N/A"
+            
+            if isinstance(base_rate, (int, float)):
+                delta_base = curr_rate - base_rate
+                base_str = f"{base_rate:.2f}%"
+                delta_base_str = f"{delta_base:+.2f}%p"
+            else:
+                base_str = "N/A"
+                delta_base_str = "N/A"
+            
+            lines.append(f"| {key} | {curr_rate:.2f}% | {prev_str} | {base_str} | {delta_prev_str} | {delta_base_str} |")
+    else:
+        lines.append("No NaN rate data available.")
+    lines.append("")
+    
+    # C) Failure Reason Top5 변화
+    lines.append("## Failure Reason Top5 Changes")
+    current_fail = get_failure_reasons(current_data)
+    prev_fail_dict = {k: v for k, v in get_failure_reasons(prev_data)} if prev_data else {}
+    baseline_fail_dict = {k: v for k, v in get_failure_reasons(baseline_data)} if baseline_data else {}
+    
+    if current_fail:
+        lines.append("| Reason | Current | Prev | Baseline | Δ Prev | Δ Baseline |")
+        lines.append("|--------|---------|------|----------|--------|-------------|")
+        for reason, curr_count in current_fail[:5]:
+            prev_count = prev_fail_dict.get(reason, "N/A")
+            base_count = baseline_fail_dict.get(reason, "N/A")
+            
+            if isinstance(prev_count, int):
+                delta_prev = curr_count - prev_count
+                prev_str = str(prev_count)
+                delta_prev_str = f"{delta_prev:+d}"
+            else:
+                prev_str = "N/A"
+                delta_prev_str = "N/A"
+            
+            if isinstance(base_count, int):
+                delta_base = curr_count - base_count
+                base_str = str(base_count)
+                delta_base_str = f"{delta_base:+d}"
+            else:
+                base_str = "N/A"
+                delta_base_str = "N/A"
+            
+            lines.append(f"| {reason} | {curr_count} | {prev_str} | {base_str} | {delta_prev_str} | {delta_base_str} |")
+    else:
+        lines.append("No failure reason data available.")
+    lines.append("")
+    
+    # D) Core Distributions
+    lines.append("## Core Distributions")
+    
+    # HEIGHT_M
+    curr_height = get_value_distribution(current_data, "HEIGHT_M")
+    prev_height = get_value_distribution(prev_data, "HEIGHT_M") if prev_data else {"p50": None, "p95": None}
+    base_height = get_value_distribution(baseline_data, "HEIGHT_M") if baseline_data else {"p50": None, "p95": None}
+    
+    lines.append("### HEIGHT_M")
+    lines.append("| Metric | Current | Prev | Baseline | Δ Prev | Δ Baseline |")
+    lines.append("|--------|---------|------|----------|--------|-------------|")
+    
+    for metric in ["p50", "p95"]:
+        curr_val = curr_height.get(metric)
+        prev_val = prev_height.get(metric)
+        base_val = base_height.get(metric)
+        
+        if curr_val is not None:
+            curr_str = f"{curr_val:.4f} m"
+            if prev_val is not None:
+                delta_prev = curr_val - prev_val
+                prev_str = f"{prev_val:.4f} m"
+                delta_prev_str = f"{delta_prev:+.4f} m"
+            else:
+                prev_str = "N/A"
+                delta_prev_str = "N/A"
+            
+            if base_val is not None:
+                delta_base = curr_val - base_val
+                base_str = f"{base_val:.4f} m"
+                delta_base_str = f"{delta_base:+.4f} m"
+            else:
+                base_str = "N/A"
+                delta_base_str = "N/A"
+            
+            lines.append(f"| {metric} | {curr_str} | {prev_str} | {base_str} | {delta_prev_str} | {delta_base_str} |")
+        else:
+            lines.append(f"| {metric} | N/A | N/A | N/A | N/A | N/A |")
+    
+    lines.append("")
+    
+    # BUST/WAIST/HIP p50
+    lines.append("### BUST/WAIST/HIP p50")
+    lines.append("| Key | Current | Prev | Baseline | Δ Prev | Δ Baseline |")
+    lines.append("|-----|---------|------|----------|--------|-------------|")
+    
+    for key in ["BUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]:
+        curr_dist = get_value_distribution(current_data, key)
+        prev_dist = get_value_distribution(prev_data, key) if prev_data else {"p50": None}
+        base_dist = get_value_distribution(baseline_data, key) if baseline_data else {"p50": None}
+        
+        curr_val = curr_dist.get("p50")
+        prev_val = prev_dist.get("p50")
+        base_val = base_dist.get("p50")
+        
+        if curr_val is not None:
+            curr_str = f"{curr_val:.4f} m"
+            if prev_val is not None:
+                delta_prev = curr_val - prev_val
+                prev_str = f"{prev_val:.4f} m"
+                delta_prev_str = f"{delta_prev:+.4f} m"
+            else:
+                prev_str = "N/A"
+                delta_prev_str = "N/A"
+            
+            if base_val is not None:
+                delta_base = curr_val - base_val
+                base_str = f"{base_val:.4f} m"
+                delta_base_str = f"{delta_base:+.4f} m"
+            else:
+                base_str = "N/A"
+                delta_base_str = "N/A"
+            
+            lines.append(f"| {key} | {curr_str} | {prev_str} | {base_str} | {delta_prev_str} | {delta_base_str} |")
+        else:
+            lines.append(f"| {key} | N/A | N/A | N/A | N/A | N/A |")
+    
+    lines.append("")
+    
+    # E) Notes
+    lines.append("## Notes")
+    if prev_fell_back:
+        lines.append("- Prev run dir fell back to baseline (no previous entry in registry for this lane).")
+    if not prev_data:
+        lines.append("- Prev facts_summary.json not found or invalid.")
+    if not baseline_data:
+        lines.append("- Baseline facts_summary.json not found or invalid.")
+    if prev_data and baseline_data and not prev_fell_back:
+        lines.append("- All comparison data available.")
+    lines.append("")
+    
+    return "\n".join(lines)
+
+
 def main():
     import argparse
     
