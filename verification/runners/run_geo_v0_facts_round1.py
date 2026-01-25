@@ -779,7 +779,9 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report (detect round from out_dir)
-    if "round16" in str(out_dir).lower():
+    if "round17" in str(out_dir).lower():
+        report_filename = "geo_v0_facts_round17_valid10_expanded.md"
+    elif "round16" in str(out_dir).lower():
         report_filename = "geo_v0_facts_round16_waist_hip_verts_aligned_normal1.md"
     elif "round15" in str(out_dir).lower():
         report_filename = "geo_v0_facts_round15_bust_verts_aligned_normal1.md"
@@ -816,8 +818,11 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     is_round13 = "round13" in str(output_path).lower()
     is_round15 = "round15" in str(output_path).lower()
     is_round16 = "round16" in str(output_path).lower()
+    is_round17 = "round17" in str(output_path).lower()
     
-    if is_round16:
+    if is_round17:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 17 - Valid 10 Expanded)")
+    elif is_round16:
         lines.append("# Geometric v0 Facts-Only Summary (Round 16 - Waist/Hip Verts Aligned, Fastmode normal_1)")
     elif is_round15:
         lines.append("# Geometric v0 Facts-Only Summary (Round 15 - Bust Verts Aligned, Fastmode normal_1)")
