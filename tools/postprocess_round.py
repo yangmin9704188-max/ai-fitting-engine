@@ -252,7 +252,7 @@ def update_new_round_registry(
     lane: str,
     baselines: Dict[str, Any],
     coverage_backlog_touched: bool
-) -> None:
+) -> tuple[Optional[int], str]:
     """Update new round registry schema using round_registry.py."""
     from tools.round_registry import update_registry, extract_round_info
     
@@ -273,6 +273,206 @@ def update_new_round_registry(
         baselines=baselines,
         coverage_backlog_touched=coverage_backlog_touched
     )
+    
+    return round_num, round_id
+
+
+def generate_lineage_manifest(
+    current_run_dir: Path,
+    facts_summary_path: Path,
+    lane: str,
+    round_id: str,
+    round_num: Optional[int]
+) -> None:
+    """Generate LINEAGE.md using lineage.py."""
+    from tools.lineage import generate_lineage_manifest as gen_lineage
+    
+    lineage_md = gen_lineage(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        lane=lane,
+        round_id=round_id,
+        round_num=round_num
+    )
+    
+    # Save LINEAGE.md
+    lineage_path = current_run_dir / "LINEAGE.md"
+    with open(lineage_path, "w", encoding="utf-8") as f:
+        f.write(lineage_md)
+    
+    print(f"Generated: {lineage_path}")
+
+
+def generate_visual_provenance(
+    current_run_dir: Path,
+    facts_summary_path: Path
+) -> Dict[str, Any]:
+    """Generate visual provenance images."""
+    from tools.visual_provenance import generate_visual_provenance as gen_visual
+    
+    try:
+        visual_metadata = gen_visual(
+            current_run_dir=current_run_dir,
+            facts_summary_path=facts_summary_path,
+            npz_path=None  # Will be extracted from facts_summary
+        )
+        
+        if visual_metadata["visual_status"] == "success":
+            print(f"Generated: artifacts/visual/front_xy.png, side_zy.png")
+        elif visual_metadata["visual_status"] == "partial":
+            print(f"Warning: Partial visual generation (one view failed)")
+        elif visual_metadata["visual_status"] == "failed":
+            print(f"Warning: Visual generation failed: {visual_metadata.get('warnings', [])}")
+        else:
+            print(f"Warning: Visual generation skipped: {visual_metadata.get('warnings', [])}")
+        
+        return visual_metadata
+    except Exception as e:
+        print(f"Warning: Visual provenance generation failed: {e}", file=sys.stderr)
+        return {
+            "visual_status": "skipped",
+            "warnings": [f"EXCEPTION: {str(e)}"]
+        }
+
+
+def update_lineage_with_visual(
+    current_run_dir: Path,
+    visual_metadata: Dict[str, Any]
+) -> None:
+    """Update LINEAGE.md with visual provenance metadata."""
+    lineage_path = current_run_dir / "LINEAGE.md"
+    if not lineage_path.exists():
+        return  # LINEAGE.md not generated yet
+    
+    try:
+        with open(lineage_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Find Outputs section and add visual info
+        if "## Outputs" in content:
+            # Add visual provenance section before NPZ Metadata
+            visual_section = "\n## Visual Provenance\n\n"
+            visual_section += f"- **status**: `{visual_metadata.get('visual_status', 'unknown')}`\n"
+            
+            if visual_metadata.get("visual_case_id"):
+                visual_section += f"- **case_id**: `{visual_metadata['visual_case_id']}`\n"
+                visual_section += f"- **case_class**: `{visual_metadata.get('visual_case_class', 'unknown')}`\n"
+                visual_section += f"- **is_valid**: `{visual_metadata.get('visual_case_is_valid', 'unknown')}`\n"
+                visual_section += f"- **selection_reason**: `{visual_metadata.get('selection_reason', 'unknown')}`\n"
+            
+            if visual_metadata.get("downsample_n"):
+                visual_section += f"- **downsample_n**: `{visual_metadata['downsample_n']}` ({visual_metadata.get('downsample_method', 'unknown')})\n"
+            
+            if visual_metadata.get("front_xy_path"):
+                visual_section += f"- **front_xy**: `{visual_metadata['front_xy_path']}`\n"
+            if visual_metadata.get("side_zy_path"):
+                visual_section += f"- **side_zy**: `{visual_metadata['side_zy_path']}`\n"
+            
+            if visual_metadata.get("warnings"):
+                visual_section += f"- **warnings**: {len(visual_metadata['warnings'])} warning(s)\n"
+            
+            visual_section += "\n"
+            
+            # Insert before NPZ Metadata section
+            if "## NPZ Metadata" in content:
+                content = content.replace("## NPZ Metadata", visual_section + "## NPZ Metadata")
+            else:
+                # Append at end if no NPZ Metadata section
+                content = content.rstrip() + "\n" + visual_section
+        
+        with open(lineage_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        print(f"Warning: Failed to update LINEAGE.md with visual metadata: {e}", file=sys.stderr)
+
+
+def update_kpi_with_visual(
+    kpi_path: Path,
+    visual_metadata: Dict[str, Any]
+) -> None:
+    """Update KPI.md with visual provenance section."""
+    if not kpi_path.exists():
+        return
+    
+    try:
+        with open(kpi_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Add Visual Provenance section at the end
+        visual_section = "\n## Visual Provenance\n\n"
+        
+        if visual_metadata.get("visual_status") == "success":
+            if visual_metadata.get("front_xy_path"):
+                front_rel = visual_metadata["front_xy_path"]
+                visual_section += f"- [Front View (X-Y)]({front_rel})\n"
+            if visual_metadata.get("side_zy_path"):
+                side_rel = visual_metadata["side_zy_path"]
+                visual_section += f"- [Side View (Z-Y)]({side_rel})\n"
+            
+            if visual_metadata.get("visual_case_id"):
+                visual_section += f"\n*Case: {visual_metadata['visual_case_id']} ({visual_metadata.get('visual_case_class', 'unknown')})*\n"
+        elif visual_metadata.get("visual_status") == "skipped":
+            visual_section += "*Visual provenance generation skipped.\n"
+            if visual_metadata.get("warnings"):
+                visual_section += f"Warnings: {', '.join(visual_metadata['warnings'][:3])}\n"
+            visual_section += "*\n"
+        else:
+            visual_section += f"*Visual provenance status: {visual_metadata.get('visual_status', 'unknown')}*\n"
+        
+        visual_section += "\n"
+        
+        content = content.rstrip() + "\n" + visual_section
+        
+        with open(kpi_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        print(f"Warning: Failed to update KPI.md with visual provenance: {e}", file=sys.stderr)
+
+
+def update_golden_registry(
+    facts_summary_path: Path
+) -> None:
+    """Update golden registry from facts_summary.json."""
+    try:
+        with open(facts_summary_path, "r", encoding="utf-8") as f:
+            facts_data = json.load(f)
+    except Exception as e:
+        print(f"Warning: Failed to load facts_summary.json for golden registry: {e}", file=sys.stderr)
+        return
+    
+    # Extract npz_path
+    npz_path_str = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+    if not npz_path_str:
+        return  # No NPZ path, skip
+    
+    npz_path = Path(npz_path_str)
+    if npz_path.is_absolute():
+        npz_path_obj = npz_path
+    else:
+        npz_path_obj = project_root / npz_path
+    
+    if not npz_path_obj.exists():
+        print(f"Warning: NPZ file not found: {npz_path_obj}", file=sys.stderr)
+        return
+    
+    # Extract source_path_abs
+    source_path_abs = facts_data.get("source_path_abs")
+    if source_path_abs:
+        source_path_abs = str(Path(source_path_abs).resolve())
+    
+    # Update golden registry
+    from tools.golden_registry import upsert_golden_entry
+    
+    registry_path = project_root / "docs" / "verification" / "golden_registry.json"
+    
+    try:
+        upsert_golden_entry(
+            registry_path=registry_path,
+            npz_path=npz_path_obj,
+            source_path_abs=source_path_abs
+        )
+    except Exception as e:
+        print(f"Warning: Failed to update golden registry: {e}", file=sys.stderr)
 
 
 def get_git_commit() -> Optional[str]:
@@ -392,9 +592,9 @@ def main():
     # Load new registry and get prev/baseline from new schema
     new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
     
-    # Extract round_num for prev lookup
+    # Extract round_num and round_id for prev lookup
     from tools.round_registry import extract_round_info
-    _, round_num, _ = extract_round_info(current_run_dir)
+    _, round_num, round_id = extract_round_info(current_run_dir)
     
     # Get prev and baseline from new registry
     prev_run_dir_new, baseline_run_dir_new = get_prev_and_baseline_from_new_registry(
@@ -466,13 +666,45 @@ def main():
     except Exception as e:
         print(f"Warning: Failed to update coverage backlog: {e}", file=sys.stderr)
     
-    # Update round registry (new schema)
-    update_new_round_registry(
+    # Update round registry (new schema) and get round info
+    round_num, round_id = update_new_round_registry(
         current_run_dir=current_run_dir,
         facts_summary_path=facts_summary_path,
         lane=lane,
         baselines=baselines,
         coverage_backlog_touched=coverage_backlog_touched
+    )
+    
+    # Generate lineage manifest
+    generate_lineage_manifest(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        lane=lane,
+        round_id=round_id,
+        round_num=round_num
+    )
+    
+    # Update golden registry
+    update_golden_registry(
+        facts_summary_path=facts_summary_path
+    )
+    
+    # Generate visual provenance
+    visual_metadata = generate_visual_provenance(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path
+    )
+    
+    # Update LINEAGE.md with visual metadata
+    update_lineage_with_visual(
+        current_run_dir=current_run_dir,
+        visual_metadata=visual_metadata
+    )
+    
+    # Update KPI.md with visual provenance section
+    update_kpi_with_visual(
+        kpi_path=kpi_path,
+        visual_metadata=visual_metadata
     )
     
     print("\nPostprocessing complete!")

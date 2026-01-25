@@ -1,0 +1,19 @@
+{
+  "schema_version": "golden_registry@1",
+  "updated_at": "2026-01-25T20:52:10.026680",
+  "entries": [
+    {
+      "npz_path": "verification\\datasets\\golden\\core_measurements_v0\\golden_real_data_v0.npz",
+      "npz_path_abs": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\datasets\\golden\\core_measurements_v0\\golden_real_data_v0.npz",
+      "npz_sha256": "551b47b9c0cc9ca9dd3e9458c8d20e3f18061e4a1ab76a4f4a730d92e07363f4",
+      "npz_mtime": 1769327281.3892188,
+      "npz_size_bytes": 166760,
+      "schema_version": "core_measurements_v0_real@1",
+      "meta_unit": "m",
+      "source_path_abs": "C:\\Users\\caino\\Desktop\\AI_model\\data\\processed\\curated_v0\\curated_v0.parquet",
+      "generator_script": "verification\\datasets\\golden\\bust_underbust_v0\\create_real_data_golden.py",
+      "generator_commit": null,
+      "notes": ""
+    }
+  ]
+}
