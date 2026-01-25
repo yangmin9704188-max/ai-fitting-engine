@@ -35,6 +35,9 @@ reports/validation/geo_v0_facts_round10_s0_scale_proof.md
 *.xls
 *.xlsx
 
+# Broken filename files (postprocess command output - ignore long filenames with non-ASCII)
+*postprocess*
+
 
 
 # Models (SMPL-X, checkpoints)
