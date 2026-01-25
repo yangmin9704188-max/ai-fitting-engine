@@ -76,3 +76,14 @@ py verification/runners/run_geo_v0_facts_round1.py \
 - `baselines.json`: Lane baseline configuration
 - `cursor_prompt_header.md`: Standardized prompt header for Cursor AI
 - `round_runbook.md`: Round execution runbook
+
+## Commit Policy
+
+- **Policy**: [`COMMIT_POLICY.md`](COMMIT_POLICY.md)
+- **Purpose**: Define "what to commit" based on signals (no judgment, no thresholds)
+- **Key Sections**:
+  - Non-negotiables (PASS/FAIL 금지, semantic 재논의 금지, 로컬 산출물 커밋 금지)
+  - Commit targets / Non-targets
+  - Golden candidate signals
+  - Action mapping (권고/후속 작업)
+  - Evidence checklist
