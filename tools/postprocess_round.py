@@ -109,7 +109,7 @@ def load_round_registry(registry_path: Path) -> List[Dict[str, Any]]:
 
 
 def get_prev_run_dir(lane: str, registry: List[Dict[str, Any]], baseline_run_dir: Optional[Path]) -> Optional[Path]:
-    """Get previous run directory from registry."""
+    """Get previous run directory from registry (old schema)."""
     # Find last entry for same lane
     for entry in reversed(registry):
         if entry.get("lane") == lane:
@@ -121,6 +121,53 @@ def get_prev_run_dir(lane: str, registry: List[Dict[str, Any]], baseline_run_dir
     
     # Fallback to baseline
     return baseline_run_dir
+
+
+def get_prev_and_baseline_from_new_registry(
+    lane: str,
+    current_round_num: Optional[int],
+    new_registry_path: Path
+) -> tuple[Optional[Path], Optional[Path]]:
+    """Get prev and baseline run directories from new round_registry.json schema."""
+    if not new_registry_path.exists():
+        return None, None
+    
+    try:
+        with open(new_registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+    except Exception:
+        return None, None
+    
+    lanes = registry.get("lanes", {})
+    lane_data = lanes.get(lane, {})
+    
+    # Get baseline
+    baseline_info = lane_data.get("baseline")
+    baseline_run_dir = None
+    if baseline_info and baseline_info.get("run_dir"):
+        baseline_path = project_root / baseline_info["run_dir"]
+        if baseline_path.exists():
+            baseline_run_dir = baseline_path.resolve()
+    
+    # Get prev (current round_num보다 작은 round 중 가장 큰 round)
+    prev_run_dir = None
+    if current_round_num is not None:
+        rounds = lane_data.get("rounds", [])
+        prev_candidates = [
+            r for r in rounds
+            if r.get("round_num") is not None and r.get("round_num") < current_round_num
+        ]
+        if prev_candidates:
+            # Sort by round_num descending and take the largest
+            prev_candidates.sort(key=lambda x: x.get("round_num", 0), reverse=True)
+            prev_entry = prev_candidates[0]
+            prev_run_dir_str = prev_entry.get("run_dir")
+            if prev_run_dir_str:
+                prev_path = project_root / prev_run_dir_str
+                if prev_path.exists():
+                    prev_run_dir = prev_path.resolve()
+    
+    return prev_run_dir, baseline_run_dir
 
 
 def generate_kpi(run_dir: Path, facts_summary_path: Path) -> Path:
@@ -153,8 +200,8 @@ def generate_kpi_diff(
     prev_run_dir: Optional[Path],
     baseline_run_dir: Optional[Path]
 ) -> None:
-    """Generate KPI_DIFF.md using summarize_facts_kpi.py."""
-    from tools.summarize_facts_kpi import generate_kpi_diff as gen_diff
+    """Generate KPI_DIFF.md using kpi_diff.py."""
+    from tools.kpi_diff import generate_kpi_diff as gen_diff
     
     # Find prev and baseline facts_summary.json
     prev_facts_path = find_facts_summary(prev_run_dir, required=False) if prev_run_dir else None
@@ -291,7 +338,7 @@ def update_round_registry(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Round postprocessing tool (round3)"
+        description="Round postprocessing tool (round5)"
     )
     parser.add_argument(
         "--current_run_dir",
@@ -342,13 +389,41 @@ def main():
     else:
         print("Baseline: None")
     
-    # Load registry and get prev run directory
-    registry = load_round_registry(registry_path)
-    prev_run_dir = get_prev_run_dir(lane, registry, baseline_run_dir)
+    # Load new registry and get prev/baseline from new schema
+    new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
+    
+    # Extract round_num for prev lookup
+    from tools.round_registry import extract_round_info
+    _, round_num, _ = extract_round_info(current_run_dir)
+    
+    # Get prev and baseline from new registry
+    prev_run_dir_new, baseline_run_dir_new = get_prev_and_baseline_from_new_registry(
+        lane=lane,
+        current_round_num=round_num,
+        new_registry_path=new_registry_path
+    )
+    
+    # Use new registry values if available, otherwise fallback to old logic
+    if prev_run_dir_new:
+        prev_run_dir = prev_run_dir_new
+    else:
+        # Fallback to old registry logic
+        registry = load_round_registry(registry_path)
+        prev_run_dir = get_prev_run_dir(lane, registry, baseline_run_dir)
+    
+    if baseline_run_dir_new:
+        baseline_run_dir = baseline_run_dir_new
+    # else: keep baseline_run_dir from baselines.json (already set above)
+    
     if prev_run_dir:
         print(f"Prev: {prev_run_dir.relative_to(project_root)}")
     else:
         print("Prev: None")
+    
+    if baseline_run_dir:
+        print(f"Baseline: {baseline_run_dir.relative_to(project_root)}")
+    else:
+        print("Baseline: None")
     
     # Find facts_summary.json
     facts_summary_path = find_facts_summary(current_run_dir, required=True)
