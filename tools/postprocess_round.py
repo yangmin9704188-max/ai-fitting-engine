@@ -252,7 +252,7 @@ def update_new_round_registry(
     lane: str,
     baselines: Dict[str, Any],
     coverage_backlog_touched: bool
-) -> None:
+) -> tuple[Optional[int], str]:
     """Update new round registry schema using round_registry.py."""
     from tools.round_registry import update_registry, extract_round_info
     
@@ -273,6 +273,80 @@ def update_new_round_registry(
         baselines=baselines,
         coverage_backlog_touched=coverage_backlog_touched
     )
+    
+    return round_num, round_id
+
+
+def generate_lineage_manifest(
+    current_run_dir: Path,
+    facts_summary_path: Path,
+    lane: str,
+    round_id: str,
+    round_num: Optional[int]
+) -> None:
+    """Generate LINEAGE.md using lineage.py."""
+    from tools.lineage import generate_lineage_manifest as gen_lineage
+    
+    lineage_md = gen_lineage(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        lane=lane,
+        round_id=round_id,
+        round_num=round_num
+    )
+    
+    # Save LINEAGE.md
+    lineage_path = current_run_dir / "LINEAGE.md"
+    with open(lineage_path, "w", encoding="utf-8") as f:
+        f.write(lineage_md)
+    
+    print(f"Generated: {lineage_path}")
+
+
+def update_golden_registry(
+    facts_summary_path: Path
+) -> None:
+    """Update golden registry from facts_summary.json."""
+    try:
+        with open(facts_summary_path, "r", encoding="utf-8") as f:
+            facts_data = json.load(f)
+    except Exception as e:
+        print(f"Warning: Failed to load facts_summary.json for golden registry: {e}", file=sys.stderr)
+        return
+    
+    # Extract npz_path
+    npz_path_str = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+    if not npz_path_str:
+        return  # No NPZ path, skip
+    
+    npz_path = Path(npz_path_str)
+    if npz_path.is_absolute():
+        npz_path_obj = npz_path
+    else:
+        npz_path_obj = project_root / npz_path
+    
+    if not npz_path_obj.exists():
+        print(f"Warning: NPZ file not found: {npz_path_obj}", file=sys.stderr)
+        return
+    
+    # Extract source_path_abs
+    source_path_abs = facts_data.get("source_path_abs")
+    if source_path_abs:
+        source_path_abs = str(Path(source_path_abs).resolve())
+    
+    # Update golden registry
+    from tools.golden_registry import upsert_golden_entry
+    
+    registry_path = project_root / "docs" / "verification" / "golden_registry.json"
+    
+    try:
+        upsert_golden_entry(
+            registry_path=registry_path,
+            npz_path=npz_path_obj,
+            source_path_abs=source_path_abs
+        )
+    except Exception as e:
+        print(f"Warning: Failed to update golden registry: {e}", file=sys.stderr)
 
 
 def get_git_commit() -> Optional[str]:
@@ -392,9 +466,9 @@ def main():
     # Load new registry and get prev/baseline from new schema
     new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
     
-    # Extract round_num for prev lookup
+    # Extract round_num and round_id for prev lookup
     from tools.round_registry import extract_round_info
-    _, round_num, _ = extract_round_info(current_run_dir)
+    _, round_num, round_id = extract_round_info(current_run_dir)
     
     # Get prev and baseline from new registry
     prev_run_dir_new, baseline_run_dir_new = get_prev_and_baseline_from_new_registry(
@@ -466,13 +540,27 @@ def main():
     except Exception as e:
         print(f"Warning: Failed to update coverage backlog: {e}", file=sys.stderr)
     
-    # Update round registry (new schema)
-    update_new_round_registry(
+    # Update round registry (new schema) and get round info
+    round_num, round_id = update_new_round_registry(
         current_run_dir=current_run_dir,
         facts_summary_path=facts_summary_path,
         lane=lane,
         baselines=baselines,
         coverage_backlog_touched=coverage_backlog_touched
+    )
+    
+    # Generate lineage manifest
+    generate_lineage_manifest(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        lane=lane,
+        round_id=round_id,
+        round_num=round_num
+    )
+    
+    # Update golden registry
+    update_golden_registry(
+        facts_summary_path=facts_summary_path
     )
     
     print("\nPostprocessing complete!")
