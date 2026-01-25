@@ -193,6 +193,16 @@ Reference: `docs/semantic/measurement_semantics_v0.md` (Freeze Declaration 섹�
 
 Reference: `reports/validation/geo_v0_facts_round13_fastmode_normal1_runner.md`
 
+8.4 Golden S0 (Round17 Freeze)
+
+**Round17 완료 (2026-01-25)**:
+- Valid ≥10 (normal_1~5, varied_1~5), expected_fail 5 유지. No clamp.
+- **Tag**: `golden-s0-v0.1` | **Commit**: `cc15544` | **날짜**: 2026-01-25
+- **원칙**: 이후 이슈는 **generator를 수정하지 않고** metadata/provenance/validation으로 처리한다.
+- **Next step**: curated_v0 실데이터로 runner 교체 준비.
+
+Reference: `docs/verification/golden_s0_freeze_v0.md`, `reports/validation/geo_v0_facts_round17_valid10_expanded.md`
+
 9. Provenance
 
 Snapshot Tag: snapshot-20260122-bust-underbust-mvp1
