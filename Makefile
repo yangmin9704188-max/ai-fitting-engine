@@ -1,4 +1,4 @@
-.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round
+.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round ops_guard
 
 # Default target
 help:
@@ -8,6 +8,7 @@ help:
 	@echo "  make ai-prompt"
 	@echo "  make ai-prompt-json"
 	@echo "  make curated_v0_round RUN_DIR=<out_dir> [SKIP_RUNNER=1]"
+	@echo "  make ops_guard [BASE=main]"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make sync-dry ARGS=\"--set snapshot.status=candidate\""
@@ -16,6 +17,7 @@ help:
 	@echo "  make ai-prompt-json"
 	@echo "  make curated_v0_round RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801"
 	@echo "  make curated_v0_round RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801 SKIP_RUNNER=1"
+	@echo "  make ops_guard"
 
 sync-dry:
 	python tools/sync_state.py --dry-run $(ARGS)
@@ -50,3 +52,7 @@ curated_v0_round:
 	fi
 	@echo "Running postprocess_round.py (always executed)..."
 	@python tools/postprocess_round.py --current_run_dir $(RUN_DIR) || true
+
+# Ops lock warning sensor
+ops_guard:
+	@python tools/ops/check_ops_lock.py --base $(BASE) || true
