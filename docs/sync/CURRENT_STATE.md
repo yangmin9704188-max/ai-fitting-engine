@@ -148,3 +148,148 @@ changed\_paths:
 * docs/policies/measurements/VALIDATION\_FRAME\_CIRCUMFERENCE\_V0.md
 * docs/policies/measurements/VALIDATION\_FRAME\_CHEST\_V0.md
 * docs/policies/measurements/VALIDATION\_FRAME\_HIP\_V0.md
+
+---
+
+remediation:
+  date: 2026-01-26
+  reason: post_merge_ci_guard_backfill
+  items:
+    - merge_commit: 39a29f9
+      pr_hint: "#172"
+      merge_subject: "Merge pull request #172 from yangmin9704188-max/ops/round8-judgment-scaffold"
+      changed_paths:
+        - Makefile
+        - tools/judgments.py
+      scopes:
+        - .
+        - tools
+    - merge_commit: 2ddd588
+      pr_hint: "#171"
+      merge_subject: "Merge pull request #171 from yangmin9704188-max/ops/cleanup-untracked-round6-tail"
+      changed_paths: []
+      scopes: []
+    - merge_commit: 2dcc130
+      pr_hint: "ops-round6"
+      merge_subject: "Merge branch 'ops/round6-ops-lock-text-sensor'"
+      changed_paths:
+        - .gitignore
+        - docs/ops/pr_bodies/pr_body_round1_make_round_wrapper.md
+        - docs/ops/pr_bodies/pr_body_round2_pr_template_round_checklist.md
+        - docs/ops/pr_bodies/pr_body_round3_auto_prev_baseline.md
+        - docs/ops/pr_bodies/pr_body_round3_coverage_backlog.md
+        - docs/ops/pr_bodies/pr_body_round3_root_cleanup.md
+        - docs/ops/pr_bodies/pr_body_round4_round_registry.md
+        - docs/ops/pr_bodies/pr_body_round4_slim_coverage_backlog.md
+        - docs/ops/pr_bodies/pr_body_round5_kpi_diff.md
+        - docs/ops/pr_bodies/pr_body_round5_kpi_diff_signal_line.md
+        - docs/ops/pr_bodies/pr_body_round6_lineage_golden_registry.md
+        - docs/ops/pr_bodies/pr_body_round6_ops_lock_text_sensor.md
+        - docs/ops/pr_bodies/pr_body_round7_visual_provenance.md
+        - docs/ops/pr_bodies/pr_body_round7b_visual_skip_artifacts.md
+        - docs/semantic/legacy_handling.md
+        - docs/verification/coverage_backlog.md
+        - docs/verification/curated_v0_gate_draft_v0.md
+        - docs/verification/golden_registry.json
+        - docs/verification/round_registry.json
+        - reports/validation/curated_v0_facts_round1.md
+        - reports/validation/round_registry.json
+      scopes:
+        - .
+        - docs
+        - reports
+    - merge_commit: b63b3cf
+      pr_hint: "#169"
+      merge_subject: "Merge pull request #169 from yangmin9704188-max/ops/round6-ops-lock-text-sensor"
+      changed_paths:
+        - Makefile
+        - docs/ops/cursor_prompt_header.md
+        - tools/kpi_diff.py
+        - tools/ops/check_ops_lock.py
+      scopes:
+        - .
+        - docs
+        - tools
+    - merge_commit: ddb0dee
+      pr_hint: "#167"
+      merge_subject: "Merge pull request #167 from yangmin9704188-max/ops/round4-slim-coverage-backlog"
+      changed_paths:
+        - docs/verification/coverage_backlog.md
+        - tools/coverage_backlog.py
+      scopes:
+        - docs
+        - tools
+    - merge_commit: 2a334d6
+      pr_hint: "#165"
+      merge_subject: "Merge pull request #165 from yangmin9704188-max/ops/round2-pr-template-round-checklist"
+      changed_paths:
+        - .github/pull_request_template.md
+      scopes:
+        - .github
+    - merge_commit: b98c81b
+      pr_hint: "#164"
+      merge_subject: "Merge pull request #164 from yangmin9704188-max/ops/round1-make-round-wrapper"
+      changed_paths:
+        - Makefile
+        - docs/ops/round_runbook.md
+      scopes:
+        - .
+        - docs
+    - merge_commit: 23c7720
+      pr_hint: "#160"
+      merge_subject: "Merge pull request #160 from yangmin9704188-max/ops/round5-kpi-diff-prev-baseline"
+      changed_paths:
+        - docs/verification/kpi_diff_contract_v0.md
+        - tools/kpi_diff.py
+        - tools/postprocess_round.py
+      scopes:
+        - docs
+        - tools
+    - merge_commit: 33a33f9
+      pr_hint: "#159"
+      merge_subject: "Merge pull request #159 from yangmin9704188-max/ops/round4-round-registry"
+      changed_paths:
+        - docs/verification/round_registry.json
+        - docs/verification/round_registry_contract_v0.md
+        - tools/postprocess_round.py
+        - tools/round_registry.py
+      scopes:
+        - docs
+        - tools
+    - merge_commit: 4c1c4b5
+      pr_hint: "#156"
+      merge_subject: "Merge pull request #156 from yangmin9704188-max/ops/round2-kpi-diff"
+      changed_paths:
+        - tools/postprocess_round.py
+        - tools/summarize_facts_kpi.py
+      scopes:
+        - tools
+    - merge_commit: f7991c7
+      pr_hint: "#155"
+      merge_subject: "Merge pull request #155 from yangmin9704188-max/ops/round1-postprocess-entrypoint"
+      changed_paths:
+        - docs/ops/baselines.json
+        - tools/postprocess_round.py
+      scopes:
+        - docs
+        - tools
+    - merge_commit: 986e463
+      pr_hint: "#150"
+      merge_subject: "Merge pull request #150 from yangmin9704188-max/feat/round20-curated-v0-facts"
+      changed_paths:
+        - reports/validation/INDEX.md
+        - reports/validation/curated_v0_facts_round1.md
+        - verification/datasets/golden/core_measurements_v0/create_real_data_golden.py
+        - verification/runners/run_curated_v0_facts_round1.py
+      scopes:
+        - reports
+        - verification
+    - merge_commit: 43b28f8
+      pr_hint: "#121"
+      merge_subject: "Merge pull request #121 from yangmin9704188-max/docs/semantic-v0-freeze-round2"
+      changed_paths:
+        - SYNC_HUB.md
+        - docs/semantic/measurement_semantics_v0.md
+      scopes:
+        - .
+        - docs
