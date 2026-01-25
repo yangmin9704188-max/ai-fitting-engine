@@ -18,7 +18,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Add project root to path
 project_root = Path(__file__).resolve().parents[1]
@@ -637,6 +637,150 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def ensure_round_charter(
+    current_run_dir: Path,
+    charter_template_path: Path
+) -> Path:
+    """
+    Ensure ROUND_CHARTER.md exists (idempotent: do not overwrite if exists).
+    Returns: Path to ROUND_CHARTER.md
+    """
+    charter_path = current_run_dir / "ROUND_CHARTER.md"
+    
+    # If charter already exists, do not touch it (idempotency)
+    if charter_path.exists():
+        print(f"Charter exists (preserved): {charter_path.relative_to(project_root)}")
+        return charter_path
+    
+    # Load template
+    if not charter_template_path.exists():
+        print(f"Warning: Charter template not found: {charter_template_path}", file=sys.stderr)
+        # Create minimal stub
+        stub_content = "# Round Charter\n\n**Round**: [round_id]\n**Date**: [YYYY-MM-DD]\n\n## Single Objective\n\n## DOD\n\n## Forbidden Actions\n\n## Success Signals\n\n## Next Decision Gate\n"
+    else:
+        with open(charter_template_path, "r", encoding="utf-8") as f:
+            stub_content = f.read()
+    
+    # Write stub
+    with open(charter_path, "w", encoding="utf-8") as f:
+        f.write(stub_content)
+    
+    print(f"Generated (stub): {charter_path.relative_to(project_root)}")
+    return charter_path
+
+
+def generate_prompt_snapshot(
+    current_run_dir: Path,
+    lane: str,
+    baseline_alias: str,
+    baseline_run_dir: Optional[Path],
+    baseline_report: Optional[str],
+    charter_path: Path,
+    prev_run_dir: Optional[Path]
+) -> Path:
+    """
+    Generate PROMPT_SNAPSHOT.md (always overwrite, facts-only, stable).
+    Returns: Path to PROMPT_SNAPSHOT.md
+    """
+    snapshot_path = current_run_dir / "PROMPT_SNAPSHOT.md"
+    
+    lines = []
+    lines.append("# Prompt Snapshot")
+    lines.append("")
+    lines.append("**Facts-only, stable across re-runs**")
+    lines.append("")
+    lines.append("## Lane")
+    lines.append(f"- lane: `{lane}`")
+    lines.append("")
+    lines.append("## Current Run")
+    lines.append(f"- current_run_dir: `{current_run_dir.relative_to(project_root)}`")
+    lines.append("")
+    lines.append("## Baseline")
+    lines.append(f"- baseline_tag(alias): `{baseline_alias}`")
+    if baseline_run_dir:
+        lines.append(f"- baseline_run_dir: `{baseline_run_dir.relative_to(project_root)}`")
+    else:
+        lines.append("- baseline_run_dir: `unknown`")
+    if baseline_report:
+        lines.append(f"- baseline_report: `{baseline_report}`")
+    else:
+        lines.append("- baseline_report: `unknown`")
+    lines.append("")
+    lines.append("## Charter")
+    lines.append(f"- charter_path: `{charter_path.relative_to(project_root)}`")
+    lines.append("")
+    lines.append("## Previous Run")
+    if prev_run_dir:
+        lines.append(f"- prev_run_dir: `{prev_run_dir.relative_to(project_root)}`")
+    else:
+        lines.append("- prev_run_dir: `unknown`")
+    lines.append("")
+    
+    content = "\n".join(lines)
+    
+    # Always overwrite
+    with open(snapshot_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    
+    print(f"Generated (overwrite): {snapshot_path.relative_to(project_root)}")
+    return snapshot_path
+
+
+def ensure_visual_skip_evidence(
+    current_run_dir: Path,
+    facts_summary_path: Path,
+    visual_metadata: Dict[str, Any],
+    lane: str
+) -> None:
+    """
+    Ensure visual skip evidence is recorded (DoD: artifacts/visual/ + SKIPPED.txt with fixed phrase + reason line).
+    """
+    visual_dir = current_run_dir / "artifacts" / "visual"
+    
+    # Always create visual_dir
+    visual_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Only write SKIPPED.txt if visual was skipped
+    if visual_metadata.get("visual_status") != "skipped":
+        return  # Visual succeeded or failed (not skipped), no skip evidence needed
+    
+    # Load facts_summary for additional context
+    facts_data = {}
+    try:
+        with open(facts_summary_path, "r", encoding="utf-8") as f:
+            facts_data = json.load(f)
+    except Exception:
+        pass
+    
+    # Extract facts from facts_summary
+    meta_unit = facts_data.get("meta_unit", "unknown")
+    npz_has_verts = visual_metadata.get("npz_has_verts", False)
+    schema_version = facts_data.get("schema_version", "unknown")
+    dataset_path = facts_data.get("dataset_path") or facts_data.get("npz_path_abs", "unknown")
+    
+    # Build reason line (facts-only, from facts_summary)
+    reason_parts = []
+    reason_parts.append(f"meta_unit={meta_unit}")
+    reason_parts.append(f"npz_has_verts={npz_has_verts}")
+    if not npz_has_verts:
+        reason_parts.append("missing_key=verts")
+    if schema_version != "unknown":
+        reason_parts.append(f"schema_version={schema_version}")
+    reason_line = ", ".join(reason_parts)
+    
+    # Write SKIPPED.txt with fixed phrase + reason line
+    skipped_path = visual_dir / "SKIPPED.txt"
+    with open(skipped_path, "w", encoding="utf-8") as f:
+        f.write("visual unavailable: measurement-only npz\n")
+        f.write(f"reason: {reason_line}\n")
+        f.write(f"lane: {lane}\n")
+        f.write(f"run_dir: {current_run_dir.relative_to(project_root)}\n")
+        if dataset_path != "unknown":
+            f.write(f"dataset_path: {dataset_path}\n")
+    
+    print(f"Recorded visual skip evidence: {skipped_path.relative_to(project_root)}")
+
+
 def update_round_registry(
     registry_path: Path,
     current_run_dir: Path,
@@ -865,6 +1009,49 @@ def main():
     update_kpi_with_visual(
         kpi_path=kpi_path,
         visual_metadata=visual_metadata
+    )
+    
+    # Ensure ROUND_CHARTER.md (idempotent: do not overwrite if exists)
+    charter_template_path = project_root / "docs" / "verification" / "round_charter_template.md"
+    charter_path = ensure_round_charter(
+        current_run_dir=current_run_dir,
+        charter_template_path=charter_template_path
+    )
+    
+    # Get baseline_report from baselines or new registry
+    baseline_report = None
+    lane_config = baselines.get(lane, {})
+    if lane_config:
+        baseline_report = lane_config.get("baseline_report")
+    if not baseline_report and new_registry_path.exists():
+        try:
+            with open(new_registry_path, "r", encoding="utf-8") as f:
+                new_registry = json.load(f)
+            lanes = new_registry.get("lanes", {})
+            lane_data = lanes.get(lane, {})
+            baseline = lane_data.get("baseline", {})
+            if baseline:
+                baseline_report = baseline.get("report")
+        except Exception:
+            pass
+    
+    # Generate PROMPT_SNAPSHOT.md (always overwrite)
+    generate_prompt_snapshot(
+        current_run_dir=current_run_dir,
+        lane=lane,
+        baseline_alias=baseline_alias,
+        baseline_run_dir=baseline_run_dir,
+        baseline_report=baseline_report,
+        charter_path=charter_path,
+        prev_run_dir=prev_run_dir
+    )
+    
+    # Ensure visual skip evidence (DoD: artifacts/visual/ + SKIPPED.txt)
+    ensure_visual_skip_evidence(
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        visual_metadata=visual_metadata,
+        lane=lane
     )
     
     print("\nPostprocessing complete!")
