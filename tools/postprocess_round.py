@@ -1,27 +1,41 @@
 #!/usr/bin/env python3
 """
-Round Postprocessing Tool (v0.2)
+Round Postprocessing Tool (v0.3)
 
 라운드 실행 후 필수 후처리 도구:
 - KPI 생성 (KPI.md, kpi.json)
-- Prev/Baseline diff 생성 (KPI_DIFF.md)
-- ROUND_CHARTER.md 자동 생성
+- Prev/Baseline diff 생성 (KPI_DIFF.md) + Degradation Warning
+- ROUND_CHARTER.md 자동 생성 + Prompt Snapshot
 - Coverage backlog 업데이트
+- Data Lineage Manifest 기록
+- Visual Provenance PNG 생성
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 # Add project root to path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
+
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
 
 
 def find_facts_summary(run_dir: Path) -> Path:
@@ -199,8 +213,43 @@ def compute_diff(current: Dict[str, Any], other: Dict[str, Any], label: str) -> 
     return lines
 
 
+def check_degradation(current: Dict[str, Any], baseline: Dict[str, Any]) -> List[str]:
+    """Check for degradation warnings. Returns list of warning messages."""
+    warnings = []
+    
+    # NaN rate top5 sum/avg degradation
+    current_nan = current.get("nan_rates_top5", {})
+    baseline_nan = baseline.get("nan_rates_top5", {})
+    if current_nan and baseline_nan:
+        current_sum = sum(current_nan.values())
+        baseline_sum = sum(baseline_nan.values())
+        if current_sum > baseline_sum + 3.0:  # +3%p threshold
+            warnings.append(f"NaN rate top5 sum increased: {baseline_sum:.2f}% → {current_sum:.2f}% (+{current_sum - baseline_sum:.2f}%p)")
+    
+    # HEIGHT p50 change > ±2%
+    curr_height = current.get("height_m", {}).get("p50")
+    base_height = baseline.get("height_m", {}).get("p50")
+    if curr_height is not None and base_height is not None and base_height > 0:
+        pct_change = abs((curr_height - base_height) / base_height) * 100.0
+        if pct_change > 2.0:
+            warnings.append(f"HEIGHT_M p50 changed: {base_height:.4f}m → {curr_height:.4f}m ({pct_change:.2f}% change)")
+    
+    # Failure reason top1 count increase > +3%
+    current_fail = current.get("failure_reasons_top5", {})
+    baseline_fail = baseline.get("failure_reasons_top5", {})
+    if current_fail and baseline_fail:
+        current_top1 = max(current_fail.values()) if current_fail.values() else 0
+        baseline_top1 = max(baseline_fail.values()) if baseline_fail.values() else 0
+        if baseline_top1 > 0:
+            pct_increase = ((current_top1 - baseline_top1) / baseline_top1) * 100.0
+            if pct_increase > 3.0:
+                warnings.append(f"Failure reason top1 count increased: {baseline_top1} → {current_top1} (+{pct_increase:.2f}%)")
+    
+    return warnings
+
+
 def generate_kpi_diff(run_dir: Path, current_kpi: Dict[str, Any]) -> None:
-    """Generate KPI_DIFF.md with prev and baseline diffs."""
+    """Generate KPI_DIFF.md with prev and baseline diffs + degradation warnings."""
     diff_path = run_dir / "KPI_DIFF.md"
     
     lines = ["# KPI Diff", ""]
@@ -225,6 +274,7 @@ def generate_kpi_diff(run_dir: Path, current_kpi: Dict[str, Any]) -> None:
     
     # Baseline diff
     baseline_run = find_baseline_run()
+    baseline_kpi = None
     if baseline_run:
         baseline_kpi_json = baseline_run / "kpi.json"
         baseline_kpi = load_kpi_json(baseline_kpi_json)
@@ -241,17 +291,66 @@ def generate_kpi_diff(run_dir: Path, current_kpi: Dict[str, Any]) -> None:
         lines.append("No baseline run configured. Use `py tools/set_baseline_run.py --run_dir <dir>` to set.")
         lines.append("")
     
+    # Degradation Warning
+    if baseline_kpi:
+        degradation_warnings = check_degradation(current_kpi, baseline_kpi)
+        if degradation_warnings:
+            lines.append("## Degradation Warning")
+            lines.append("")
+            lines.append("⚠️ DEGRADATION")
+            lines.append("")
+            for warning in degradation_warnings:
+                lines.append(f"- {warning}")
+            lines.append("")
+    
     with open(diff_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     
     print(f"Generated: {diff_path}")
 
 
+def get_prompt_snapshot() -> Optional[str]:
+    """Get prompt snapshot from env var or file."""
+    # Try env var first
+    prompt_text = os.environ.get("PROMPT_SNAPSHOT_TEXT")
+    if prompt_text:
+        return prompt_text
+    
+    # Try file path
+    prompt_path = os.environ.get("PROMPT_SNAPSHOT_PATH")
+    if prompt_path:
+        prompt_file = Path(prompt_path)
+        if prompt_file.exists():
+            try:
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                print(f"Warning: Failed to read PROMPT_SNAPSHOT_PATH: {e}", file=sys.stderr)
+    
+    return None
+
+
 def generate_round_charter(run_dir: Path) -> None:
     """Generate ROUND_CHARTER.md from template if it doesn't exist."""
     charter_path = run_dir / "ROUND_CHARTER.md"
     if charter_path.exists():
-        print(f"ROUND_CHARTER.md already exists: {charter_path}")
+        # Update existing charter with prompt snapshot if needed
+        with open(charter_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Add prompt snapshot section if not exists
+        if "## Prompt Snapshot" not in content:
+            prompt_snapshot = get_prompt_snapshot()
+            snapshot_section = "\n## Prompt Snapshot\n\n"
+            if prompt_snapshot:
+                snapshot_section += f"```\n{prompt_snapshot}\n```\n"
+            else:
+                snapshot_section += "(Set PROMPT_SNAPSHOT_TEXT env var or PROMPT_SNAPSHOT_PATH to record prompt context)\n"
+            
+            content += snapshot_section
+            with open(charter_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"Updated: {charter_path} (added Prompt Snapshot)")
         return
     
     template_path = project_root / "docs" / "verification" / "round_charter_template.md"
@@ -267,10 +366,213 @@ def generate_round_charter(run_dir: Path) -> None:
     template = template.replace("roundXX", run_name)
     template = template.replace("YYYY-MM-DD", datetime.now().strftime("%Y-%m-%d"))
     
+    # Add prompt snapshot section
+    prompt_snapshot = get_prompt_snapshot()
+    snapshot_section = "\n## Prompt Snapshot\n\n"
+    if prompt_snapshot:
+        snapshot_section += f"```\n{prompt_snapshot}\n```\n"
+    else:
+        snapshot_section += "(Set PROMPT_SNAPSHOT_TEXT env var or PROMPT_SNAPSHOT_PATH to record prompt context)\n"
+    
+    template += snapshot_section
+    
     with open(charter_path, "w", encoding="utf-8") as f:
         f.write(template)
     
     print(f"Generated: {charter_path}")
+
+
+def compute_file_hash(file_path: Path) -> Optional[str]:
+    """Compute SHA256 hash of file."""
+    if not file_path.exists():
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        return None
+
+
+def get_file_metadata(file_path: Path) -> Optional[Dict[str, Any]]:
+    """Get file mtime and size."""
+    if not file_path.exists():
+        return None
+    try:
+        stat = file_path.stat()
+        return {
+            "mtime": stat.st_mtime,
+            "size": stat.st_size
+        }
+    except Exception:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    """Get current git commit SHA."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(project_root)
+        )
+        return result.stdout.strip()
+    except Exception:
+        return None
+
+
+def update_data_lineage(run_dir: Path, facts_summary_path: Path) -> None:
+    """Update data lineage manifest."""
+    lineage_path = run_dir / "lineage.json"
+    
+    # Load facts_summary.json
+    with open(facts_summary_path, "r", encoding="utf-8") as f:
+        facts_data = json.load(f)
+    
+    lineage = {
+        "created_at": datetime.now().isoformat(),
+        "git_commit": get_git_commit(),
+    }
+    
+    # Extract source information
+    source_path_abs = facts_data.get("source_path_abs")
+    if source_path_abs:
+        source_path = Path(source_path_abs)
+        if source_path.exists():
+            source_meta = get_file_metadata(source_path)
+            if source_meta:
+                lineage["source"] = {
+                    "path_abs": str(source_path_abs),
+                    "mtime": source_meta["mtime"],
+                    "size": source_meta["size"]
+                }
+    
+    # Extract generator information from dataset_path
+    dataset_path = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+    if dataset_path:
+        dataset_path_obj = Path(dataset_path)
+        if dataset_path_obj.exists():
+            dataset_meta = get_file_metadata(dataset_path_obj)
+            if dataset_meta:
+                lineage["dataset"] = {
+                    "path_abs": str(dataset_path),
+                    "mtime": dataset_meta["mtime"],
+                    "size": dataset_meta["size"]
+                }
+    
+    # Try to find generator script (common patterns)
+    generator_patterns = [
+        "create_real_data_golden.py",
+        "create_s0_dataset.py",
+        "export_golden_*.py"
+    ]
+    
+    for pattern in generator_patterns:
+        for gen_file in project_root.rglob(pattern):
+            if gen_file.exists():
+                gen_hash = compute_file_hash(gen_file)
+                if gen_hash:
+                    lineage["generator"] = {
+                        "script_path": str(gen_file.relative_to(project_root)),
+                        "script_sha256": gen_hash
+                    }
+                    break
+        if "generator" in lineage:
+            break
+    
+    with open(lineage_path, "w", encoding="utf-8") as f:
+        json.dump(lineage, f, indent=2, ensure_ascii=False)
+    
+    print(f"Generated: {lineage_path}")
+
+
+def generate_visual_provenance(run_dir: Path, facts_summary_path: Path) -> Optional[List[str]]:
+    """Generate lightweight visual provenance PNGs. Returns list of relative paths."""
+    if not HAS_MATPLOTLIB:
+        print("Warning: matplotlib not available, skipping visual provenance", file=sys.stderr)
+        return None
+    
+    # Load facts_summary.json to get dataset path
+    with open(facts_summary_path, "r", encoding="utf-8") as f:
+        facts_data = json.load(f)
+    
+    dataset_path = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+    if not dataset_path:
+        return None
+    
+    dataset_path_obj = Path(dataset_path)
+    if not dataset_path_obj.exists():
+        return None
+    
+    try:
+        data = np.load(dataset_path_obj, allow_pickle=True)
+        if "verts" not in data:
+            return None
+        
+        verts = data["verts"]
+        # Handle different shapes
+        if verts.ndim == 3:
+            # (N, V, 3) - take first case
+            verts = verts[0]
+        elif verts.ndim == 2:
+            # (V, 3) - use as is
+            pass
+        else:
+            return None
+        
+        if verts.shape[1] != 3:
+            return None
+        
+        # Create visual directory
+        visual_dir = run_dir / "visual"
+        visual_dir.mkdir(exist_ok=True)
+        
+        # Compute bbox and aspect ratio
+        x_min, x_max = verts[:, 0].min(), verts[:, 0].max()
+        y_min, y_max = verts[:, 1].min(), verts[:, 1].max()
+        z_min, z_max = verts[:, 2].min(), verts[:, 2].max()
+        
+        bbox_x = x_max - x_min
+        bbox_y = y_max - y_min
+        bbox_z = z_max - z_min
+        aspect_xy = bbox_x / bbox_y if bbox_y > 0 else 1.0
+        aspect_zy = bbox_z / bbox_y if bbox_y > 0 else 1.0
+        
+        visual_paths = []
+        
+        # XY scatter
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.scatter(verts[:, 0], verts[:, 1], s=0.1, alpha=0.5)
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_title(f"normal_1 XY\nbbox: {bbox_x:.3f}m x {bbox_y:.3f}m, aspect: {aspect_xy:.2f}")
+        ax.grid(True, alpha=0.3)
+        xy_path = visual_dir / "normal_1_xy.png"
+        plt.savefig(xy_path, dpi=100, bbox_inches="tight")
+        plt.close()
+        visual_paths.append(str(xy_path.relative_to(run_dir)))
+        
+        # ZY scatter
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.scatter(verts[:, 2], verts[:, 1], s=0.1, alpha=0.5)
+        ax.set_xlabel("Z (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_title(f"normal_1 ZY\nbbox: {bbox_z:.3f}m x {bbox_y:.3f}m, aspect: {aspect_zy:.2f}")
+        ax.grid(True, alpha=0.3)
+        zy_path = visual_dir / "normal_1_zy.png"
+        plt.savefig(zy_path, dpi=100, bbox_inches="tight")
+        plt.close()
+        visual_paths.append(str(zy_path.relative_to(run_dir)))
+        
+        print(f"Generated: {xy_path}")
+        print(f"Generated: {zy_path}")
+        
+        return visual_paths
+        
+    except Exception as e:
+        print(f"Warning: Failed to generate visual provenance: {e}", file=sys.stderr)
+        return None
 
 
 def update_coverage_backlog(run_dir: Path, facts_summary_path: Path) -> None:
@@ -347,7 +649,7 @@ def update_coverage_backlog(run_dir: Path, facts_summary_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Round postprocessing tool (v0.2)"
+        description="Round postprocessing tool (v0.3)"
     )
     parser.add_argument(
         "--run_dir",
@@ -379,6 +681,34 @@ def main():
     
     # 5. Update coverage backlog
     update_coverage_backlog(run_dir, facts_summary_path)
+    
+    # 6. Update data lineage
+    update_data_lineage(run_dir, facts_summary_path)
+    
+    # 7. Generate visual provenance
+    visual_paths = generate_visual_provenance(run_dir, facts_summary_path)
+    
+    # 8. Update report with visual links if available
+    if visual_paths:
+        report_paths = list(run_dir.glob("*.md"))
+        for report_path in report_paths:
+            if report_path.name in ["KPI.md", "KPI_DIFF.md"]:
+                continue  # Skip KPI files
+            
+            with open(report_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Add visual links if not already present
+            if "Visual:" not in content:
+                visual_section = "\n\n## Visual Provenance\n\n"
+                for vpath in visual_paths:
+                    vname = Path(vpath).stem.replace("_", " ").title()
+                    visual_section += f"- [Visual: {vname}]({vpath})\n"
+                
+                content += visual_section
+                with open(report_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"Updated: {report_path} (added visual links)")
     
     print("\nPostprocessing complete!")
 
