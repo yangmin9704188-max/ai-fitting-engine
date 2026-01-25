@@ -24,6 +24,10 @@ jobs:
         run: |
           python tools/ops/generate_commands_md.py
       
+      - name: Show diff for debugging
+        run: |
+          git diff -- docs/ops/COMMANDS.md || true
+      
       - name: Check if COMMANDS.md is up to date
         run: |
           git diff --exit-code docs/ops/COMMANDS.md || (echo "Error: docs/ops/COMMANDS.md is not up to date. Please run 'make commands-update' and commit the changes." && exit 1)

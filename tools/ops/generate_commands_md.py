@@ -8,19 +8,37 @@ Source of truth = Makefile help output
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 # Add project root to path
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 
 
-def run_make_help() -> str:
-    """Run `make help` and return stdout."""
+def normalize_output(text: str) -> str:
+    """Normalize output: convert \\r\\n to \\n, remove trailing whitespace."""
+    # Convert \r\n to \n
+    text = text.replace('\r\n', '\n')
+    # Remove trailing whitespace from each line
+    lines = [line.rstrip() for line in text.split('\n')]
+    return '\n'.join(lines)
+
+
+def run_make_help() -> Optional[str]:
+    """Run `make help` with fixed environment and return normalized stdout.
+    
+    Returns None if make is not available (fallback for local dev without make).
+    """
+    env = os.environ.copy()
+    # Fix locale for deterministic output
+    env['LANG'] = 'C'
+    env['LC_ALL'] = 'C'
+    
     try:
         result = subprocess.run(
             ['make', 'help'],
@@ -28,16 +46,17 @@ def run_make_help() -> str:
             capture_output=True,
             text=True,
             encoding='utf-8',
+            env=env,
             check=True
         )
-        return result.stdout
+        # Normalize output
+        return normalize_output(result.stdout)
     except FileNotFoundError:
-        print("Error: 'make' command not found. Please ensure make is installed.", file=sys.stderr)
-        sys.exit(1)
+        # make not available - return None for fallback
+        return None
     except subprocess.CalledProcessError as e:
-        print(f"Error: 'make help' failed with exit code {e.returncode}", file=sys.stderr)
-        print(f"Stderr: {e.stderr}", file=sys.stderr)
-        sys.exit(1)
+        # make help failed - return None for fallback
+        return None
 
 
 def parse_makefile_variables(makefile_path: Path) -> dict:
@@ -149,7 +168,8 @@ def generate_commands_md(
     available_targets: List[str],
     round_ops_shortcuts: List[str],
     examples: List[str],
-    variables: dict
+    variables: dict,
+    make_help_available: bool = True
 ) -> str:
     """Generate COMMANDS.md content."""
     
@@ -159,6 +179,9 @@ def generate_commands_md(
     lines.append("이 문서는 AI Fitting Engine 프로젝트에서 사용 가능한 공식 단축 명령들을 정리합니다.")
     lines.append("이 문서는 `make commands-update` 명령으로 자동 생성됩니다.")
     lines.append("")
+    if not make_help_available:
+        lines.append("**Note**: make help not available - document not updated.")
+        lines.append("")
     lines.append("**Source of truth**: Makefile help output")
     lines.append("")
     lines.append("## Overview")
@@ -289,8 +312,13 @@ def main():
     makefile_path = repo_root / 'Makefile'
     output_path = repo_root / 'docs' / 'ops' / 'COMMANDS.md'
     
-    # Run make help
+    # Run make help with fallback
     help_output = run_make_help()
+    
+    if help_output is None:
+        # make help not available - no-op (don't modify existing file)
+        print("Note: make help not available - COMMANDS.md not updated.", file=sys.stderr)
+        sys.exit(0)
     
     # Parse help output
     available_targets, round_ops_shortcuts, examples = parse_help_output(help_output)
@@ -299,11 +327,13 @@ def main():
     variables = parse_makefile_variables(makefile_path)
     
     # Generate content
-    content = generate_commands_md(available_targets, round_ops_shortcuts, examples, variables)
+    content = generate_commands_md(available_targets, round_ops_shortcuts, examples, variables, make_help_available=True)
     
-    # Write output
+    # Write output with \n line endings (normalized)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content, encoding='utf-8')
+    # Ensure content uses \n line endings
+    content_normalized = content.replace('\r\n', '\n').replace('\r', '\n')
+    output_path.write_text(content_normalized, encoding='utf-8', newline='\n')
     
     print(f"Generated: {output_path.relative_to(repo_root)}")
 
