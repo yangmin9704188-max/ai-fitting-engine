@@ -1,6 +1,13 @@
 # 공식 단축 명령 목록
 
 이 문서는 AI Fitting Engine 프로젝트에서 사용 가능한 공식 단축 명령들을 정리합니다.
+이 문서는 `make commands-update` 명령으로 자동 생성됩니다.
+
+**Source of truth**: Makefile help output
+
+## Overview
+
+Makefile을 통해 제공되는 단축 명령들입니다. 각 명령의 목적, 사용법, 예시를 확인할 수 있습니다.
 
 ## 기본 명령
 
@@ -150,6 +157,38 @@ make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments] [SLUG=...] [DRY_RUN=1]
 ```bash
 make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801
 make judgment FROM_RUN=<run_dir> DRY_RUN=1 SLUG=smoke
+```
+
+### commands-update
+**목적**: COMMANDS.md를 Makefile에서 자동 생성
+
+**기본 사용법**:
+```bash
+make commands-update
+```
+
+## Quick Recipes
+
+자주 사용하는 조합 명령들입니다.
+
+### Baseline 후처리
+```bash
+make postprocess-baseline
+```
+
+### Baseline Curated v0 라운드
+```bash
+make curated_v0_baseline
+```
+
+### Golden Registry 패치 적용
+```bash
+make golden-apply PATCH=verification/runs/facts/curated_v0/round20_20260125_164801/CANDIDATES/GOLDEN_REGISTRY_PATCH.json
+```
+
+### Judgment 문서 생성
+```bash
+make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801
 ```
 
 ## 기본 변수
