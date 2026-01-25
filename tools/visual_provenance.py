@@ -12,6 +12,7 @@ import json
 import random
 import sys
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -23,6 +24,48 @@ import numpy as np
 # Add project root to path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
+
+
+def _write_skipped_file(
+    visual_dir: Path,
+    result: Dict[str, Any],
+    current_run_dir: Path,
+    lane: Optional[str] = None,
+    npz_path: Optional[Path] = None
+) -> None:
+    """Write SKIPPED.txt file when visual generation is skipped."""
+    try:
+        skipped_path = visual_dir / "SKIPPED.txt"
+        with open(skipped_path, "w", encoding="utf-8") as f:
+            f.write("Visual Provenance: SKIPPED\n")
+            f.write("=" * 50 + "\n\n")
+            f.write(f"visual_status: {result.get('visual_status', 'skipped')}\n")
+            f.write(f"reason: {result.get('visual_reason', 'unknown')}\n")
+            
+            if npz_path:
+                f.write(f"npz_path: {npz_path}\n")
+                f.write(f"npz_path_abs: {npz_path.resolve()}\n")
+            
+            if result.get("npz_keys"):
+                f.write(f"npz_keys: {result['npz_keys']}\n")
+            
+            f.write(f"npz_has_verts: {result.get('npz_has_verts', False)}\n")
+            
+            if lane:
+                f.write(f"lane: {lane}\n")
+            
+            run_dir_rel = current_run_dir.relative_to(project_root)
+            f.write(f"run_dir: {run_dir_rel}\n")
+            f.write(f"run_dir_abs: {current_run_dir.resolve()}\n")
+            f.write(f"timestamp: {datetime.now().isoformat()}\n")
+            
+            if result.get("warnings"):
+                f.write(f"\nwarnings ({len(result['warnings'])}):\n")
+                for w in result["warnings"]:
+                    f.write(f"  - {w}\n")
+    except Exception as e:
+        # Don't crash if we can't write the skipped file
+        warnings.warn(f"Failed to write SKIPPED.txt: {e}")
 
 
 def load_npz_verts(npz_path: Path) -> Tuple[Optional[list], Optional[list], list]:
@@ -220,7 +263,8 @@ def render_projection(
 def generate_visual_provenance(
     current_run_dir: Path,
     facts_summary_path: Path,
-    npz_path: Optional[Path] = None
+    npz_path: Optional[Path] = None,
+    lane: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generate visual provenance images.
@@ -236,8 +280,19 @@ def generate_visual_provenance(
         "downsample_method": None,
         "front_xy_path": None,
         "side_zy_path": None,
+        "visual_reason": None,
+        "npz_has_verts": False,
+        "npz_keys": [],
         "warnings": []
     }
+    
+    # Always create artifacts/visual/ directory
+    visual_dir = current_run_dir / "artifacts" / "visual"
+    try:
+        visual_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        result["warnings"].append(f"VISUAL_DIR_CREATE_FAILED: {str(e)}")
+        # Continue anyway - we'll try to create SKIPPED.txt later
     
     # Load facts_summary
     try:
@@ -246,6 +301,8 @@ def generate_visual_provenance(
     except Exception as e:
         result["warnings"].append(f"FACTS_SUMMARY_LOAD_FAILED: {str(e)}")
         result["visual_status"] = "skipped"
+        result["visual_reason"] = "facts_summary_load_failed"
+        _write_skipped_file(visual_dir, result, current_run_dir, lane)
         return result
     
     # Get NPZ path from facts_summary if not provided
@@ -256,11 +313,38 @@ def generate_visual_provenance(
         else:
             result["warnings"].append("NPZ_PATH_NOT_FOUND")
             result["visual_status"] = "skipped"
+            result["visual_reason"] = "npz_path_not_found"
+            _write_skipped_file(visual_dir, result, current_run_dir, lane)
             return result
     
     if not npz_path.exists():
         result["warnings"].append(f"NPZ_NOT_FOUND: {npz_path}")
         result["visual_status"] = "skipped"
+        result["visual_reason"] = "npz_not_found"
+        _write_skipped_file(visual_dir, result, current_run_dir, lane)
+        return result
+    
+    # Check NPZ keys to determine if it has verts
+    try:
+        npz_data = np.load(str(npz_path), allow_pickle=True)
+        npz_keys = list(npz_data.keys())
+        result["npz_keys"] = npz_keys
+        npz_data.close()
+        
+        if "verts" not in npz_keys:
+            # Measurement-only NPZ - this is expected for some lanes
+            result["visual_status"] = "skipped"
+            result["visual_reason"] = "measurement-only npz (no verts key)"
+            result["npz_has_verts"] = False
+            _write_skipped_file(visual_dir, result, current_run_dir, lane, npz_path)
+            return result
+        
+        result["npz_has_verts"] = True
+    except Exception as e:
+        result["warnings"].append(f"NPZ_INSPECT_FAILED: {str(e)}")
+        result["visual_status"] = "skipped"
+        result["visual_reason"] = "npz_inspect_failed"
+        _write_skipped_file(visual_dir, result, current_run_dir, lane)
         return result
     
     # Load verts
@@ -270,6 +354,8 @@ def generate_visual_provenance(
     if not verts_list or not case_ids:
         result["warnings"].append("NO_VERTS_LOADED")
         result["visual_status"] = "skipped"
+        result["visual_reason"] = "no_verts_loaded"
+        _write_skipped_file(visual_dir, result, current_run_dir, lane, npz_path)
         return result
     
     # Select case
@@ -280,6 +366,8 @@ def generate_visual_provenance(
     if case_idx is None:
         result["warnings"].append("NO_CASE_SELECTED")
         result["visual_status"] = "skipped"
+        result["visual_reason"] = "no_case_selected"
+        _write_skipped_file(visual_dir, result, current_run_dir, lane, npz_path)
         return result
     
     result["visual_case_id"] = case_id
@@ -294,10 +382,6 @@ def generate_visual_provenance(
     verts, downsample_n, downsample_method = downsample_verts(verts, max_points=50000)
     result["downsample_n"] = downsample_n
     result["downsample_method"] = downsample_method
-    
-    # Create output directory
-    visual_dir = current_run_dir / "artifacts" / "visual"
-    visual_dir.mkdir(parents=True, exist_ok=True)
     
     # Determine if expected_fail
     is_expected_fail = (case_class == "expected_fail")

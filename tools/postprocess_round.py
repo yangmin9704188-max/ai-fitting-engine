@@ -305,7 +305,8 @@ def generate_lineage_manifest(
 
 def generate_visual_provenance(
     current_run_dir: Path,
-    facts_summary_path: Path
+    facts_summary_path: Path,
+    lane: str
 ) -> Dict[str, Any]:
     """Generate visual provenance images."""
     from tools.visual_provenance import generate_visual_provenance as gen_visual
@@ -314,7 +315,8 @@ def generate_visual_provenance(
         visual_metadata = gen_visual(
             current_run_dir=current_run_dir,
             facts_summary_path=facts_summary_path,
-            npz_path=None  # Will be extracted from facts_summary
+            npz_path=None,  # Will be extracted from facts_summary
+            lane=lane
         )
         
         if visual_metadata["visual_status"] == "success":
@@ -323,14 +325,42 @@ def generate_visual_provenance(
             print(f"Warning: Partial visual generation (one view failed)")
         elif visual_metadata["visual_status"] == "failed":
             print(f"Warning: Visual generation failed: {visual_metadata.get('warnings', [])}")
-        else:
-            print(f"Warning: Visual generation skipped: {visual_metadata.get('warnings', [])}")
+        elif visual_metadata["visual_status"] == "skipped":
+            # Check if it's a measurement-only NPZ (expected case)
+            reason = visual_metadata.get("visual_reason", "")
+            npz_has_verts = visual_metadata.get("npz_has_verts", True)
+            
+            if not npz_has_verts and "measurement-only" in reason:
+                # Determine if this is expected for this lane
+                is_expected = False
+                expected_hint = ""
+                
+                # Check if lane is curated_v0 or schema suggests realdata
+                if lane == "curated_v0":
+                    is_expected = True
+                    expected_hint = f" This is expected for {lane} realdata lane."
+                else:
+                    # Try to infer from facts_summary schema_version
+                    try:
+                        with open(facts_summary_path, "r", encoding="utf-8") as f:
+                            facts_data = json.load(f)
+                        schema_version = facts_data.get("schema_version", "")
+                        if "realdata" in schema_version.lower() or "real_data" in schema_version.lower():
+                            is_expected = True
+                            expected_hint = f" This is expected for realdata datasets."
+                    except Exception:
+                        pass
+                
+                print(f"Visual provenance unavailable: measurement-only NPZ (no 'verts' key).{expected_hint}")
+            else:
+                print(f"Warning: Visual generation skipped: {visual_metadata.get('warnings', [])}")
         
         return visual_metadata
     except Exception as e:
         print(f"Warning: Visual provenance generation failed: {e}", file=sys.stderr)
         return {
             "visual_status": "skipped",
+            "visual_reason": f"exception: {str(e)}",
             "warnings": [f"EXCEPTION: {str(e)}"]
         }
 
@@ -353,6 +383,17 @@ def update_lineage_with_visual(
             # Add visual provenance section before NPZ Metadata
             visual_section = "\n## Visual Provenance\n\n"
             visual_section += f"- **status**: `{visual_metadata.get('visual_status', 'unknown')}`\n"
+            
+            if visual_metadata.get("visual_reason"):
+                visual_section += f"- **reason**: `{visual_metadata['visual_reason']}`\n"
+            
+            visual_section += f"- **npz_has_verts**: `{visual_metadata.get('npz_has_verts', False)}`\n"
+            
+            if visual_metadata.get("npz_keys"):
+                npz_keys_str = ", ".join([f"`{k}`" for k in visual_metadata["npz_keys"][:10]])
+                if len(visual_metadata["npz_keys"]) > 10:
+                    npz_keys_str += f", ... ({len(visual_metadata['npz_keys'])} total)"
+                visual_section += f"- **npz_keys**: {npz_keys_str}\n"
             
             if visual_metadata.get("visual_case_id"):
                 visual_section += f"- **case_id**: `{visual_metadata['visual_case_id']}`\n"
@@ -692,7 +733,8 @@ def main():
     # Generate visual provenance
     visual_metadata = generate_visual_provenance(
         current_run_dir=current_run_dir,
-        facts_summary_path=facts_summary_path
+        facts_summary_path=facts_summary_path,
+        lane=lane
     )
     
     # Update LINEAGE.md with visual metadata
