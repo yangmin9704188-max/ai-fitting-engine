@@ -1,4 +1,8 @@
-.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round ops_guard
+.PHONY: help sync-dry sync ai-prompt ai-prompt-json curated_v0_round ops_guard postprocess postprocess-baseline curated_v0_baseline golden-apply judgment
+
+# Default variables (override with make VAR=value)
+BASELINE_RUN_DIR ?= verification/runs/facts/curated_v0/round20_20260125_164801
+GOLDEN_REGISTRY ?= docs/verification/golden_registry.json
 
 # Default target
 help:
@@ -10,6 +14,13 @@ help:
 	@echo "  make curated_v0_round RUN_DIR=<out_dir> [SKIP_RUNNER=1]"
 	@echo "  make ops_guard [BASE=main]"
 	@echo ""
+	@echo "Round Ops Shortcuts:"
+	@echo "  make postprocess RUN_DIR=<dir>"
+	@echo "  make postprocess-baseline"
+	@echo "  make curated_v0_baseline"
+	@echo "  make golden-apply PATCH=<patch.json> [FORCE=1]"
+	@echo "  make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments]"
+	@echo ""
 	@echo "Examples:"
 	@echo "  make sync-dry ARGS=\"--set snapshot.status=candidate\""
 	@echo "  make sync ARGS=\"--set snapshot.status=hold --set last_update.trigger=test\""
@@ -18,6 +29,12 @@ help:
 	@echo "  make curated_v0_round RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801"
 	@echo "  make curated_v0_round RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801 SKIP_RUNNER=1"
 	@echo "  make ops_guard"
+	@echo "  make postprocess RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801"
+	@echo "  make postprocess-baseline"
+	@echo "  make curated_v0_baseline"
+	@echo "  make golden-apply PATCH=verification/runs/facts/curated_v0/round20_20260125_164801/CANDIDATES/GOLDEN_REGISTRY_PATCH.json"
+	@echo "  make golden-apply PATCH=<path> FORCE=1"
+	@echo "  make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801"
 
 sync-dry:
 	python tools/sync_state.py --dry-run $(ARGS)
@@ -56,3 +73,49 @@ curated_v0_round:
 # Ops lock warning sensor
 ops_guard:
 	@python tools/ops/check_ops_lock.py --base $(BASE) || true
+
+# Postprocess shortcut
+postprocess:
+	@if [ -z "$(RUN_DIR)" ]; then \
+		echo "Error: RUN_DIR is required. Usage: make postprocess RUN_DIR=<dir>"; \
+		echo "Example: make postprocess RUN_DIR=verification/runs/facts/curated_v0/round20_20260125_164801"; \
+		exit 1; \
+	fi
+	@python tools/postprocess_round.py --current_run_dir $(RUN_DIR)
+
+# Postprocess baseline (uses BASELINE_RUN_DIR)
+postprocess-baseline:
+	@echo "Running postprocess for baseline: $(BASELINE_RUN_DIR)"
+	@python tools/postprocess_round.py --current_run_dir $(BASELINE_RUN_DIR)
+
+# Curated v0 baseline round (runner skip, postprocess only)
+curated_v0_baseline:
+	@echo "Running curated_v0_round for baseline: $(BASELINE_RUN_DIR) (SKIP_RUNNER=1)"
+	@$(MAKE) curated_v0_round RUN_DIR=$(BASELINE_RUN_DIR) SKIP_RUNNER=1
+
+# Golden registry patch apply
+golden-apply:
+	@if [ -z "$(PATCH)" ]; then \
+		echo "Error: PATCH is required. Usage: make golden-apply PATCH=<patch.json> [FORCE=1]"; \
+		echo "Example: make golden-apply PATCH=verification/runs/facts/curated_v0/round20_20260125_164801/CANDIDATES/GOLDEN_REGISTRY_PATCH.json"; \
+		exit 1; \
+	fi
+	@if [ "$(FORCE)" = "1" ]; then \
+		python tools/golden_registry.py --add-entry $(PATCH) --registry $(GOLDEN_REGISTRY) --force; \
+	else \
+		python tools/golden_registry.py --add-entry $(PATCH) --registry $(GOLDEN_REGISTRY); \
+	fi
+
+# Judgment creation (if tools/judgments.py exists)
+judgment:
+	@if [ -z "$(FROM_RUN)" ]; then \
+		echo "Error: FROM_RUN is required. Usage: make judgment FROM_RUN=<run_dir> [OUT_DIR=docs/judgments]"; \
+		echo "Example: make judgment FROM_RUN=verification/runs/facts/curated_v0/round20_20260125_164801"; \
+		exit 1; \
+	fi
+	@OUT_DIR="$(if $(OUT_DIR),$(OUT_DIR),docs/judgments)"; \
+	if [ -f "tools/judgments.py" ]; then \
+		python tools/judgments.py --from-run $(FROM_RUN) --out-dir $$OUT_DIR; \
+	else \
+		echo "tools/judgments.py not found (ops-round8). Skipping."; \
+	fi
