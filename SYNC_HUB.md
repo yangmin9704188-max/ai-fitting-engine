@@ -209,3 +209,9 @@ Snapshot Tag: snapshot-20260122-bust-underbust-mvp1
 
 Commit (main HEAD): 9b7ef4a9539e051d43b8e95ed8e1bd6d35845fa0
 
+### 🚀 Operations & Validation History
+
+| Round | Lane | Baseline Alias | Status | Key Artifacts |
+| :--- | :--- | :--- | :--- | :--- |
+| **Round 20** | `curated_v0` | `curated-v0-realdata-v0.1` | ✅ Finalized | KPI, KPI_DIFF, LINEAGE, Registries (Visual: Skip) |
+
