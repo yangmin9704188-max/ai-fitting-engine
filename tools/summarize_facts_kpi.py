@@ -206,12 +206,70 @@ def generate_kpi_header(summary_data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python summarize_facts_kpi.py <facts_summary.json>", file=sys.stderr)
-        sys.exit(1)
+def generate_kpi_json(summary_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate KPI data as JSON structure."""
+    kpi_data = {}
     
-    json_path = Path(sys.argv[1])
+    # 1. Case counts
+    total_cases = safe_get(summary_data, "n_samples", default="N/A")
+    valid_cases = safe_get(summary_data, "summary", "valid_cases", default="N/A")
+    if valid_cases == "N/A":
+        valid_cases = safe_get(summary_data, "statistics", "valid_cases", default="N/A")
+    expected_fail_cases = safe_get(summary_data, "summary", "expected_fail_cases", default="N/A")
+    if expected_fail_cases == "N/A":
+        expected_fail_cases = safe_get(summary_data, "statistics", "expected_fail_cases", default="N/A")
+    
+    kpi_data["case_counts"] = {
+        "total": total_cases,
+        "valid": valid_cases,
+        "expected_fail": expected_fail_cases
+    }
+    
+    # 2. NaN rates Top5
+    nan_rates = get_nan_rates(summary_data)
+    kpi_data["nan_rates_top5"] = {key: rate for key, rate in nan_rates}
+    
+    # 3. Failure reasons Top5
+    failure_reasons = get_failure_reasons(summary_data)
+    kpi_data["failure_reasons_top5"] = {reason: count for reason, count in failure_reasons}
+    
+    # 4. HEIGHT_M distribution
+    height_dist = get_value_distribution(summary_data, "HEIGHT_M")
+    kpi_data["height_m"] = {
+        "p50": height_dist["p50"],
+        "p95": height_dist["p95"]
+    }
+    
+    # 5. BUST/WAIST/HIP p50
+    kpi_data["circumference_p50"] = {}
+    for key in ["BUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]:
+        dist = get_value_distribution(summary_data, key)
+        kpi_data["circumference_p50"][key] = dist["p50"]
+    
+    return kpi_data
+
+
+def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Facts Summary KPI Header Generator"
+    )
+    parser.add_argument(
+        "facts_summary_json",
+        type=str,
+        help="Path to facts_summary.json"
+    )
+    parser.add_argument(
+        "--out_json",
+        type=str,
+        default=None,
+        help="Optional: Output KPI data as JSON to this path"
+    )
+    
+    args = parser.parse_args()
+    
+    json_path = Path(args.facts_summary_json)
     if not json_path.exists():
         print(f"Error: File not found: {json_path}", file=sys.stderr)
         sys.exit(1)
@@ -228,6 +286,14 @@ def main():
     
     kpi_header = generate_kpi_header(summary_data)
     print(kpi_header)
+    
+    # If --out_json is specified, also save JSON
+    if args.out_json:
+        kpi_json = generate_kpi_json(summary_data)
+        out_path = Path(args.out_json)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(kpi_json, f, indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":
