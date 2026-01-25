@@ -97,6 +97,7 @@ def parse_debug_json(debug_path: Path) -> Optional[Dict[str, Any]]:
             "target_height_m": data.get("target_height_m"),
             "error_message": data.get("error_message"),
             "clamp_applied": data.get("clamp_applied", False),
+            "timestamp": data.get("timestamp"),
             "_original_keys": original_keys  # For debugging
         }
         return summary
@@ -106,19 +107,32 @@ def parse_debug_json(debug_path: Path) -> Optional[Dict[str, Any]]:
         traceback.print_exc()
         return None
 
-def print_debug_summary(debug_summary: Dict[str, Any]):
-    """Print debug JSON summary (None-safe)."""
+def print_debug_summary(
+    debug_summary: Dict[str, Any],
+    *,
+    stale_and_current_passed: bool = False,
+) -> None:
+    """Print debug JSON summary (None-safe).
+
+    When stale_and_current_passed is True, treat as STALE previous fail record;
+    current run has passed. Print disclaimer + timestamp so it does not confuse.
+    """
     print("\n" + "="*60)
-    print("[DEBUG JSON SUMMARY] Last invariant fail analysis:")
-    print("="*60)
-    
-    # Print available keys
-    available_keys = sorted([k for k in debug_summary.keys() if not k.startswith("_")])
+    if stale_and_current_passed:
+        ts = debug_summary.get("timestamp")
+        print("[STALE] Previous invariant fail record (NOT current run).")
+        print(f"  Timestamp: {ts if ts is not None else 'N/A'}")
+        print("  This is a previous fail record; current run passed.")
+        print("="*60)
+    else:
+        print("[DEBUG JSON SUMMARY] Last invariant fail analysis:")
+        print("="*60)
+
+    available_keys = sorted([k for k in debug_summary.keys() if not k.startswith("_") and k != "timestamp"])
     print(f"[DEBUG JSON KEYS] Available keys: {available_keys}")
     if "_original_keys" in debug_summary:
         print(f"[DEBUG JSON KEYS] Original JSON keys: {debug_summary['_original_keys']}")
-    
-    # None-safe printing
+
     case_id = debug_summary.get('case_id', 'N/A')
     height = debug_summary.get('height_m_after_scale')
     scale_factor = debug_summary.get('scale_factor')
@@ -130,7 +144,7 @@ def print_debug_summary(debug_summary: Dict[str, Any]):
     hip_key = debug_summary.get('hip_circ_key_used')
     error_msg = debug_summary.get('error_message', 'N/A')
     clamp_applied = debug_summary.get('clamp_applied', False)
-    
+
     print(f"  Case ID: {case_id}")
     print(f"  Height (after scale): {fmt_m(height)}")
     print(f"  Scale factor: {fmt_m(scale_factor)}")
@@ -284,15 +298,16 @@ def _estimate_radius_at_height(verts: np.ndarray, y_target: float, tolerance: fl
 # FAST MODE: Check for ONLY_CASE
 # ============================================================================
 only_case = get_only_case()
+stale_fail_summary: Optional[Dict[str, Any]] = None
 if only_case:
     print(f"\n[FAST MODE] ONLY_CASE={only_case}; will generate only this case")
-    # Parse latest debug JSON if available
     debug_dir = Path(__file__).parent.parent.parent / "runs" / "debug"
     latest_debug = find_latest_debug_json(debug_dir)
     if latest_debug:
-        debug_summary = parse_debug_json(latest_debug)
-        if debug_summary:
-            print_debug_summary(debug_summary)
+        _summary = parse_debug_json(latest_debug)
+        if _summary:
+            stale_fail_summary = _summary
+            # Do NOT print here. Print at end with STALE disclaimer only on success.
 
 cases = []
 case_ids = []
@@ -435,6 +450,24 @@ for i in range(5):
     bust_y_scaled = y_min_scaled + 0.575 * y_range_scaled
     bust_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
     bust_circ_est_from_verts = 2 * np.pi * bust_radius_est_from_verts if bust_radius_est_from_verts is not None else None
+
+    # -----------------------------------------------------------------------
+    # B) XZ verts alignment (fastmode / normal_1): match bust_circ_from_verts to theoretical
+    # -----------------------------------------------------------------------
+    xz_scale_factor: Optional[float] = None
+    bust_radius_from_verts_before = bust_radius_est_from_verts
+    bust_circ_from_verts_before = bust_circ_est_from_verts
+    bust_radius_from_verts_after: Optional[float] = None
+    bust_circ_from_verts_after: Optional[float] = None
+    if case_id == "normal_1" and bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
+        desired_radius = bust_circ_est / (2 * np.pi)
+        xz_scale_factor = desired_radius / bust_radius_est_from_verts
+        center_x = float(np.mean(verts_scaled[:, 0]))
+        center_z = float(np.mean(verts_scaled[:, 2]))
+        verts_scaled[:, 0] = center_x + (verts_scaled[:, 0] - center_x) * xz_scale_factor
+        verts_scaled[:, 2] = center_z + (verts_scaled[:, 2] - center_z) * xz_scale_factor
+        bust_radius_from_verts_after = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+        bust_circ_from_verts_after = 2 * np.pi * bust_radius_from_verts_after if bust_radius_from_verts_after is not None else None
     
     # ========================================================================
     # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
@@ -463,7 +496,7 @@ for i in range(5):
             "waist_circ_estimate": float(waist_circ_est),
             "hip_circ_estimate": float(hip_circ_est),
             "params": {
-                "bust_circ_range": [0.07, 0.09] if case_id == "normal_1" else [CIRCUMFERENCE_RANGES["BUST"][0], CIRCUMFERENCE_RANGES["BUST"][1] / 2.5],
+                "bust_circ_range": [0.30, 0.56] if case_id == "normal_1" else [CIRCUMFERENCE_RANGES["BUST"][0], CIRCUMFERENCE_RANGES["BUST"][1] / 2.5],
                 "bust_circ_sampled": float(bust_circ),
                 "scale_factor": float(scale_factor),
                 "noise_amplitude": 0.01,
@@ -478,8 +511,11 @@ for i in range(5):
                 "bust_radius_estimated": float(bust_radius_est),
                 "bust_circ_after_scale_theoretical": float(bust_circ * scale_factor),
                 "bust_circ_estimate_actual": float(bust_circ_est),
-                "bust_radius_estimated_from_verts": float(bust_radius_est_from_verts) if bust_radius_est_from_verts is not None else None,
-                "bust_circ_estimate_from_verts": float(bust_circ_est_from_verts) if bust_circ_est_from_verts is not None else None
+                "bust_radius_from_verts_before": float(bust_radius_from_verts_before) if bust_radius_from_verts_before is not None else None,
+                "bust_circ_from_verts_before": float(bust_circ_from_verts_before) if bust_circ_from_verts_before is not None else None,
+                "bust_radius_from_verts_after": float(bust_radius_from_verts_after) if bust_radius_from_verts_after is not None else None,
+                "bust_circ_from_verts_after": float(bust_circ_from_verts_after) if bust_circ_from_verts_after is not None else None,
+                "xz_scale_factor": float(xz_scale_factor) if xz_scale_factor is not None else None,
             },
             "clamp_applied": clamp_applied,
             "clamped_keys": clamped_keys
@@ -496,9 +532,14 @@ for i in range(5):
         print(f"  bust_circ_estimate_actual={bust_circ_est:.4f}m")
         print(f"  bust_radius_after_scale_theoretical={bust_radius * scale_factor:.4f}m")
         print(f"  bust_radius_estimated={bust_radius_est:.4f}m")
-        if bust_radius_est_from_verts is not None:
-            print(f"  bust_radius_estimated_from_verts={bust_radius_est_from_verts:.4f}m (for comparison)")
-            print(f"  bust_circ_estimate_from_verts={bust_circ_est_from_verts:.4f}m (for comparison)")
+        if bust_radius_from_verts_before is not None:
+            print(f"  bust_radius_from_verts_before={bust_radius_from_verts_before:.4f}m")
+            print(f"  bust_circ_from_verts_before={bust_circ_from_verts_before:.4f}m")
+        if xz_scale_factor is not None:
+            print(f"  xz_scale_factor={xz_scale_factor:.4f}")
+        if bust_radius_from_verts_after is not None:
+            print(f"  bust_radius_from_verts_after={bust_radius_from_verts_after:.4f}m")
+            print(f"  bust_circ_from_verts_after={bust_circ_from_verts_after:.4f}m")
         print(f"  clamp_applied={clamp_applied}")
         print(f"  Saved trace to: {trace_path.resolve()}")
     
@@ -1099,7 +1140,7 @@ if reopen_proof_passed:
               f"reloaded={sample['bbox_span_y_reloaded']:.4f}m, "
               f"scale={sample['scale_factor']:.4f}, diff={sample['diff']:.4f}m")
 else:
-    print(f"\n[RE-OPEN PROOF] ✗ FAILED: Some valid cases did not pass verification.")
+    print(f"\n[RE-OPEN PROOF] [FAIL] Some valid cases did not pass verification.")
 
 print(f"\nCreated {output_path}")
 print(f"  Cases: {len(cases)}")
@@ -1119,3 +1160,7 @@ for i in valid_indices:
               f"after={meta['bbox_span_y_after']:.4f}m, "
               f"scale={meta['scale_factor_applied']:.4f}, "
               f"target={meta['target_height_m']:.4f}m")
+
+# On success (we reached here): optionally print STALE previous-fail summary (FAST MODE only)
+if only_case and stale_fail_summary is not None:
+    print_debug_summary(stale_fail_summary, stale_and_current_passed=True)

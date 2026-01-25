@@ -4,15 +4,15 @@
 
 - **샘플 수**: 6
 - **입력 데이터셋**: `verification/datasets/golden/core_measurements_v0/s0_synthetic_cases.npz`
-- **Git SHA**: `6b0f83c0e312fb94bd28251a34835e29a06cebc6`
-- **실행 일시**: 2026-01-25T05:13:06.315619
+- **Git SHA**: `26f5c4d22419702346f454c5f9a818284c8c7763`
+- **실행 일시**: 2026-01-25T15:41:03.281332
 
 ### 1.1 S0 Dataset Scale Statistics
 
 - **HEIGHT_M**: min=1.710m, median=1.710m, max=1.710m
-- **BUST_CIRC_M**: median=2.626m, BUST/height ratio=1.535
-- **WAIST_CIRC_M**: median=2.344m, WAIST/height ratio=1.371
-- **HIP_CIRC_M**: median=2.719m, HIP/height ratio=1.590
+- **BUST_CIRC_M**: median=1.560m, BUST/height ratio=0.912
+- **WAIST_CIRC_M**: median=1.116m, WAIST/height ratio=0.652
+- **HIP_CIRC_M**: median=1.335m, HIP/height ratio=0.781
 
 ## 2. Key별 요약 (Valid Cases Only - DoD 평가 기준)
 
@@ -20,19 +20,19 @@
 
 | Key | Valid Total | Valid NaN | Valid NaN Rate | Min | Median | Max | DoD (<=40%) |
 |-----|-------------|-----------|----------------|-----|--------|-----|-------------|
-| NECK_CIRC_M | 1 | 0 | 0.00% | 2.7194 | 2.7194 | 2.7194 | N/A |
-| BUST_CIRC_M | 1 | 0 | 0.00% | 2.6257 | 2.6257 | 2.6257 | N/A |
-| UNDERBUST_CIRC_M | 1 | 0 | 0.00% | 2.3440 | 2.3440 | 2.3440 | N/A |
-| WAIST_CIRC_M | 1 | 0 | 0.00% | 2.3440 | 2.3440 | 2.3440 | N/A |
-| HIP_CIRC_M | 1 | 0 | 0.00% | 2.7194 | 2.7194 | 2.7194 | N/A |
-| THIGH_CIRC_M | 1 | 0 | 0.00% | 2.3871 | 2.3871 | 2.3871 | N/A |
-| MIN_CALF_CIRC_M | 1 | 0 | 0.00% | 1.6216 | 1.6216 | 1.6216 | N/A |
-| CHEST_WIDTH_M | 1 | 0 | 0.00% | 0.4501 | 0.4501 | 0.4501 | N/A |
-| CHEST_DEPTH_M | 1 | 0 | 0.00% | 0.4321 | 0.4321 | 0.4321 | N/A |
-| WAIST_WIDTH_M | 1 | 0 | 0.00% | 0.7278 | 0.7278 | 0.7278 | ✅ PASS |
-| WAIST_DEPTH_M | 1 | 0 | 0.00% | 0.7287 | 0.7287 | 0.7287 | ✅ PASS |
-| HIP_WIDTH_M | 1 | 0 | 0.00% | 0.8584 | 0.8584 | 0.8584 | ✅ PASS |
-| HIP_DEPTH_M | 1 | 0 | 0.00% | 0.8975 | 0.8975 | 0.8975 | ✅ PASS |
+| NECK_CIRC_M | 1 | 0 | 0.00% | 0.8278 | 0.8278 | 0.8278 | N/A |
+| BUST_CIRC_M | 1 | 0 | 0.00% | 1.5600 | 1.5600 | 1.5600 | N/A |
+| UNDERBUST_CIRC_M | 1 | 0 | 0.00% | 1.5057 | 1.5057 | 1.5057 | N/A |
+| WAIST_CIRC_M | 1 | 0 | 0.00% | 1.1156 | 1.1156 | 1.1156 | N/A |
+| HIP_CIRC_M | 1 | 0 | 0.00% | 1.3348 | 1.3348 | 1.3348 | N/A |
+| THIGH_CIRC_M | 1 | 0 | 0.00% | 1.5886 | 1.5886 | 1.5886 | N/A |
+| MIN_CALF_CIRC_M | 1 | 0 | 0.00% | 1.0792 | 1.0792 | 1.0792 | N/A |
+| CHEST_WIDTH_M | 1 | 0 | 0.00% | 0.4759 | 0.4759 | 0.4759 | N/A |
+| CHEST_DEPTH_M | 1 | 0 | 0.00% | 0.4570 | 0.4570 | 0.4570 | N/A |
+| WAIST_WIDTH_M | 1 | 0 | 0.00% | 0.3425 | 0.3425 | 0.3425 | ✅ PASS |
+| WAIST_DEPTH_M | 1 | 0 | 0.00% | 0.3408 | 0.3408 | 0.3408 | ✅ PASS |
+| HIP_WIDTH_M | 1 | 0 | 0.00% | 0.4304 | 0.4304 | 0.4304 | ✅ PASS |
+| HIP_DEPTH_M | 1 | 0 | 0.00% | 0.4021 | 0.4021 | 0.4021 | ✅ PASS |
 | HEIGHT_M | 1 | 0 | 0.00% | 1.7101 | 1.7101 | 1.7101 | N/A |
 | CROTCH_HEIGHT_M | 1 | 0 | 0.00% | 0.7696 | 0.7696 | 0.7696 | N/A |
 | KNEE_HEIGHT_M | 1 | 0 | 0.00% | 0.4275 | 0.4275 | 0.4275 | N/A |
@@ -255,9 +255,9 @@ max=1.7101m
 
 | Axis | Span Min (m) | Span Median (m) | Span Max (m) |
 |------|--------------|-----------------|--------------|
-| x | 0.8842 | 0.8842 | 0.8842 |
+| x | 0.5159 | 0.5159 | 0.5159 |
 | y | 1.7101 | 1.7101 | 1.7101 |
-| z | 0.9091 | 0.9091 | 0.9091 |
+| z | 0.4985 | 0.4985 | 0.4985 |
 
 #### 5.3.2 HEIGHT_M 계산 통계
 
