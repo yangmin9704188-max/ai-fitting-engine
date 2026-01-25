@@ -11,6 +11,8 @@ artifacts/
 verification/debug_output/
 verification/reports/
 verification/runs/
+verification/datasets/runs/
+verification/tmp/
 *.npy
 *.npz
 *.pt

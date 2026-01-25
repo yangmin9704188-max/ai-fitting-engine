@@ -1,6 +1,6 @@
 {
   "schema_version": "round_registry@1",
-  "updated_at": "2026-01-25T20:42:56.204680",
+  "updated_at": "2026-01-25T21:46:02.633511",
   "lanes": {
     "curated_v0": {
       "baseline": {
@@ -18,7 +18,7 @@
           "kpi": "verification\\runs\\facts\\curated_v0\\round20_20260125_164801\\KPI.md",
           "kpi_diff": "verification\\runs\\facts\\curated_v0\\round20_20260125_164801\\KPI_DIFF.md",
           "coverage_backlog_touched": true,
-          "created_at": "2026-01-25T20:42:56.204680",
+          "created_at": "2026-01-25T21:46:02.633511",
           "source_npz": "verification\\datasets\\golden\\core_measurements_v0\\golden_real_data_v0.npz",
           "source_path_abs": "C:\\Users\\caino\\Desktop\\AI_model\\data\\processed\\curated_v0\\curated_v0.parquet",
           "notes": ""

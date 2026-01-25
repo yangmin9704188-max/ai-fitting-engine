@@ -1,6 +1,6 @@
 {
   "schema_version": "golden_registry@1",
-  "updated_at": "2026-01-25T20:52:10.026680",
+  "updated_at": "2026-01-25T21:46:02.962285",
   "entries": [
     {
       "npz_path": "verification\\datasets\\golden\\core_measurements_v0\\golden_real_data_v0.npz",

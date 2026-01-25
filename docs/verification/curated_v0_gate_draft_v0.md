@@ -55,3 +55,7 @@ py tools/summarize_facts_kpi.py \
   verification/runs/facts/curated_v0/round20_20260125_120000/facts_summary.json \
   > KPI.md
 ```
+
+“All-null(100%) 키는 우선 coverage backlog로 분류(엔진 실패로 간주 금지)”
+
+“실데이터 facts Round1의 KPI 헤더를 리포트 상단에 붙여 비교 기준으로 사용”
