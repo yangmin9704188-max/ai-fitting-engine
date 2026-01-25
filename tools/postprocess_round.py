@@ -1175,6 +1175,174 @@ py tools/golden_registry.py --add-entry {patch_json_rel} --registry docs/verific
     print(f"Generated: {readme_path.relative_to(project_root)}")
 
 
+def extract_kpi_diff_summary(kpi_diff_path: Optional[Path]) -> str:
+    """
+    Extract change summary from KPI_DIFF.md (facts-only, no judgment).
+    Returns markdown-formatted summary.
+    """
+    if not kpi_diff_path or not kpi_diff_path.exists():
+        return "KPI_DIFF.md not found."
+    
+    try:
+        with open(kpi_diff_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return "Failed to read KPI_DIFF.md."
+    
+    # Extract "Diff vs Baseline" section (more relevant for baseline update)
+    lines = content.split("\n")
+    summary_lines = []
+    in_baseline_section = False
+    in_table = False
+    table_row_count = 0
+    
+    for i, line in enumerate(lines):
+        if line.strip() == "## Diff vs Baseline":
+            in_baseline_section = True
+            summary_lines.append("### Diff vs Baseline")
+            summary_lines.append("")
+            continue
+        
+        if in_baseline_section and line.startswith("##") and not line.strip().startswith("###"):
+            # End of baseline section (new top-level section)
+            break
+        
+        if in_baseline_section:
+            # Extract key metrics (Total Cases, HEIGHT_M, BUST/WAIST/HIP, NaN Rate, Failure Reason)
+            if line.strip().startswith("###"):
+                if summary_lines and summary_lines[-1] != "":
+                    summary_lines.append("")
+                summary_lines.append(line)
+            elif line.strip().startswith("- **"):
+                # Metric line like "- **Current**: 200"
+                summary_lines.append(line)
+            elif "|" in line and ("Key" in line or "Reason" in line or "Current" in line):
+                # Table header
+                in_table = True
+                table_row_count = 0
+                if summary_lines and summary_lines[-1] != "":
+                    summary_lines.append("")
+                summary_lines.append(line)
+            elif "|" in line and in_table and line.strip().startswith("|"):
+                # Table row (limit to top 5)
+                table_row_count += 1
+                if table_row_count <= 6:  # Header + 5 rows
+                    summary_lines.append(line)
+                else:
+                    in_table = False
+            elif line.strip().startswith("**Summary:**"):
+                # Summary line
+                in_table = False
+                if summary_lines and summary_lines[-1] != "":
+                    summary_lines.append("")
+                summary_lines.append(line)
+            elif not in_table and line.strip() and not line.strip().startswith("*"):
+                # Other content lines (but skip note lines starting with *)
+                pass
+    
+    if not summary_lines or len(summary_lines) <= 1:
+        return "No baseline diff section found in KPI_DIFF.md."
+    
+    return "\n".join(summary_lines)
+
+
+def generate_baseline_update_proposal(
+    current_run_dir: Path,
+    lane: str,
+    baseline_alias: Optional[str],
+    baseline_run_dir: Optional[Path],
+    kpi_diff_path: Optional[Path],
+    kpi_path: Optional[Path],
+    lineage_path: Optional[Path],
+    charter_path: Optional[Path],
+    snapshot_path: Optional[Path]
+) -> None:
+    """
+    Generate BASELINE_UPDATE_PROPOSAL.md.
+    Always overwrite (not idempotent for content).
+    """
+    candidates_dir = current_run_dir / "CANDIDATES"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Load template
+    template_path = project_root / "docs" / "ops" / "templates" / "baseline_update_proposal.md"
+    
+    template_content = ""
+    if template_path.exists():
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_content = f.read()
+    else:
+        # Fallback template
+        template_content = """# Baseline Update Proposal: [Round ID]
+
+**NOTE: 이 문서는 참고용 후보 제안서입니다. baseline 갱신은 별도 PR로만 수행합니다.**
+
+## Current Context
+
+- **lane**: [lane]
+- **run_dir**: [run_dir]
+- **current_baseline_alias**: [baseline_alias]
+- **current_baseline_run_dir**: [baseline_run_dir]
+
+## Evidence Links
+
+## KPI_DIFF Change Summary
+
+## Risks & Rollback
+
+## SYNC_HUB Checklist
+
+## Next Actions (권고/체크리스트)
+"""
+    
+    # Replace placeholders
+    run_dir_rel = str(current_run_dir.relative_to(project_root))
+    round_id = current_run_dir.name
+    timestamp = datetime.now().isoformat()
+    
+    baseline_run_dir_str = str(baseline_run_dir.relative_to(project_root)) if baseline_run_dir else "None"
+    
+    template_content = template_content.replace("[Round ID]", round_id)
+    template_content = template_content.replace("[lane]", lane)
+    template_content = template_content.replace("[run_dir]", run_dir_rel)
+    template_content = template_content.replace("[baseline_alias]", baseline_alias if baseline_alias else "None")
+    template_content = template_content.replace("[baseline_run_dir]", baseline_run_dir_str)
+    template_content = template_content.replace("[timestamp]", timestamp)
+    
+    # Extract KPI_DIFF summary
+    kpi_diff_summary = extract_kpi_diff_summary(kpi_diff_path)
+    
+    # Replace KPI_DIFF Change Summary section
+    if "## KPI_DIFF Change Summary" in template_content:
+        lines = template_content.split("\n")
+        new_lines = []
+        in_summary_section = False
+        for line in lines:
+            if line.strip() == "## KPI_DIFF Change Summary":
+                in_summary_section = True
+                new_lines.append(line)
+                new_lines.append("")
+                new_lines.append("다음은 KPI_DIFF.md에서 추출한 변화 요약입니다 (facts-only, 판정 없음):")
+                new_lines.append("")
+                # Add extracted summary
+                for summary_line in kpi_diff_summary.split("\n"):
+                    new_lines.append(summary_line)
+                new_lines.append("")
+            elif in_summary_section and line.startswith("##"):
+                in_summary_section = False
+                new_lines.append(line)
+            elif not in_summary_section:
+                new_lines.append(line)
+        template_content = "\n".join(new_lines)
+    
+    # Write proposal
+    proposal_path = candidates_dir / "BASELINE_UPDATE_PROPOSAL.md"
+    with open(proposal_path, "w", encoding="utf-8") as f:
+        f.write(template_content)
+    
+    print(f"Generated: {proposal_path.relative_to(project_root)}")
+
+
 def update_round_registry(
     registry_path: Path,
     current_run_dir: Path,
@@ -1473,6 +1641,19 @@ def main():
         facts_summary_path=facts_summary_path,
         kpi_path=kpi_path,
         kpi_diff_path=kpi_diff_path_obj if kpi_diff_path_obj.exists() else None,
+        lineage_path=lineage_path_obj if lineage_path_obj.exists() else None,
+        charter_path=charter_path,
+        snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
+    )
+    
+    # Generate baseline update proposal (always overwrite)
+    generate_baseline_update_proposal(
+        current_run_dir=current_run_dir,
+        lane=lane,
+        baseline_alias=baseline_alias,
+        baseline_run_dir=baseline_run_dir,
+        kpi_diff_path=kpi_diff_path_obj if kpi_diff_path_obj.exists() else None,
+        kpi_path=kpi_path,
         lineage_path=lineage_path_obj if lineage_path_obj.exists() else None,
         charter_path=charter_path,
         snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
