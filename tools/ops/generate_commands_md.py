@@ -2,12 +2,14 @@
 """
 Generate COMMANDS.md from Makefile
 
-Makefile의 help 타겟을 파싱하여 docs/ops/COMMANDS.md를 자동 생성합니다.
+Makefile의 help 타겟 실행 결과를 파싱하여 docs/ops/COMMANDS.md를 자동 생성합니다.
+Source of truth = Makefile help output
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -17,74 +19,33 @@ repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 
 
-def parse_makefile_help(makefile_path: Path) -> Tuple[List[str], List[str], List[str], dict]:
-    """Parse Makefile to extract help content and variable defaults."""
-    if not makefile_path.exists():
-        print(f"Error: Makefile not found: {makefile_path}", file=sys.stderr)
+def run_make_help() -> str:
+    """Run `make help` and return stdout."""
+    try:
+        result = subprocess.run(
+            ['make', 'help'],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            check=True
+        )
+        return result.stdout
+    except FileNotFoundError:
+        print("Error: 'make' command not found. Please ensure make is installed.", file=sys.stderr)
         sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"Error: 'make help' failed with exit code {e.returncode}", file=sys.stderr)
+        print(f"Stderr: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
+def parse_makefile_variables(makefile_path: Path) -> dict:
+    """Parse Makefile to extract variable defaults."""
+    if not makefile_path.exists():
+        return {}
     
     content = makefile_path.read_text(encoding='utf-8')
-    
-    # Extract help section
-    help_match = re.search(r'^help:.*?(?=^[a-zA-Z_-]+:|$)', content, re.MULTILINE | re.DOTALL)
-    if not help_match:
-        print("Error: Could not find help target in Makefile", file=sys.stderr)
-        sys.exit(1)
-    
-    help_content = help_match.group(0)
-    
-    # Extract sections
-    available_targets = []
-    round_ops_shortcuts = []
-    examples = []
-    
-    lines = help_content.split('\n')
-    current_section = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('@echo ""'):
-            continue
-        
-        # Remove @echo and quotes
-        if line.startswith('@echo'):
-            # Extract the message after @echo
-            match = re.search(r'@echo\s+"(.*)"', line)
-            if match:
-                msg = match.group(1)
-            else:
-                # Try without quotes
-                match = re.search(r'@echo\s+(.+)', line)
-                if match:
-                    msg = match.group(1)
-                else:
-                    continue
-        else:
-            continue
-        
-        # Detect sections
-        if 'Available targets:' in msg:
-            current_section = 'available'
-            continue
-        elif 'Round Ops Shortcuts:' in msg:
-            current_section = 'round_ops'
-            continue
-        elif 'Examples:' in msg:
-            current_section = 'examples'
-            continue
-        
-        # Add to appropriate section
-        if current_section == 'available':
-            if msg.startswith('make '):
-                available_targets.append(msg)
-        elif current_section == 'round_ops':
-            if msg.startswith('make '):
-                round_ops_shortcuts.append(msg)
-        elif current_section == 'examples':
-            if msg.startswith('make '):
-                examples.append(msg)
-    
-    # Extract variable defaults
     variables = {}
     var_pattern = r'^([A-Z_]+)\s*\?=\s*(.+)$'
     for line in content.split('\n'):
@@ -94,7 +55,46 @@ def parse_makefile_help(makefile_path: Path) -> Tuple[List[str], List[str], List
             var_value = match.group(2).strip()
             variables[var_name] = var_value
     
-    return available_targets, round_ops_shortcuts, examples, variables
+    return variables
+
+
+def parse_help_output(help_output: str) -> Tuple[List[str], List[str], List[str]]:
+    """Parse make help output to extract sections."""
+    available_targets = []
+    round_ops_shortcuts = []
+    examples = []
+    
+    lines = help_output.split('\n')
+    current_section = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Detect section headers
+        if 'Available targets:' in line:
+            current_section = 'available'
+            continue
+        elif 'Round Ops Shortcuts:' in line:
+            current_section = 'round_ops'
+            continue
+        elif 'Examples:' in line:
+            current_section = 'examples'
+            continue
+        
+        # Add to appropriate section
+        if current_section == 'available':
+            if line.startswith('make '):
+                available_targets.append(line)
+        elif current_section == 'round_ops':
+            if line.startswith('make '):
+                round_ops_shortcuts.append(line)
+        elif current_section == 'examples':
+            if line.startswith('make '):
+                examples.append(line)
+    
+    return available_targets, round_ops_shortcuts, examples
 
 
 def parse_target_info(target_line: str) -> Tuple[str, str, str]:
@@ -158,6 +158,8 @@ def generate_commands_md(
     lines.append("")
     lines.append("이 문서는 AI Fitting Engine 프로젝트에서 사용 가능한 공식 단축 명령들을 정리합니다.")
     lines.append("이 문서는 `make commands-update` 명령으로 자동 생성됩니다.")
+    lines.append("")
+    lines.append("**Source of truth**: Makefile help output")
     lines.append("")
     lines.append("## Overview")
     lines.append("")
@@ -287,8 +289,14 @@ def main():
     makefile_path = repo_root / 'Makefile'
     output_path = repo_root / 'docs' / 'ops' / 'COMMANDS.md'
     
-    # Parse Makefile
-    available_targets, round_ops_shortcuts, examples, variables = parse_makefile_help(makefile_path)
+    # Run make help
+    help_output = run_make_help()
+    
+    # Parse help output
+    available_targets, round_ops_shortcuts, examples = parse_help_output(help_output)
+    
+    # Parse Makefile variables
+    variables = parse_makefile_variables(makefile_path)
     
     # Generate content
     content = generate_commands_md(available_targets, round_ops_shortcuts, examples, variables)
