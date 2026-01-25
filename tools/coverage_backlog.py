@@ -39,7 +39,7 @@ def extract_round_from_path(run_dir: Path) -> str:
 
 
 def find_100pct_nan_keys(facts_summary_path: Path) -> List[Dict[str, Any]]:
-    """Find keys with 100% NaN rate from facts_summary.json."""
+    """Find keys with 100% NaN rate from facts_summary.json (all-null keys only)."""
     try:
         with open(facts_summary_path, "r", encoding="utf-8") as f:
             facts_data = json.load(f)
@@ -64,37 +64,16 @@ def find_100pct_nan_keys(facts_summary_path: Path) -> List[Dict[str, Any]]:
             continue
         
         nan_rate_pct = stats.get("nan_rate_pct", 0.0)
+        # Only record keys with exactly 100% NaN rate (all-null)
         if nan_rate_pct >= 100.0:
-            # Check for VALUE_MISSING in warnings
-            warnings = stats.get("warnings_top5", [])
-            has_value_missing = False
-            value_missing_count = 0
-            
-            if isinstance(warnings, list):
-                for w in warnings:
-                    if isinstance(w, dict):
-                        reason = w.get("reason", "")
-                        if "VALUE_MISSING" in reason.upper() or "MISSING" in reason.upper():
-                            has_value_missing = True
-                            value_missing_count = w.get("n", 0)
-                            break
-            
-            # Generate note
-            if has_value_missing:
-                note = f"coverage gap suspected (VALUE_MISSING: {value_missing_count}/{n_samples})"
-            else:
-                note = "all-null in curated_v0"
-            
             nan_100_keys.append({
                 "key": key,
                 "nan_rate_pct": nan_rate_pct,
-                "n_samples": n_samples,
-                "note": note,
-                "has_value_missing": has_value_missing
+                "n_samples": n_samples
             })
     
-    # Sort by VALUE_MISSING priority, then by key name
-    nan_100_keys.sort(key=lambda x: (not x["has_value_missing"], x["key"]))
+    # Sort by key name
+    nan_100_keys.sort(key=lambda x: x["key"])
     
     return nan_100_keys
 
@@ -143,11 +122,17 @@ def parse_existing_backlog(backlog_path: Path) -> tuple[str, Dict[str, Dict[str,
                 last_seen_match = re.search(r'last_seen_round:\s*(\S+)', line)
                 seen_count_match = re.search(r'seen_count:\s*(\d+)', line)
                 
+                # Extract additional fields
+                lane_match = re.search(r'lane:\s*(\S+)', line)
+                first_run_dir_match = re.search(r'first_observed_run_dir:\s*(\S+)', line)
+                
                 existing_entries[key] = {
                     "status": status,
                     "first_seen_round": first_seen_match.group(1) if first_seen_match else None,
                     "last_seen_round": last_seen_match.group(1) if last_seen_match else None,
-                    "seen_count": int(seen_count_match.group(1)) if seen_count_match else 1
+                    "seen_count": int(seen_count_match.group(1)) if seen_count_match else 1,
+                    "lane": lane_match.group(1) if lane_match else None,
+                    "first_observed_run_dir": first_run_dir_match.group(1) if first_run_dir_match else None
                 }
     
     # Combine manual parts
@@ -156,50 +141,43 @@ def parse_existing_backlog(backlog_path: Path) -> tuple[str, Dict[str, Dict[str,
     return manual_content, existing_entries
 
 
+def infer_lane_from_path(run_dir: Path) -> str:
+    """Infer lane from run_dir path."""
+    # Example: verification/runs/facts/curated_v0/round20_... -> curated_v0
+    parts = run_dir.parts
+    try:
+        facts_idx = parts.index("facts")
+        if facts_idx + 1 < len(parts):
+            return parts[facts_idx + 1]
+    except ValueError:
+        pass
+    
+    # Fallback: use parent directory name
+    return run_dir.parent.name
+
+
 def update_coverage_backlog(
     facts_summary_path: Path,
     run_dir: Path,
     registry_path: Path
 ) -> None:
-    """Update coverage_backlog.md with 100% NaN keys."""
+    """Update coverage_backlog.md with 100% NaN keys (all-null keys only)."""
     backlog_path = project_root / "docs" / "verification" / "coverage_backlog.md"
     
-    # Extract round number
+    # Extract round number and lane
     current_round = extract_round_from_path(run_dir)
+    lane = infer_lane_from_path(run_dir)
     
-    # Find 100% NaN keys
+    # Find 100% NaN keys (all-null only)
     nan_100_keys = find_100pct_nan_keys(facts_summary_path)
     if not nan_100_keys:
         print("No 100% NaN keys found.")
         return
     
-    # Load registry to get seen_count
-    registry = []
-    if registry_path.exists():
-        try:
-            with open(registry_path, "r", encoding="utf-8") as f:
-                registry = json.load(f)
-        except Exception:
-            pass
-    
-    # Count how many times each key was seen in registry
-    key_seen_rounds = defaultdict(set)
-    for entry in registry:
-        lane = entry.get("lane", "")
-        if "curated_v0" in lane or "curated" in lane.lower():
-            # Extract round from current_run_dir
-            run_dir_str = entry.get("current_run_dir", "")
-            round_match = re.search(r'round(\d+)', run_dir_str, re.IGNORECASE)
-            if round_match:
-                round_num = f"round{round_match.group(1)}"
-                # We can't know which keys were 100% NaN in past rounds without loading their facts_summary
-                # For now, we'll just track current round
-                pass
-    
     # Parse existing backlog
     manual_content, existing_entries = parse_existing_backlog(backlog_path)
     
-    # Update entries
+    # Update entries (simplified: only NaN 100% keys)
     updated_entries = {}
     for key_info in nan_100_keys:
         key = key_info["key"]
@@ -213,18 +191,33 @@ def update_coverage_backlog(
                 "last_seen_round": current_round,
                 "seen_count": existing.get("seen_count", 0) + 1,
                 "last_observed_n_cases": key_info["n_samples"],
-                "note": key_info["note"]
+                "lane": existing.get("lane") or lane,
+                "first_observed_run_dir": existing.get("first_observed_run_dir") or str(run_dir.relative_to(project_root))
             }
         else:
             # New or continuing
-            updated_entries[key] = {
-                "status": "ACTIVE",
-                "first_seen_round": existing.get("first_seen_round") or current_round,
-                "last_seen_round": current_round,
-                "seen_count": existing.get("seen_count", 0) + 1,
-                "last_observed_n_cases": key_info["n_samples"],
-                "note": key_info["note"]
-            }
+            if key in existing_entries:
+                # Existing key: update last_seen and increment count
+                updated_entries[key] = {
+                    "status": "ACTIVE",
+                    "first_seen_round": existing.get("first_seen_round") or current_round,
+                    "last_seen_round": current_round,
+                    "seen_count": existing.get("seen_count", 0) + 1,
+                    "last_observed_n_cases": key_info["n_samples"],
+                    "lane": existing.get("lane") or lane,
+                    "first_observed_run_dir": existing.get("first_observed_run_dir") or str(run_dir.relative_to(project_root))
+                }
+            else:
+                # New key: initialize
+                updated_entries[key] = {
+                    "status": "ACTIVE",
+                    "first_seen_round": current_round,
+                    "last_seen_round": current_round,
+                    "seen_count": 1,
+                    "last_observed_n_cases": key_info["n_samples"],
+                    "lane": lane,
+                    "first_observed_run_dir": str(run_dir.relative_to(project_root))
+                }
     
     # Check for resolved keys (keys that were in backlog but are not 100% NaN now)
     for key, existing in existing_entries.items():
@@ -236,7 +229,8 @@ def update_coverage_backlog(
                 "last_seen_round": existing.get("last_seen_round", "unknown"),
                 "seen_count": existing.get("seen_count", 1),
                 "resolved_round": current_round,
-                "note": "recovered to non-null"
+                "lane": existing.get("lane", "unknown"),
+                "first_observed_run_dir": existing.get("first_observed_run_dir", "unknown")
             }
     
     # Generate auto-generated section
@@ -249,15 +243,20 @@ def update_coverage_backlog(
         active_keys = {k: v for k, v in updated_entries.items() if v.get("status") == "ACTIVE"}
         resolved_keys = {k: v for k, v in updated_entries.items() if v.get("status") == "RESOLVED"}
         
-        if active_keys:
-            auto_lines.append("## Active Coverage Gaps")
+        # Limit to top 30 active keys (sorted by key name)
+        active_keys_sorted = sorted(active_keys.items())[:30]
+        
+        if active_keys_sorted:
+            auto_lines.append("## Active Coverage Gaps (All-Null Keys)")
             auto_lines.append("")
-            for key, info in sorted(active_keys.items()):
-                auto_lines.append(f"- **{key}**: {info['note']}")
+            for key, info in active_keys_sorted:
+                auto_lines.append(f"- **{key}**: NaN 100% (all-null)")
+                auto_lines.append(f"  - lane: {info.get('lane', 'unknown')}")
                 auto_lines.append(f"  - first_seen_round: {info['first_seen_round']}")
                 auto_lines.append(f"  - last_seen_round: {info['last_seen_round']}")
                 auto_lines.append(f"  - seen_count: {info['seen_count']}")
                 auto_lines.append(f"  - last_observed_n_cases: {info['last_observed_n_cases']}")
+                auto_lines.append(f"  - first_observed_run_dir: {info.get('first_observed_run_dir', 'unknown')}")
                 auto_lines.append(f"  - status: ACTIVE")
                 auto_lines.append("")
         
@@ -265,15 +264,17 @@ def update_coverage_backlog(
             auto_lines.append("## Resolved Coverage Gaps")
             auto_lines.append("")
             for key, info in sorted(resolved_keys.items()):
-                auto_lines.append(f"- **{key}**: {info['note']}")
+                auto_lines.append(f"- **{key}**: recovered to non-null")
+                auto_lines.append(f"  - lane: {info.get('lane', 'unknown')}")
                 auto_lines.append(f"  - first_seen_round: {info['first_seen_round']}")
                 auto_lines.append(f"  - last_seen_round: {info['last_seen_round']}")
                 auto_lines.append(f"  - resolved_round: {info.get('resolved_round', 'unknown')}")
                 auto_lines.append(f"  - seen_count: {info['seen_count']}")
+                auto_lines.append(f"  - first_observed_run_dir: {info.get('first_observed_run_dir', 'unknown')}")
                 auto_lines.append(f"  - status: RESOLVED")
                 auto_lines.append("")
     else:
-        auto_lines.append("No coverage gaps detected.")
+        auto_lines.append("No coverage gaps detected (no all-null keys).")
         auto_lines.append("")
     
     auto_lines.append("<!-- AUTO-GENERATED:END -->")
