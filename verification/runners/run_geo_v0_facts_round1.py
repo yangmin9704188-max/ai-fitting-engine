@@ -779,7 +779,9 @@ def main():
     print(f"\nSaved summary: {summary_path}")
     
     # Generate markdown report (detect round from out_dir)
-    if "round10" in str(out_dir).lower():
+    if "round15" in str(out_dir).lower():
+        report_filename = "geo_v0_facts_round15_bust_verts_aligned_normal1.md"
+    elif "round10" in str(out_dir).lower():
         report_filename = "geo_v0_facts_round10_s0_scale_proof.md"
     elif "round9" in str(out_dir).lower():
         report_filename = "geo_v0_facts_round9_s0_scale_fix.md"
@@ -789,7 +791,7 @@ def main():
     generate_report(summary_json, report_path)
     print(f"Saved report: {report_path}")
     
-    # Also save to reports directory for PR
+    # Also save to reports directory for PR (round15 -> round15 file only; do not overwrite round1)
     reports_dir = Path("reports/validation")
     reports_dir.mkdir(parents=True, exist_ok=True)
     report_final_path = reports_dir / report_filename
@@ -804,18 +806,17 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
     n_samples = summary_json.get("n_samples", 0)
     summary = summary_json.get("summary", {})
     
-    # Detect round from output_path or dataset_path
-    is_round9 = "round9" in str(output_path).lower() or "round9" in str(dataset_path).lower()
-    
     lines = []
-    # Detect round from output_path
     is_round9 = "round9" in str(output_path).lower()
     is_round10 = "round10" in str(output_path).lower()
     is_round11 = "round11" in str(output_path).lower()
     is_round12 = "round12" in str(output_path).lower()
     is_round13 = "round13" in str(output_path).lower()
+    is_round15 = "round15" in str(output_path).lower()
     
-    if is_round13:
+    if is_round15:
+        lines.append("# Geometric v0 Facts-Only Summary (Round 15 - Bust Verts Aligned, Fastmode normal_1)")
+    elif is_round13:
         lines.append("# Geometric v0 Facts-Only Summary (Round 13 - Bust Invariant Fix)")
     elif is_round12:
         lines.append("# Geometric v0 Facts-Only Summary (Round 12 - Post Generator Fix)")
@@ -857,6 +858,39 @@ def generate_report(summary_json: Dict[str, Any], output_path: Path):
                         if ratio is not None:
                             lines.append(f"- **{key}**: median={circ_median:.3f}m, "
                                         f"{key.split('_')[0]}/height ratio={ratio:.3f}")
+            lines.append("")
+    
+    # Round15: Bust verts alignment facts (from s0_circ_synth_trace_normal_1.json)
+    if is_round15:
+        _trace_path = Path(project_root) / "verification" / "datasets" / "runs" / "debug" / "s0_circ_synth_trace_normal_1.json"
+        if _trace_path.exists():
+            try:
+                with open(_trace_path, "r", encoding="utf-8") as _f:
+                    _trace = json.load(_f)
+                _im = _trace.get("intermediates", {})
+                lines.append("### 1.2 Bust verts alignment (normal_1, fastmode)")
+                lines.append("")
+                lines.append("| Field | Value |")
+                lines.append("|-------|-------|")
+                for _k in ["bust_circ_after_scale_theoretical", "bust_circ_from_verts_before",
+                           "bust_circ_from_verts_after", "xz_scale_factor"]:
+                    _v = _im.get(_k)
+                    if _v is not None:
+                        _s = f"{_v:.4f}m" if "circ" in _k else f"{_v:.4f}"
+                        lines.append(f"| {_k} | {_s} |")
+                _ca = _trace.get("clamp_applied", None)
+                if _ca is not None:
+                    lines.append(f"| clamp_applied | {_ca} |")
+                lines.append("")
+            except Exception as _e:
+                lines.append("### 1.2 Bust verts alignment (normal_1, fastmode)")
+                lines.append("")
+                lines.append(f"(Trace read failed: {_e})")
+                lines.append("")
+        else:
+            lines.append("### 1.2 Bust verts alignment (normal_1, fastmode)")
+            lines.append("")
+            lines.append("(Trace file not found.)")
             lines.append("")
     
     # Section 2: Key별 요약 테이블 (Valid Cases Only for DoD)
