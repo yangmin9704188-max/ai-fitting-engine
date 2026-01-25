@@ -19,3 +19,10 @@
 
 ## 기본 규칙
 **PR/merge까지 수행**을 기본 규칙으로 명시합니다.
+
+## Ops Lock Check (선택)
+PR 전에 금지된 경로/행동을 확인하려면:
+```bash
+py tools/ops/check_ops_lock.py --base main
+```
+또는 `make ops_guard` (Makefile 타겟 사용)
