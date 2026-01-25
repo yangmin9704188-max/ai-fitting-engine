@@ -6,8 +6,8 @@
 - **입력 NPZ**: `C:\Users\caino\Desktop\AI_model\verification\datasets\golden\core_measurements_v0\golden_real_data_v0.npz`
 - **NPZ 절대경로**: `C:\Users\caino\Desktop\AI_model\verification\datasets\golden\core_measurements_v0\golden_real_data_v0.npz`
 - **curated_v0 소스 절대경로**: `C:\Users\caino\Desktop\AI_model\data\processed\curated_v0\curated_v0.parquet`
-- **Git SHA**: `3223d6ffc5ddffa78a6e1ac5f9f98239f7a52f74`
-- **실행 일시**: 2026-01-25T16:45:04.016927
+- **Git SHA**: `4587c856b55e6ea3913a1ea7ce52cec280c49917`
+- **실행 일시**: 2026-01-25T16:48:01.982981
 
 ## 2. 핵심키 (HEIGHT / BUST / WAIST / HIP / NECK)
 
