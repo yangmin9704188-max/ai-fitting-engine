@@ -87,3 +87,11 @@ py verification/runners/run_geo_v0_facts_round1.py \
   - Golden candidate signals
   - Action mapping (권고/후속 작업)
   - Evidence checklist
+
+## Judgments
+
+- **Index**: [`../judgments/INDEX.md`](../judgments/INDEX.md)
+- **Policy**: [`JUDGMENTS_POLICY.md`](JUDGMENTS_POLICY.md)
+- **Runbook**: [`JUDGMENTS_RUNBOOK.md`](JUDGMENTS_RUNBOOK.md)
+- **Template**: [`../judgments/templates/JUDGMENT_ENTRY_TEMPLATE.md`](../judgments/templates/JUDGMENT_ENTRY_TEMPLATE.md)
+- **Purpose**: Archive lifecycle for confirmed judgment/decision documents (CANDIDATES → Judgments)
