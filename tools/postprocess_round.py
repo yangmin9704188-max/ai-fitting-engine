@@ -199,6 +199,35 @@ def update_coverage_backlog(
     )
 
 
+def update_new_round_registry(
+    current_run_dir: Path,
+    facts_summary_path: Optional[Path],
+    lane: str,
+    baselines: Dict[str, Any],
+    coverage_backlog_touched: bool
+) -> None:
+    """Update new round registry schema using round_registry.py."""
+    from tools.round_registry import update_registry, extract_round_info
+    
+    # Extract round info
+    _, round_num, round_id = extract_round_info(current_run_dir)
+    
+    # New registry path
+    new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
+    
+    # Update registry
+    update_registry(
+        registry_path=new_registry_path,
+        current_run_dir=current_run_dir,
+        facts_summary_path=facts_summary_path,
+        lane=lane,
+        round_num=round_num,
+        round_id=round_id,
+        baselines=baselines,
+        coverage_backlog_touched=coverage_backlog_touched
+    )
+
+
 def get_git_commit() -> Optional[str]:
     """Get current git commit SHA."""
     try:
@@ -338,7 +367,7 @@ def main():
         baseline_run_dir=baseline_run_dir
     )
     
-    # Update registry
+    # Update old registry (for backward compatibility, keep existing logic)
     update_round_registry(
         registry_path=registry_path,
         current_run_dir=current_run_dir,
@@ -351,10 +380,24 @@ def main():
     )
     
     # Update coverage backlog
-    update_coverage_backlog(
+    coverage_backlog_touched = False
+    try:
+        update_coverage_backlog(
+            facts_summary_path=facts_summary_path,
+            run_dir=current_run_dir,
+            registry_path=registry_path
+        )
+        coverage_backlog_touched = True
+    except Exception as e:
+        print(f"Warning: Failed to update coverage backlog: {e}", file=sys.stderr)
+    
+    # Update round registry (new schema)
+    update_new_round_registry(
+        current_run_dir=current_run_dir,
         facts_summary_path=facts_summary_path,
-        run_dir=current_run_dir,
-        registry_path=registry_path
+        lane=lane,
+        baselines=baselines,
+        coverage_backlog_touched=coverage_backlog_touched
     )
     
     print("\nPostprocessing complete!")
