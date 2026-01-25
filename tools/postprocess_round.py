@@ -123,6 +123,111 @@ def get_prev_run_dir(lane: str, registry: List[Dict[str, Any]], baseline_run_dir
     return baseline_run_dir
 
 
+def get_prev_run_dir_auto(
+    lane: str,
+    current_run_dir: Path,
+    old_registry_path: Path,
+    new_registry_path: Path
+) -> Tuple[Optional[Path], str]:
+    """
+    Automatically infer prev_run_dir from registries.
+    Returns: (prev_run_dir, status_message)
+    """
+    # Try old registry first (reports/validation/round_registry.json)
+    if old_registry_path.exists():
+        try:
+            with open(old_registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+            
+            if isinstance(registry, list):
+                # Find entries for same lane, excluding current
+                current_rel = str(current_run_dir.relative_to(project_root))
+                prev_entries = [
+                    e for e in registry
+                    if e.get("lane") == lane and e.get("current_run_dir") != current_rel
+                ]
+                
+                if prev_entries:
+                    # Get most recent (last in list)
+                    last_entry = prev_entries[-1]
+                    prev_run_dir_str = last_entry.get("current_run_dir")
+                    if prev_run_dir_str:
+                        prev_path = project_root / prev_run_dir_str
+                        if prev_path.exists():
+                            return prev_path.resolve(), f"auto (old registry: {prev_run_dir_str})"
+        except Exception as e:
+            print(f"Warning: Failed to read old registry for prev lookup: {e}", file=sys.stderr)
+    
+    # Try new registry (docs/verification/round_registry.json)
+    if new_registry_path.exists():
+        try:
+            with open(new_registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+            
+            lanes = registry.get("lanes", {})
+            lane_data = lanes.get(lane, {})
+            rounds = lane_data.get("rounds", [])
+            
+            # Extract current round info
+            from tools.round_registry import extract_round_info
+            _, current_round_num, _ = extract_round_info(current_run_dir)
+            
+            # Find previous round (largest round_num < current_round_num)
+            prev_round = None
+            for round_entry in rounds:
+                round_num = round_entry.get("round_num")
+                if round_num is not None and round_num < current_round_num:
+                    if prev_round is None or round_num > prev_round.get("round_num", -1):
+                        prev_round = round_entry
+            
+            if prev_round:
+                prev_run_dir_str = prev_round.get("run_dir")
+                if prev_run_dir_str:
+                    prev_path = project_root / prev_run_dir_str
+                    if prev_path.exists():
+                        return prev_path.resolve(), f"auto (new registry: round {prev_round.get('round_num')})"
+        except Exception as e:
+            print(f"Warning: Failed to read new registry for prev lookup: {e}", file=sys.stderr)
+    
+    # Fallback: use current as prev (with warning)
+    return current_run_dir, "fallback (no prev found, using current)"
+
+
+def get_baseline_alias_auto(
+    lane: str,
+    explicit_alias: Optional[str],
+    new_registry_path: Path
+) -> Tuple[str, str]:
+    """
+    Automatically infer baseline alias.
+    Returns: (baseline_alias, status_message)
+    """
+    # Priority A: explicit argument
+    if explicit_alias:
+        return explicit_alias, "explicit"
+    
+    # Priority B: new registry baseline.alias
+    if new_registry_path.exists():
+        try:
+            with open(new_registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+            
+            lanes = registry.get("lanes", {})
+            lane_data = lanes.get(lane, {})
+            baseline = lane_data.get("baseline", {})
+            
+            if baseline:
+                alias = baseline.get("alias")
+                if alias:
+                    return alias, f"auto (new registry: {alias})"
+        except Exception as e:
+            print(f"Warning: Failed to read new registry for baseline alias: {e}", file=sys.stderr)
+    
+    # Priority C: UNSET_BASELINE + warning
+    print(f"Warning: Baseline alias not found for lane '{lane}'. Using 'UNSET_BASELINE'.", file=sys.stderr)
+    return "UNSET_BASELINE", "fallback (UNSET_BASELINE)"
+
+
 def get_prev_and_baseline_from_new_registry(
     lane: str,
     current_round_num: Optional[int],
@@ -251,7 +356,8 @@ def update_new_round_registry(
     facts_summary_path: Optional[Path],
     lane: str,
     baselines: Dict[str, Any],
-    coverage_backlog_touched: bool
+    coverage_backlog_touched: bool,
+    baseline_alias: Optional[str] = None
 ) -> tuple[Optional[int], str]:
     """Update new round registry schema using round_registry.py."""
     from tools.round_registry import update_registry, extract_round_info
@@ -262,7 +368,7 @@ def update_new_round_registry(
     # New registry path
     new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
     
-    # Update registry
+    # Update registry (baseline_alias is handled by baselines.json and new registry baseline.alias)
     update_registry(
         registry_path=new_registry_path,
         current_run_dir=current_run_dir,
@@ -539,16 +645,18 @@ def update_round_registry(
     lane: str,
     baseline_run_dir: Optional[Path],
     prev_run_dir: Optional[Path],
-    baselines: Dict[str, Any]
+    baselines: Dict[str, Any],
+    baseline_alias: Optional[str] = None
 ) -> None:
     """Update round registry with new entry."""
     registry = load_round_registry(registry_path)
     
-    # Get baseline tag alias
-    baseline_tag_alias = None
-    lane_config = baselines.get(lane, {})
-    if lane_config:
-        baseline_tag_alias = lane_config.get("baseline_tag_alias")
+    # Get baseline tag alias (use provided or fallback to baselines.json)
+    baseline_tag_alias = baseline_alias
+    if not baseline_tag_alias:
+        lane_config = baselines.get(lane, {})
+        if lane_config:
+            baseline_tag_alias = lane_config.get("baseline_tag_alias")
     
     entry = {
         "created_at": datetime.now().isoformat(),
@@ -630,41 +738,49 @@ def main():
     else:
         print("Baseline: None")
     
-    # Load new registry and get prev/baseline from new schema
+    # Load new registry path
     new_registry_path = project_root / "docs" / "verification" / "round_registry.json"
     
-    # Extract round_num and round_id for prev lookup
-    from tools.round_registry import extract_round_info
-    _, round_num, round_id = extract_round_info(current_run_dir)
-    
-    # Get prev and baseline from new registry
-    prev_run_dir_new, baseline_run_dir_new = get_prev_and_baseline_from_new_registry(
+    # Auto-infer prev_run_dir
+    prev_run_dir, prev_status = get_prev_run_dir_auto(
         lane=lane,
-        current_round_num=round_num,
+        current_run_dir=current_run_dir,
+        old_registry_path=registry_path,
         new_registry_path=new_registry_path
     )
     
-    # Use new registry values if available, otherwise fallback to old logic
-    if prev_run_dir_new:
-        prev_run_dir = prev_run_dir_new
-    else:
-        # Fallback to old registry logic
-        registry = load_round_registry(registry_path)
-        prev_run_dir = get_prev_run_dir(lane, registry, baseline_run_dir)
+    # Warn if prev == current (fallback case)
+    if prev_run_dir == current_run_dir and prev_status.startswith("fallback"):
+        print(f"Warning: No previous run found for lane '{lane}'. Using current as prev.", file=sys.stderr)
     
-    if baseline_run_dir_new:
-        baseline_run_dir = baseline_run_dir_new
-    # else: keep baseline_run_dir from baselines.json (already set above)
+    # Get baseline alias (auto-infer)
+    baseline_alias, alias_status = get_baseline_alias_auto(
+        lane=lane,
+        explicit_alias=None,  # Could add --baseline_alias arg if needed
+        new_registry_path=new_registry_path
+    )
     
-    if prev_run_dir:
-        print(f"Prev: {prev_run_dir.relative_to(project_root)}")
-    else:
-        print("Prev: None")
+    # Get baseline_run_dir from new registry if available
+    if new_registry_path.exists():
+        try:
+            with open(new_registry_path, "r", encoding="utf-8") as f:
+                new_registry = json.load(f)
+            lanes = new_registry.get("lanes", {})
+            lane_data = lanes.get(lane, {})
+            baseline = lane_data.get("baseline", {})
+            if baseline:
+                baseline_run_dir_str = baseline.get("run_dir")
+                if baseline_run_dir_str:
+                    baseline_path = project_root / baseline_run_dir_str
+                    if baseline_path.exists():
+                        baseline_run_dir = baseline_path.resolve()
+        except Exception:
+            pass  # Keep baseline_run_dir from baselines.json
     
-    if baseline_run_dir:
-        print(f"Baseline: {baseline_run_dir.relative_to(project_root)}")
-    else:
-        print("Baseline: None")
+    # Console output (enhanced)
+    print(f"Prev: {prev_run_dir.relative_to(project_root) if prev_run_dir else 'None'} ({prev_status})")
+    print(f"Baseline: {baseline_run_dir.relative_to(project_root) if baseline_run_dir else 'None'}")
+    print(f"Baseline alias: {baseline_alias} ({alias_status})")
     
     # Find facts_summary.json
     facts_summary_path = find_facts_summary(current_run_dir, required=True)
@@ -692,7 +808,8 @@ def main():
         lane=lane,
         baseline_run_dir=baseline_run_dir,
         prev_run_dir=prev_run_dir,
-        baselines=baselines
+        baselines=baselines,
+        baseline_alias=baseline_alias
     )
     
     # Update coverage backlog
@@ -713,7 +830,8 @@ def main():
         facts_summary_path=facts_summary_path,
         lane=lane,
         baselines=baselines,
-        coverage_backlog_touched=coverage_backlog_touched
+        coverage_backlog_touched=coverage_backlog_touched,
+        baseline_alias=baseline_alias
     )
     
     # Generate lineage manifest
