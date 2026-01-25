@@ -332,30 +332,12 @@ for i in range(5):
     # Result: bust_circ_estimate = original_bust_circ * scale_factor (overflow!)
     # Solution: Generate circumferences that will be in range AFTER scaling
     # 
-    # For normal_1: Generate circumferences that will be in valid range AFTER scaling
-    # Scale factor range: ~2.0 to ~2.5 (based on target_height 1.65-1.80m and original height ~0.7-0.9m)
-    # BUST_CIRC range after scale: (0.6, 1.4)m
-    # To ensure post-scale >= 0.6m: bust_circ_original >= 0.6 / 2.5 = 0.24m
-    # To ensure post-scale <= 1.4m: bust_circ_original <= 1.4 / 2.0 = 0.70m
-    # Use conservative range: 0.26-0.56m (ensures 0.26*2.0=0.52m >= 0.6m? No, need >= 0.3m for min scale 2.0)
-    # Actually: min_scale ~2.0, so bust_circ_original >= 0.6/2.0 = 0.3m
-    #           max_scale ~2.5, so bust_circ_original <= 1.4/2.5 = 0.56m
-    # Use 0.30-0.56m range
-    if case_id == "normal_1":
-        bust_circ = np.random.uniform(0.30, 0.56)
-        waist_circ = np.random.uniform(0.25, 0.52)  # WAIST range (0.5, 1.3), so 0.5/2.0=0.25 to 1.3/2.5=0.52
-        hip_circ = np.random.uniform(0.33, 0.60)  # HIP range (0.65, 1.5), so 0.65/2.0=0.325 to 1.5/2.5=0.60
-    else:
-        # For other cases: Use CIRCUMFERENCE_RANGES but with conservative upper bound
-        # Assume max scale_factor ~2.5, so target max_circ / 2.5 as upper bound
-        bust_circ_max = CIRCUMFERENCE_RANGES["BUST"][1] / 2.5  # ~0.56m
-        bust_circ = np.random.uniform(CIRCUMFERENCE_RANGES["BUST"][0], min(bust_circ_max, CIRCUMFERENCE_RANGES["BUST"][1]))
-        
-        waist_circ_max = CIRCUMFERENCE_RANGES["WAIST"][1] / 2.5  # ~0.52m
-        waist_circ = np.random.uniform(CIRCUMFERENCE_RANGES["WAIST"][0], min(waist_circ_max, CIRCUMFERENCE_RANGES["WAIST"][1]))
-        
-        hip_circ_max = CIRCUMFERENCE_RANGES["HIP"][1] / 2.5  # ~0.60m
-        hip_circ = np.random.uniform(CIRCUMFERENCE_RANGES["HIP"][0], min(hip_circ_max, CIRCUMFERENCE_RANGES["HIP"][1]))
+    # Round17: Same conservative pre-scale ranges for all normal_1~5 (reproducibility, >=10 valid).
+    # Post-scale BUST (0.6,1.4), WAIST (0.5,1.3), HIP (0.65,1.5). Scale ~2.0–2.5.
+    # Pre-scale: bust 0.30–0.52, waist 0.25–0.48, hip 0.32–0.56.
+    bust_circ = np.random.uniform(0.30, 0.52)
+    waist_circ = np.random.uniform(0.25, 0.48)
+    hip_circ = np.random.uniform(0.32, 0.56)
     
     bust_radius = bust_circ / (2 * np.pi)
     waist_radius = waist_circ / (2 * np.pi)
@@ -379,31 +361,27 @@ for i in range(5):
         height_ratio = y / height if height > 0 else 0.0
         
         # Interpolate radius based on body regions
+        # Round17: Reduce noise for stability (reproducibility).
         if height_ratio < 0.1:  # Lower leg
-            radius = 0.10 + np.random.randn() * 0.01
+            radius = 0.10 + np.random.randn() * 0.003
         elif height_ratio < 0.2:  # Upper leg
-            radius = 0.15 + np.random.randn() * 0.01
+            radius = 0.15 + np.random.randn() * 0.003
         elif height_ratio < 0.35:  # Hip region
-            # Interpolate to hip
             t = (height_ratio - 0.2) / 0.15
-            radius = 0.15 + t * (hip_radius - 0.15) + np.random.randn() * 0.01
+            radius = 0.15 + t * (hip_radius - 0.15) + np.random.randn() * 0.003
         elif height_ratio < 0.50:  # Waist region
-            # Interpolate from hip to waist
             t = (height_ratio - 0.35) / 0.15
-            radius = hip_radius + t * (waist_radius - hip_radius) + np.random.randn() * 0.01
+            radius = hip_radius + t * (waist_radius - hip_radius) + np.random.randn() * 0.003
         elif height_ratio < 0.65:  # Bust region
-            # Interpolate from waist to bust
             t = (height_ratio - 0.50) / 0.15
-            # CRITICAL: Reduce noise amplitude to prevent radius amplification
-            radius = waist_radius + t * (bust_radius - waist_radius) + np.random.randn() * 0.005
+            radius = waist_radius + t * (bust_radius - waist_radius) + np.random.randn() * 0.002
         elif height_ratio < 0.85:  # Upper chest
-            # CRITICAL: Use bust_radius directly (not 0.9x) to match target
-            radius = bust_radius + np.random.randn() * 0.005
+            radius = bust_radius + np.random.randn() * 0.002
         else:  # Neck/shoulder
-            radius = neck_radius + np.random.randn() * 0.01
+            radius = neck_radius + np.random.randn() * 0.003
         
-        x = radius * np.cos(angle) + np.random.randn() * 0.005
-        z = radius * np.sin(angle) + np.random.randn() * 0.005
+        x = radius * np.cos(angle) + np.random.randn() * 0.002
+        z = radius * np.sin(angle) + np.random.randn() * 0.002
         verts[j] = [x, y, z]
     
     # ========================================================================
@@ -478,32 +456,32 @@ for i in range(5):
     hip_radius_from_verts_after: Optional[float] = None
     hip_circ_from_verts_after: Optional[float] = None
 
-    if case_id == "normal_1":
-        factors: List[float] = []
-        if bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
-            bust_xz_scale_factor = (bust_circ_est / (2 * np.pi)) / bust_radius_est_from_verts
-            factors.append(bust_xz_scale_factor)
-        if waist_radius_est_from_verts is not None and waist_radius_est_from_verts > 0:
-            waist_xz_scale_factor = (waist_circ_est / (2 * np.pi)) / waist_radius_est_from_verts
-            factors.append(waist_xz_scale_factor)
-        if hip_radius_est_from_verts is not None and hip_radius_est_from_verts > 0:
-            hip_xz_scale_factor = (hip_circ_est / (2 * np.pi)) / hip_radius_est_from_verts
-            factors.append(hip_xz_scale_factor)
-        if factors:
-            xz_scale_factor = min(factors)
-            center_x = float(np.mean(verts_scaled[:, 0]))
-            center_z = float(np.mean(verts_scaled[:, 2]))
-            verts_scaled[:, 0] = center_x + (verts_scaled[:, 0] - center_x) * xz_scale_factor
-            verts_scaled[:, 2] = center_z + (verts_scaled[:, 2] - center_z) * xz_scale_factor
-            bust_r = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
-            bust_radius_from_verts_after = bust_r
-            bust_circ_from_verts_after = 2 * np.pi * bust_r if bust_r is not None else None
-            waist_r = _estimate_radius_at_height(verts_scaled, waist_y_scaled, tolerance=0.12)
-            waist_radius_from_verts_after = waist_r
-            waist_circ_from_verts_after = 2 * np.pi * waist_r if waist_r is not None else None
-            hip_r = _estimate_radius_at_height(verts_scaled, hip_y_scaled, tolerance=0.12)
-            hip_radius_from_verts_after = hip_r
-            hip_circ_from_verts_after = 2 * np.pi * hip_r if hip_r is not None else None
+    # Round17: Apply xz alignment to all valid (normal_1~5, varied_1~5).
+    factors: List[float] = []
+    if bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
+        bust_xz_scale_factor = (bust_circ_est / (2 * np.pi)) / bust_radius_est_from_verts
+        factors.append(bust_xz_scale_factor)
+    if waist_radius_est_from_verts is not None and waist_radius_est_from_verts > 0:
+        waist_xz_scale_factor = (waist_circ_est / (2 * np.pi)) / waist_radius_est_from_verts
+        factors.append(waist_xz_scale_factor)
+    if hip_radius_est_from_verts is not None and hip_radius_est_from_verts > 0:
+        hip_xz_scale_factor = (hip_circ_est / (2 * np.pi)) / hip_radius_est_from_verts
+        factors.append(hip_xz_scale_factor)
+    if factors:
+        xz_scale_factor = min(factors)
+        center_x = float(np.mean(verts_scaled[:, 0]))
+        center_z = float(np.mean(verts_scaled[:, 2]))
+        verts_scaled[:, 0] = center_x + (verts_scaled[:, 0] - center_x) * xz_scale_factor
+        verts_scaled[:, 2] = center_z + (verts_scaled[:, 2] - center_z) * xz_scale_factor
+        bust_r = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+        bust_radius_from_verts_after = bust_r
+        bust_circ_from_verts_after = 2 * np.pi * bust_r if bust_r is not None else None
+        waist_r = _estimate_radius_at_height(verts_scaled, waist_y_scaled, tolerance=0.12)
+        waist_radius_from_verts_after = waist_r
+        waist_circ_from_verts_after = 2 * np.pi * waist_r if waist_r is not None else None
+        hip_r = _estimate_radius_at_height(verts_scaled, hip_y_scaled, tolerance=0.12)
+        hip_radius_from_verts_after = hip_r
+        hip_circ_from_verts_after = 2 * np.pi * hip_r if hip_r is not None else None
     
     # ========================================================================
     # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
@@ -532,7 +510,7 @@ for i in range(5):
             "waist_circ_estimate": float(waist_circ_est),
             "hip_circ_estimate": float(hip_circ_est),
             "params": {
-                "bust_circ_range": [0.30, 0.56] if case_id == "normal_1" else [CIRCUMFERENCE_RANGES["BUST"][0], CIRCUMFERENCE_RANGES["BUST"][1] / 2.5],
+                "bust_circ_range": [0.30, 0.52],
                 "bust_circ_sampled": float(bust_circ),
                 "scale_factor": float(scale_factor),
                 "noise_amplitude": 0.01,
@@ -681,7 +659,7 @@ for i in range(5):
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
           f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m{clamp_str}")
     
-    # Record metadata
+    # Record metadata (Round17: include xz_scale_factor per case)
     metadata = {
         "scale_applied": True,
         "bbox_span_y_before": float(bbox_span_y_before),
@@ -692,7 +670,8 @@ for i in range(5):
         "clamped_keys": clamped_keys if clamp_applied else [],
         "bust_circ_theoretical": float(bust_circ_est),
         "waist_circ_theoretical": float(waist_circ_est),
-        "hip_circ_theoretical": float(hip_circ_est)
+        "hip_circ_theoretical": float(hip_circ_est),
+        "xz_scale_factor": float(xz_scale_factor) if xz_scale_factor is not None else None,
     }
     
     # CRITICAL: Append scaled vertices, not original
@@ -712,19 +691,10 @@ for i in range(5):
     # Generate human-like height
     height = np.random.uniform(HEIGHT_RANGE[0], HEIGHT_RANGE[1])
     
-    # ========================================================================
-    # CRITICAL: Generate circumferences accounting for scale normalization
-    # ========================================================================
-    # Use conservative approach: Assume max scale_factor ~2.5
-    # Target: max_circ / 2.5 as upper bound to ensure post-scale < range max
-    bust_circ_max = CIRCUMFERENCE_RANGES["BUST"][1] / 2.5  # ~0.56m
-    bust_circ = np.random.uniform(CIRCUMFERENCE_RANGES["BUST"][0], min(bust_circ_max, CIRCUMFERENCE_RANGES["BUST"][1]))
-    
-    waist_circ_max = CIRCUMFERENCE_RANGES["WAIST"][1] / 2.5  # ~0.52m
-    waist_circ = np.random.uniform(CIRCUMFERENCE_RANGES["WAIST"][0], min(waist_circ_max, CIRCUMFERENCE_RANGES["WAIST"][1]))
-    
-    hip_circ_max = CIRCUMFERENCE_RANGES["HIP"][1] / 2.5  # ~0.60m
-    hip_circ = np.random.uniform(CIRCUMFERENCE_RANGES["HIP"][0], min(hip_circ_max, CIRCUMFERENCE_RANGES["HIP"][1]))
+    # Round17: Conservative pre-scale ranges. HIP >= 0.65 => hip_est >= 0.65; WAIST/HEIGHT >= 0.3.
+    bust_circ = np.random.uniform(0.32, 0.50)
+    waist_circ = np.random.uniform(0.29, 0.48)
+    hip_circ = np.random.uniform(0.36, 0.54)
     
     bust_radius = bust_circ / (2 * np.pi)
     waist_radius = waist_circ / (2 * np.pi)
@@ -741,66 +711,78 @@ for i in range(5):
         
         height_ratio = y / height if height > 0 else 0.0
         
-        # Varied proportions but still within human-like ranges
+        # Round17: Reduce noise for stability.
         if height_ratio < 0.2:  # Lower body
-            radius = 0.12 + np.random.randn() * 0.01
+            radius = 0.12 + np.random.randn() * 0.003
         elif height_ratio < 0.4:  # Mid body (hip region)
             t = (height_ratio - 0.2) / 0.2
-            radius = 0.12 + t * (hip_radius - 0.12) + np.random.randn() * 0.01
+            radius = 0.12 + t * (hip_radius - 0.12) + np.random.randn() * 0.003
         elif height_ratio < 0.55:  # Waist region
             t = (height_ratio - 0.4) / 0.15
-            radius = hip_radius + t * (waist_radius - hip_radius) + np.random.randn() * 0.01
+            radius = hip_radius + t * (waist_radius - hip_radius) + np.random.randn() * 0.003
         elif height_ratio < 0.75:  # Upper body (bust region)
             t = (height_ratio - 0.55) / 0.20
-            radius = waist_radius + t * (bust_radius - waist_radius) + np.random.randn() * 0.01
+            radius = waist_radius + t * (bust_radius - waist_radius) + np.random.randn() * 0.003
         else:  # Neck/shoulder
-            radius = neck_radius + np.random.randn() * 0.01
+            radius = neck_radius + np.random.randn() * 0.003
         
-        x = radius * np.cos(angle) + np.random.randn() * 0.005
-        z = radius * np.sin(angle) + np.random.randn() * 0.005
+        x = radius * np.cos(angle) + np.random.randn() * 0.002
+        z = radius * np.sin(angle) + np.random.randn() * 0.002
         verts[j] = [x, y, z]
     
     # ========================================================================
     # CRITICAL: Apply scale normalization BEFORE invariant check
     # ========================================================================
-    # case_id already set above
-    
-    # Calculate bbox_span_y_before (raw vertices)
     y_coords = verts[:, 1]
     bbox_span_y_before = float(np.max(y_coords) - np.min(y_coords))
-    
-    # Target height: varied cases use 1.50~1.95m range
-    target_height_m = np.random.uniform(1.50, 1.95)
+    target_height_m = np.random.uniform(1.55, 1.90)
     scale_factor = target_height_m / bbox_span_y_before if bbox_span_y_before > 0 else 1.0
-    
-    # Apply scale to all xyz coordinates (uniform scaling)
     verts_scaled = verts * scale_factor
     bbox_span_y_after = float(np.max(verts_scaled[:, 1]) - np.min(verts_scaled[:, 1]))
     
-    # ========================================================================
-    # CRITICAL: Calculate circumference estimates AFTER scaling (for trace/debug)
-    # ========================================================================
-    # FIX: Use theoretical scaling (bust_circ_original * scale_factor) instead of
-    # radius estimation from scaled vertices to prevent double-scaling amplification.
-    # The radius estimation from scaled vertices can be amplified by noise/interpolation,
-    # causing bust_circ_estimate to exceed theoretical value.
-    bust_circ_est = bust_circ * scale_factor  # Theoretical: single scale application
-    bust_radius_est = bust_circ_est / (2 * np.pi)  # Derived from theoretical circumference
-    
-    # For waist and hip, also use theoretical scaling for consistency
+    bust_circ_est = bust_circ * scale_factor
+    bust_radius_est = bust_circ_est / (2 * np.pi)
     waist_circ_est = waist_circ * scale_factor
     waist_radius_est = waist_circ_est / (2 * np.pi)
-    
     hip_circ_est = hip_circ * scale_factor
     hip_radius_est = hip_circ_est / (2 * np.pi)
     
-    # ========================================================================
-    # CRITICAL: For valid cases, NO CLAMP allowed - must pass invariant without clamp
-    # ========================================================================
+    y_coords_scaled = verts_scaled[:, 1]
+    y_min_scaled = float(np.min(y_coords_scaled))
+    y_max_scaled = float(np.max(y_coords_scaled))
+    y_range_scaled = y_max_scaled - y_min_scaled
+    bust_y_scaled = y_min_scaled + 0.575 * y_range_scaled
+    waist_y_scaled = y_min_scaled + 0.50 * y_range_scaled
+    hip_y_scaled = y_min_scaled + 0.60 * y_range_scaled
+    bust_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, bust_y_scaled)
+    bust_circ_est_from_verts = 2 * np.pi * bust_radius_est_from_verts if bust_radius_est_from_verts is not None else None
+    waist_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, waist_y_scaled, tolerance=0.12)
+    waist_circ_est_from_verts = 2 * np.pi * waist_radius_est_from_verts if waist_radius_est_from_verts is not None else None
+    hip_radius_est_from_verts = _estimate_radius_at_height(verts_scaled, hip_y_scaled, tolerance=0.12)
+    hip_circ_est_from_verts = 2 * np.pi * hip_radius_est_from_verts if hip_radius_est_from_verts is not None else None
+    
+    xz_scale_factor = None
+    bust_xz_scale_factor = waist_xz_scale_factor = hip_xz_scale_factor = None
+    factors_var: List[float] = []
+    if bust_radius_est_from_verts is not None and bust_radius_est_from_verts > 0:
+        bust_xz_scale_factor = (bust_circ_est / (2 * np.pi)) / bust_radius_est_from_verts
+        factors_var.append(bust_xz_scale_factor)
+    if waist_radius_est_from_verts is not None and waist_radius_est_from_verts > 0:
+        waist_xz_scale_factor = (waist_circ_est / (2 * np.pi)) / waist_radius_est_from_verts
+        factors_var.append(waist_xz_scale_factor)
+    if hip_radius_est_from_verts is not None and hip_radius_est_from_verts > 0:
+        hip_xz_scale_factor = (hip_circ_est / (2 * np.pi)) / hip_radius_est_from_verts
+        factors_var.append(hip_xz_scale_factor)
+    if factors_var:
+        xz_scale_factor = min(factors_var)
+        cx = float(np.mean(verts_scaled[:, 0]))
+        cz = float(np.mean(verts_scaled[:, 2]))
+        verts_scaled[:, 0] = cx + (verts_scaled[:, 0] - cx) * xz_scale_factor
+        verts_scaled[:, 2] = cz + (verts_scaled[:, 2] - cz) * xz_scale_factor
+    
     clamp_applied = False
     clamped_keys = []
     
-    # For valid cases: If estimate is out of range, raise error (no clamp allowed)
     if bust_circ_est is not None and bust_circ_est > CIRCUMFERENCE_RANGES["BUST"][1]:
         raise ValueError(
             f"{case_id} BUST_CIRC estimate {bust_circ_est:.3f}m exceeds range {CIRCUMFERENCE_RANGES['BUST']}. "
@@ -881,7 +863,7 @@ for i in range(5):
           f"target={target_height_m:.4f}m, scale={scale_factor:.4f}, "
           f"after={bbox_span_y_after:.4f}m, invariant_check_input_height={bbox_span_y_after:.4f}m{clamp_str}")
     
-    # Record metadata
+    # Record metadata (Round17: include xz_scale_factor)
     metadata = {
         "scale_applied": True,
         "bbox_span_y_before": float(bbox_span_y_before),
@@ -892,10 +874,10 @@ for i in range(5):
         "clamped_keys": clamped_keys if clamp_applied else [],
         "bust_circ_theoretical": float(bust_circ_est),
         "waist_circ_theoretical": float(waist_circ_est),
-        "hip_circ_theoretical": float(hip_circ_est)
+        "hip_circ_theoretical": float(hip_circ_est),
+        "xz_scale_factor": float(xz_scale_factor) if xz_scale_factor is not None else None,
     }
     
-    # CRITICAL: Append scaled vertices, not original
     cases.append(verts_scaled)
     case_ids.append(case_id)
     case_classes.append("valid")
