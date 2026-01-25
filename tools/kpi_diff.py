@@ -194,6 +194,60 @@ def generate_diff_section(
     return lines
 
 
+def compute_degradation_signals(
+    current_data: Dict[str, Any],
+    baseline_data: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Compute lightweight degradation signals (baseline vs current).
+    Returns: {degradation_flag, degraded_keys_top3, height_p50_shift}
+    """
+    result = {
+        "degradation_flag": False,
+        "degraded_keys_top3": "N/A",
+        "height_p50_shift": "N/A"
+    }
+    
+    if not baseline_data:
+        return result
+    
+    # Get NaN rates
+    current_nan = get_nan_rates(current_data)
+    baseline_nan = get_nan_rates(baseline_data)
+    
+    # Find degraded keys (baseline 대비 NaN rate가 악화된 키)
+    baseline_nan_dict = {k: v for k, v in baseline_nan}
+    degraded_keys = []
+    
+    for key, curr_rate in current_nan:
+        baseline_rate = baseline_nan_dict.get(key, 0.0)
+        # NaN rate가 증가한 경우 (악화)
+        if curr_rate > baseline_rate:
+            delta = curr_rate - baseline_rate
+            degraded_keys.append((key, delta))
+    
+    # Sort by degradation amount (descending) and take top 3
+    degraded_keys.sort(key=lambda x: x[1], reverse=True)
+    degraded_keys_top3 = [k for k, _ in degraded_keys[:3]]
+    
+    if degraded_keys_top3:
+        result["degradation_flag"] = True
+        result["degraded_keys_top3"] = ", ".join(degraded_keys_top3)
+    
+    # Get HEIGHT_M p50 shift
+    current_height = get_value_distribution(current_data, "HEIGHT_M")
+    baseline_height = get_value_distribution(baseline_data, "HEIGHT_M")
+    
+    curr_p50 = current_height.get("p50")
+    baseline_p50 = baseline_height.get("p50")
+    
+    if curr_p50 is not None and baseline_p50 is not None:
+        shift = curr_p50 - baseline_p50
+        result["height_p50_shift"] = f"{shift:+.4f}m"
+    
+    return result
+
+
 def generate_kpi_diff(
     current_path: Path,
     prev_path: Optional[Path],
@@ -219,6 +273,17 @@ def generate_kpi_diff(
     if not current_data:
         lines.append("Error: Current facts_summary.json not found or invalid.")
         return "\n".join(lines)
+    
+    # Degradation signals (baseline vs current)
+    signals = compute_degradation_signals(current_data, baseline_data)
+    lines.append("## Degradation Signals (Baseline vs Current)")
+    lines.append("")
+    lines.append(f"- **DEGRADATION_FLAG**: `{str(signals['degradation_flag']).lower()}`")
+    lines.append(f"- **DEGRADED_KEYS_TOP3**: `{signals['degraded_keys_top3']}`")
+    lines.append(f"- **HEIGHT_P50_SHIFT**: `{signals['height_p50_shift']}`")
+    lines.append("")
+    lines.append("*Note: These are signals only, not PASS/FAIL judgments.*")
+    lines.append("")
     
     # A) Diff vs Prev
     lines.extend(generate_diff_section(current_data, prev_data, "Prev"))
