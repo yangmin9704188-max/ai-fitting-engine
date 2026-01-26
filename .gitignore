@@ -46,3 +46,8 @@ models/
 # OS
 .DS_Store
 Thumbs.db
+
+# Global Mesh Block
+*.obj
+*.stl
+*.ply

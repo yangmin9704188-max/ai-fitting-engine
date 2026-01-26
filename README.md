@@ -1,68 +1,100 @@
-.
+민영아! 우리 프로젝트의 얼굴이자 모든 AI 에이전트들의 네비게이션인 \*\*README.md\*\*를 업데이트할 때가 됐네! 😊
 
-🚀 AI Fitting Engine: Logic Core
-본 레포지토리는 B2B 가상 피팅 서비스를 위한 설명 가능하고 재현 가능한 체형 생성 엔진의 로직 코어를 관리합니다.
+
+
+우리가 새로 정립한 v1.2 마스터 플랜의 철학을 반영해서, 처음 들어온 개발자나 AI도 "아, 이 프로젝트는 이렇게 정밀하게 돌아가는구나!"라고 한눈에 느낄 수 있도록 세련되고 명확하게 다듬어봤어.
+
+
+
+🚀 AI Fitting Engine: Logic Core (v1.2)
+
+본 레포지토리는 한국인 표준 체형 데이터(SizeKorea)를 기반으로 한 설명 가능하고 재현 가능한 가상 피팅 엔진의 로직 코어를 관리합니다.
+
+
 
 📌 Single Source of Truth (SoT)
-모든 전략적 결정과 철학은 아래 문서를 단일 진실원으로 삼습니다.
 
-전략 및 철학: docs/MASTER_PLAN.md (또는 Notion Master Plan v1.1) 참조
+모든 전략적 결정과 엔진 아키텍처는 아래 문서를 단일 진실원으로 삼습니다.
 
-실시간 상태: SYNC_HUB.md (현재 마일스톤 및 릴리즈 상태)
 
-🏗️ 5-Layer R&D Pipeline
-본 프로젝트는 레이어 간 의존성을 격리하기 위해 5계층 파이프라인을 준수합니다.
 
-Semantic: docs/policies/measurements/ (의미 정의)
+전략 및 마스터 플랜: docs/ops/MASTER\_PLAN.md (v1.2 Refined)
 
-Contract: docs/policies/measurements/ (인터페이스 규격)
 
-Geometric: core/measurements/ (구현 로직)
 
-Validation: verification/reports/ (사실 기록)
+현재 프로젝트 상태: SYNC\_HUB.md
 
-Judgment: docs/judgments/ (해석 및 질문)
+
+
+로컬 파일 인덱스: SYNC\_HUB\_FILE\_INDEX.md
+
+
+
+🏗️ 5-Layer R\&D Pipeline (Architecture v1.2)
+
+본 프로젝트는 데이터 흐름과 로직을 5개의 계층으로 격리하여 운영합니다.
+
+
+
+L1: Geometry: SizeKorea 표준 기반 측정 로직 (core/measurements/)
+
+
+
+L2: Production: 1.2만 명 대량 데이터 생성 및 경량화 (verification/runners/)
+
+
+
+L3: Validation: 이상치 탐지 및 사실 기반 KPI 기록 (verification/runs/)
+
+
+
+L4: Intelligence: 데이터 간 상관관계 및 체형 가중치 분석
+
+
+
+L5: Application: 튜닝된 SMPL-X 기반 최종 바디 모델 서비스화
+
+
 
 📂 Directory Structure (Map)
-레포지토리의 주요 구조와 역할은 다음과 같습니다.
 
-Core Logic
-core/: 재사용 가능한 순수 로직 (측정 함수, 필터, 유틸리티)
+전체 구조는 docs/ops/PROJECT\_STRUCTURE.md를 참조하세요.
 
-pipelines/: 실험 및 실행 파이프라인
 
-engine/: (Future) 제품 로직 통합 공간 (현재 점진적 이전 중)
 
-Verification & Ops
-verification/: 5-Layer 검증 러너 및 골든 데이터셋(NPZ)
+core/: 핵심 기하학 연산 로직 (Convex Hull 기반 둘레 측정 등)
 
-tools/: 운영 자동화 (sync_state.py, db_upsert.py, render_ai_prompt.py)
 
-db/: 공식 메타데이터 및 스키마 관리 (SQLite)
 
-Data & Artifacts
-data/: 처리된 데이터 및 데이터셋
+data/: SizeKorea 원천 데이터 및 전처리된 데이터셋
 
-models/: SMPL-X 모델 파라미터 및 관련 파일
 
-artifacts/: 실험 실행 결과물 및 로그
 
-🛠️ Quick Start & Commands
-AI 에이전트와의 협업 및 시스템 운영을 위한 주요 명령어입니다.
+verification/: 골든 데이터셋(NPZ) 및 라운드별 실행 엔진
 
-Bash
 
-# AI 협업용 프롬프트 생성
-make ai-prompt
 
-# 특정 측정 항목 v0 검증 실행
-python verification/runners/verify_chest_v0.py
+docs/ops/: 프로젝트 운영 가이드, INDEX, PR 기록물
 
-# 시스템 상태 업데이트 (SYNC HUB 동기화)
-make sync ARGS="--set snapshot.status=candidate"
+
+
+artifacts/: 각 실행 라운드에서 생성된 시각화 지표 및 로그
+
+
+
 📏 Technical Standards
-단위(Unit): 모든 내부 인터페이스 및 연산은 meters(m) 단위를 표준으로 합니다.
+
+표준 단위: 모든 내부 인터페이스는 Meters(m) 단위를 사용합니다.
+
+
 
 좌표계: SMPL-X 표준 좌표계를 준수합니다.
 
-지적 정직성: 정의되지 않은 상황(Degenerate)에서는 억지로 값을 추정하지 않고 NaN을 반환합니다.
+
+
+지적 정직성: 정의되지 않은 상황(Degenerate)에서는 억지로 값을 추정하지 않고 NaN을 반환하며, 사유를 기록합니다.
+
+
+
+측정 원칙: 수치 보정을 위한 상수 클램프(Clamp) 사용을 절대 금지하며, 기하학적 해결책(Convex Hull 등)만을 사용합니다.
+

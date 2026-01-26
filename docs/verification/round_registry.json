@@ -1,6 +1,6 @@
 {
   "schema_version": "round_registry@1",
-  "updated_at": "2026-01-26T04:07:42.017424",
+  "updated_at": "2026-01-27T04:36:32.543581",
   "lanes": {
     "curated_v0": {
       "baseline": {
@@ -27,6 +27,103 @@
       "latest": {
         "round_id": "round20_20260125_164801",
         "run_dir": "verification/runs/facts/curated_v0/round20_20260125_164801"
+      }
+    },
+    "geo_v0_s1": {
+      "baseline": {
+        "alias": "geo-v0-s1-proxy-v0.1",
+        "run_dir": "verification/runs/facts/geo_v0_s1/round25_20260127_003039",
+        "report": null
+      },
+      "rounds": [
+        {
+          "round_id": "round35_20260127_032300",
+          "round_num": 35,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round35_20260127_032300",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round35_20260127_032300/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round35_20260127_032300_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round35_20260127_032300/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round35_20260127_032300/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T03:23:07.908348",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round36_20260127_033854",
+          "round_num": 36,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round36_20260127_033854",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round36_20260127_033854/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round36_20260127_033854_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round36_20260127_033854/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round36_20260127_033854/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T03:39:02.045872",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round37b_20260127_040159",
+          "round_num": 37,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round37b_20260127_040159",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round37b_20260127_040159/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round37b_20260127_040159_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round37b_20260127_040159/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round37b_20260127_040159/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T04:02:04.579442",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round38_20260127_041945",
+          "round_num": 38,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round38_20260127_041945",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round38_20260127_041945/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round38_20260127_041945_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round38_20260127_041945/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round38_20260127_041945/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T04:19:50.949711",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round38b_20260127_042436",
+          "round_num": 38,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round38b_20260127_042436",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round38b_20260127_042436/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round38b_20260127_042436_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round38b_20260127_042436/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round38b_20260127_042436/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T04:24:52.217793",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round39_20260127_043613",
+          "round_num": 39,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round39_20260127_043613",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round39_20260127_043613/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round39_20260127_043613_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round39_20260127_043613/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round39_20260127_043613/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T04:36:32.543581",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        }
+      ],
+      "latest": {
+        "round_id": "round39_20260127_043613",
+        "run_dir": "verification/runs/facts/geo_v0_s1/round39_20260127_043613"
       }
     }
   }
