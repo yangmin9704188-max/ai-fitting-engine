@@ -141,9 +141,16 @@ def run(
     repo_root: Path,
     n_cases: int,
     out_npz: Path,
+    case_ids_json: Optional[Path] = None,
 ) -> Tuple[int, Path, List[str]]:
     """
     Discover source, load, sample, build NPZ. Returns (n_cases, source_path_abs, warnings).
+    
+    Args:
+        repo_root: Repository root path
+        n_cases: Number of cases (ignored if case_ids_json is provided)
+        out_npz: Output NPZ path
+        case_ids_json: Optional path to case_ids manifest JSON (SSoT mode - bypasses sampling)
     """
     all_warnings: List[str] = []
     found, kind, checked = _discover_source(repo_root)
@@ -170,10 +177,76 @@ def run(
     keys = [c for c in df.columns if _is_measurement_key(c)]
     human_id_col = "HUMAN_ID" if "HUMAN_ID" in df.columns else None
 
-    if n_cases < len(df):
-        df = df.sample(n=n_cases, random_state=42).reset_index(drop=True)
+    # SSoT mode: --case_ids_json takes priority over n_cases/sampling
+    if case_ids_json is not None:
+        case_ids_json = _abs(case_ids_json) if not case_ids_json.is_absolute() else case_ids_json
+        if not case_ids_json.exists():
+            print(f"ERROR: case_ids manifest not found: {case_ids_json}")
+            raise SystemExit(1)
+        
+        with open(case_ids_json, 'r', encoding='utf-8') as f:
+            manifest_case_ids = json.load(f)
+        
+        if not isinstance(manifest_case_ids, list):
+            print(f"ERROR: case_ids manifest must be a JSON array (list), got: {type(manifest_case_ids)}")
+            raise SystemExit(1)
+        
+        print(f"[SSoT] Loading {len(manifest_case_ids)} case_ids from manifest: {case_ids_json}")
+        
+        # Filter df to only manifest case_ids (preserve order)
+        if human_id_col and human_id_col in df.columns:
+            # Use HUMAN_ID column for matching
+            df_filtered = df[df[human_id_col].isin(manifest_case_ids)].copy()
+            # Reorder to match manifest order
+            case_id_to_index = {cid: idx for idx, cid in enumerate(manifest_case_ids)}
+            df_filtered['_manifest_order'] = df_filtered[human_id_col].map(case_id_to_index)
+            df_filtered = df_filtered.sort_values('_manifest_order').drop(columns=['_manifest_order'])
+        else:
+            # Fallback: use stable hash to match case_ids
+            # This is less reliable but works if HUMAN_ID is not available
+            df_filtered_list = []
+            for manifest_cid in manifest_case_ids:
+                # Try to find row that would generate this case_id
+                # This is approximate - ideally HUMAN_ID should be used
+                matching_rows = df[df.apply(
+                    lambda row: f"real_{_stable_hash(row, row.name)}" == manifest_cid,
+                    axis=1
+                )]
+                if len(matching_rows) > 0:
+                    df_filtered_list.append(matching_rows.iloc[0])
+            
+            if len(df_filtered_list) < len(manifest_case_ids):
+                missing = set(manifest_case_ids) - {f"real_{_stable_hash(row, row.name)}" for row in df_filtered_list}
+                print(f"ERROR: {len(missing)} case_ids from manifest not found in source:")
+                for cid in list(missing)[:10]:  # Show first 10
+                    print(f"  - {cid}")
+                if len(missing) > 10:
+                    print(f"  ... and {len(missing) - 10} more")
+                raise SystemExit(1)
+            
+            df_filtered = pd.DataFrame(df_filtered_list).reset_index(drop=True)
+        
+        # Verify all manifest case_ids are present (reproducibility enforcement)
+        if human_id_col and human_id_col in df_filtered.columns:
+            found_case_ids = set(df_filtered[human_id_col].astype(str))
+            manifest_case_ids_set = set(str(cid) for cid in manifest_case_ids)
+            missing = manifest_case_ids_set - found_case_ids
+            if missing:
+                print(f"ERROR: {len(missing)} case_ids from manifest not found in source (reproducibility violation):")
+                for cid in list(missing)[:10]:  # Show first 10
+                    print(f"  - {cid}")
+                if len(missing) > 10:
+                    print(f"  ... and {len(missing) - 10} more")
+                raise SystemExit(1)
+        
+        df = df_filtered.reset_index(drop=True)
+        print(f"[SSoT] Filtered to {len(df)} cases (manifest order preserved)")
     else:
-        df = df.reset_index(drop=True)
+        # Normal sampling mode (original behavior)
+        if n_cases < len(df):
+            df = df.sample(n=n_cases, random_state=42).reset_index(drop=True)
+        else:
+            df = df.reset_index(drop=True)
 
     n = len(df)
     measurements_list: List[Dict[str, Any]] = []
@@ -220,13 +293,13 @@ def run(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Create core_measurements_v0 Golden NPZ from curated_v0 real data (Round20)."
+        description="Create core_measurements_v0 Golden NPZ from curated_v0 real data (Round20/22)."
     )
     ap.add_argument(
         "--n_cases",
         type=int,
         default=200,
-        help="Number of cases to include (default: 200). Use 30 for smoke.",
+        help="Number of cases to include (default: 200). Ignored if --case_ids_json is provided.",
     )
     ap.add_argument(
         "--out_npz",
@@ -234,13 +307,25 @@ def main() -> None:
         default=str(Path(__file__).parent / "golden_real_data_v0.npz"),
         help="Output NPZ path (default: .../core_measurements_v0/golden_real_data_v0.npz)",
     )
+    ap.add_argument(
+        "--case_ids_json",
+        type=str,
+        default=None,
+        help="Path to case_ids manifest JSON (SSoT mode - bypasses sampling, preserves order). Takes priority over --n_cases.",
+    )
     args = ap.parse_args()
 
     out = Path(args.out_npz)
     if not out.is_absolute():
         out = _REPO_ROOT / out
 
-    n, src, _ = run(_REPO_ROOT, args.n_cases, out)
+    case_ids_json_path = None
+    if args.case_ids_json:
+        case_ids_json_path = Path(args.case_ids_json)
+        if not case_ids_json_path.is_absolute():
+            case_ids_json_path = _REPO_ROOT / case_ids_json_path
+
+    n, src, _ = run(_REPO_ROOT, args.n_cases, out, case_ids_json=case_ids_json_path)
     print(f"[DONE] {n} cases -> {out.resolve()}")
     print(f"[DONE] Source: {src}")
 
