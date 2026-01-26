@@ -1,18 +1,10 @@
-민영아! 우리 프로젝트의 얼굴이자 모든 AI 에이전트들의 네비게이션인 \*\*README.md\*\*를 업데이트할 때가 됐네! 😊
-
-
-
-우리가 새로 정립한 v1.2 마스터 플랜의 철학을 반영해서, 처음 들어온 개발자나 AI도 "아, 이 프로젝트는 이렇게 정밀하게 돌아가는구나!"라고 한눈에 느낄 수 있도록 세련되고 명확하게 다듬어봤어.
-
-
-
-🚀 AI Fitting Engine: Logic Core (v1.2)
+\### 🚀 AI Fitting Engine: Logic Core (v1.2)
 
 본 레포지토리는 한국인 표준 체형 데이터(SizeKorea)를 기반으로 한 설명 가능하고 재현 가능한 가상 피팅 엔진의 로직 코어를 관리합니다.
 
 
 
-📌 Single Source of Truth (SoT)
+\### 📌 Single Source of Truth (SoT)#
 
 모든 전략적 결정과 엔진 아키텍처는 아래 문서를 단일 진실원으로 삼습니다.
 
@@ -30,7 +22,7 @@
 
 
 
-🏗️ 5-Layer R\&D Pipeline (Architecture v1.2)
+\### 🏗️ 5-Layer R\&D Pipeline (Architecture v1.2)#
 
 본 프로젝트는 데이터 흐름과 로직을 5개의 계층으로 격리하여 운영합니다.
 
@@ -56,7 +48,7 @@ L5: Application: 튜닝된 SMPL-X 기반 최종 바디 모델 서비스화
 
 
 
-📂 Directory Structure (Map)
+\### 📂 Directory Structure (Map)
 
 전체 구조는 docs/ops/PROJECT\_STRUCTURE.md를 참조하세요.
 
@@ -82,7 +74,7 @@ artifacts/: 각 실행 라운드에서 생성된 시각화 지표 및 로그
 
 
 
-📏 Technical Standards
+\### 📏 Technical Standards
 
 표준 단위: 모든 내부 인터페이스는 Meters(m) 단위를 사용합니다.
 
