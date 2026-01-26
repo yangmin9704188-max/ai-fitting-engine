@@ -5,9 +5,10 @@
   "cases": [
     {
       "case_id": "311610164126",
-      "mesh_path": null,
+      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_20F.obj",
       "verts_path": null,
-      "note": "S1 mesh/verts not yet available"
+      "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case",
+      "measurements_csv": "verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_20F_measurements_m.csv"
     },
     {
       "case_id": "20_F_1049",
