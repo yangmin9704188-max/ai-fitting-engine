@@ -95,3 +95,9 @@ py verification/runners/run_geo_v0_facts_round1.py \
 - **Runbook**: [`JUDGMENTS_RUNBOOK.md`](JUDGMENTS_RUNBOOK.md)
 - **Template**: [`../judgments/templates/JUDGMENT_ENTRY_TEMPLATE.md`](../judgments/templates/JUDGMENT_ENTRY_TEMPLATE.md)
 - **Purpose**: Archive lifecycle for confirmed judgment/decision documents (CANDIDATES → Judgments)
+
+## Obsidian Navigation
+
+- **Home**: [`OBSIDIAN_HOME.md`](OBSIDIAN_HOME.md) - 프로젝트 탐색의 단일 진입점
+- **Setup Guide**: [`OBSIDIAN_SETUP.md`](OBSIDIAN_SETUP.md) - Obsidian 사용 가이드
+- **Project Canvas**: [`canvas/PROJECT_MAP.canvas`](canvas/PROJECT_MAP.canvas) - 프로젝트 맵 (Canvas 뷰)
