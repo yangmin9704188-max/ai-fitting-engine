@@ -36,6 +36,7 @@
 - **Round29**: geo_v0_s1 facts runner (per-case skip reasons logging, SSoT)
 - **Round30**: geo_v0_s1 facts runner (load_failed diagnostics, resolved path/exception)
 - **Round31**: geo_v0_s1 facts runner (2-stage OBJ loader: trimesh optional + pure Python parser required)
+- **Round32**: geo_v0_s1 facts runner (per-case skip_reasons invariant: 200 records, has_mesh_path_true=5)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)

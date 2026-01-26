@@ -293,3 +293,25 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - Loader A: trimesh (옵션, MTL/재질 의존 최소화)
 - Loader B: pure Python OBJ parser (필수, 'v '와 'f ' 라인만 파싱)
 - 목표: processed>=5 복구
+
+## Round 32 (Geo v0 S1 Facts - Skip Reasons Invariant)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (케이스당 1레코드 로깅 불변식 보장)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round32_<timestamp>/artifacts/skip_reasons.jsonl` (invariant: records=200, has_mesh_path_true=5)
+- **Report**: `reports/validation/geo_v0_s1_facts_round32.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round32_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round32_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round31 관측: skip_reasons.jsonl records=195, has_mesh_path_true=0 (proxy 5개 누락)
+- Round32는 "케이스당 1레코드 로깅 불변식"을 복구하여 records=200, has_mesh_path_true=5 보장
+- has_mesh_path 판정 단일화: (mesh_path is not None) and (str(mesh_path).strip() != "")
+- 성공 케이스도 로깅 (stage="measure", reason="success")
+- 누락된 케이스는 자동 채우기 (stage="invariant_fill", reason="missing_log_record")

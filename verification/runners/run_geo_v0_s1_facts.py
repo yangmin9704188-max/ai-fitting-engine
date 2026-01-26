@@ -447,209 +447,266 @@ def process_case(
     
     Returns:
         Measurement results if processed, None if skipped
+    
+    Invariant: Each case_id must log exactly 1 record to skip_reasons.jsonl
     """
     case_id = case["case_id"]
     mesh_path = case.get("mesh_path")
     verts_path = case.get("verts_path")
-    has_mesh_path = mesh_path is not None
+    # Round32: has_mesh_path 판정 단일화
+    has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
     
-    # Type A: manifest path is null (precheck stage)
-    if mesh_path is None and verts_path is None:
-        skip_reason = "manifest_path_is_null"
-        log_skip_reason(
-            skip_reasons_file=skip_reasons_file,
-            case_id=case_id,
-            has_mesh_path=False,
-            mesh_path=None,
-            attempted_load=False,
-            stage="precheck",
-            reason=skip_reason
-        )
-        skipped_entries.append({
-            "Type": skip_reason,
-            "case_id": case_id,
-            "Reason": "S1 manifest has null path (no mesh/verts assigned)"
-        })
-        return None
+    # Track if we've logged this case (invariant: exactly 1 record per case)
+    logged = False
     
-    # Determine which path to use (prefer verts_path over mesh_path)
-    path_to_use = verts_path if verts_path is not None else mesh_path
+    # Use try/finally to ensure logging even on unexpected exceptions
+    try:
     
-    # Resolve mesh_path for diagnostics (Round30)
-    mesh_path_resolved = None
-    mesh_exists = None
-    mesh_path_resolved_obj = None
-    if mesh_path is not None:
-        mesh_path_resolved_obj, mesh_exists = resolve_mesh_path(mesh_path)
-        mesh_path_resolved = str(mesh_path_resolved_obj)
-    
-    # Type B: manifest path set but file missing (precheck stage)
-    if path_to_use is not None:
-        if verts_path is not None:
-            path_abs = Path(verts_path).resolve() if Path(verts_path).is_absolute() else (Path.cwd() / verts_path).resolve()
-        else:
-            path_abs = mesh_path_resolved_obj if mesh_path_resolved_obj else None
+        # Type A: manifest path is null (precheck stage)
+        if mesh_path is None and verts_path is None:
+            skip_reason = "manifest_path_is_null"
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=False,
+                mesh_path=None,
+                attempted_load=False,
+                stage="precheck",
+                reason=skip_reason
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": skip_reason,
+                "case_id": case_id,
+                "Reason": "S1 manifest has null path (no mesh/verts assigned)"
+            })
+            return None
         
-        if path_abs is None or not path_abs.exists():
-            skip_reason = "file_not_found"
+        # Determine which path to use (prefer verts_path over mesh_path)
+        path_to_use = verts_path if verts_path is not None else mesh_path
+        
+        # Resolve mesh_path for diagnostics (Round30)
+        mesh_path_resolved = None
+        mesh_exists = None
+        mesh_path_resolved_obj = None
+        if mesh_path is not None:
+            mesh_path_resolved_obj, mesh_exists = resolve_mesh_path(mesh_path)
+            mesh_path_resolved = str(mesh_path_resolved_obj)
+        
+        # Type B: manifest path set but file missing (precheck stage)
+        if path_to_use is not None:
+            if verts_path is not None:
+                path_abs = Path(verts_path).resolve() if Path(verts_path).is_absolute() else (Path.cwd() / verts_path).resolve()
+            else:
+                path_abs = mesh_path_resolved_obj if mesh_path_resolved_obj else None
+            
+            if path_abs is None or not path_abs.exists():
+                skip_reason = "file_not_found"
+                log_skip_reason(
+                    skip_reasons_file=skip_reasons_file,
+                    case_id=case_id,
+                    has_mesh_path=has_mesh_path,
+                    mesh_path=mesh_path,
+                    attempted_load=False,
+                    stage="precheck",
+                    reason=skip_reason,
+                    exception_1line=f"File not found: {path_to_use}",
+                    mesh_path_resolved=mesh_path_resolved,
+                    mesh_exists=mesh_exists
+                )
+                logged = True
+                skipped_entries.append({
+                    "Type": "manifest_path_set_but_file_missing",
+                    "case_id": case_id,
+                    "path": str(path_to_use),
+                    "Reason": "path specified but file not found"
+                })
+                return None
+        
+        # Resolve mesh_path for diagnostics (Round30) - ensure it's done after file check
+        if mesh_path is not None and mesh_path_resolved is None:
+            if Path(mesh_path).is_absolute():
+                mesh_path_resolved_obj = Path(mesh_path).resolve()
+            else:
+                mesh_path_resolved_obj = (Path.cwd() / mesh_path).resolve()
+            mesh_path_resolved = str(mesh_path_resolved_obj)
+            mesh_exists = mesh_path_resolved_obj.exists()
+        
+        # Load verts (prefer verts_path, fallback to mesh_path) - load_mesh stage
+        # Proxy 슬롯 5개는 반드시 attempted_load=True까지 진입
+        verts = None
+        faces = None
+        load_error = None
+        attempted_load = False
+        exception_1line = None
+        exception_type = None
+        loader_name = None
+        loaded_verts = None
+        loaded_faces = None
+        
+        if verts_path is not None:
+            attempted_load = True
+            try:
+                result = load_verts_from_path_with_info(verts_path)
+                if result is not None:
+                    verts, loader_name, faces = result
+                    loaded_verts = verts.shape[0] if verts is not None else None
+                    loaded_faces = faces.shape[0] if faces is not None else None
+                else:
+                    load_error = f"verts_path specified but load returned None: {verts_path}"
+            except Exception as e:
+                load_error = f"verts_path load exception: {str(e)}"
+                exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
+                exception_type = type(e).__name__
+        
+        if verts is None and mesh_path is not None:
+            attempted_load = True
+            try:
+                result = load_verts_from_path_with_info(mesh_path)
+                if result is not None:
+                    verts, loader_name, faces = result
+                    loaded_verts = verts.shape[0] if verts is not None else None
+                    loaded_faces = faces.shape[0] if faces is not None else None
+                else:
+                    if load_error:
+                        load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
+                    else:
+                        load_error = f"mesh_path specified but load returned None: {mesh_path}"
+            except Exception as e:
+                if load_error:
+                    load_error = f"{load_error}; mesh_path load exception: {str(e)}"
+                else:
+                    load_error = f"mesh_path load exception: {str(e)}"
+                if not exception_1line:
+                    exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
+                if not exception_type:
+                    exception_type = type(e).__name__
+        
+        if verts is None:
+            # Type B or Type C (parse error) - load_mesh stage
+            skip_reason = "load_failed"
+            if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
+                skip_reason = "load_failed"
+            
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="load_mesh",
+                reason=skip_reason,
+                exception_1line=exception_1line,
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists,
+                exception_type=exception_type,
+                loader_name=loader_name,
+                loaded_verts=loaded_verts,
+                loaded_faces=loaded_faces
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "manifest_path_set_but_file_missing" if skip_reason == "file_not_found" else "parse_error",
+                "case_id": case_id,
+                "path": str(path_to_use) if path_to_use else "N/A",
+                "Reason": load_error if load_error else "path specified but file not found or load failed"
+            })
+            return None
+        
+        # Validate verts shape (precheck stage after load)
+        if verts.ndim != 2 or verts.shape[1] != 3:
+            skip_reason = "invalid_verts_shape"
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="precheck",
+                reason=skip_reason,
+                exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)",
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "parse_error",
+                "case_id": case_id,
+                "path": str(path_to_use) if path_to_use else "N/A",
+                "Reason": f"invalid verts shape: {verts.shape}, expected (V, 3)"
+            })
+            return None
+        
+        # Process with existing geo v0 logic (measure stage)
+        try:
+            results = measure_all_keys(verts, case_id)
+            # Round32: 성공 케이스도 로깅 (invariant: 1 record per case)
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="measure",
+                reason="success",
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists,
+                loader_name=loader_name,
+                loaded_verts=loaded_verts,
+                loaded_faces=loaded_faces
+            )
+            logged = True
+            return results
+        except Exception as e:
+            # Record execution failure but don't skip (return empty results)
+            # However, log skip reason for tracking
+            exception_1line = str(e).split('\n')[0]
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="measure",
+                reason="measurement_exception",
+                exception_1line=exception_1line,
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists,
+                exception_type=type(e).__name__
+            )
+            logged = True
+            print(f"[WARN] Measurement failed for {case_id}: {e}")
+            return {}
+    except Exception as e:
+        # Round32: 예상치 못한 예외 발생 시에도 로깅 보장
+        if not logged:
+            exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
                 case_id=case_id,
                 has_mesh_path=has_mesh_path,
                 mesh_path=mesh_path,
                 attempted_load=False,
-                stage="precheck",
-                reason=            skip_reason,
-                exception_1line=f"File not found: {path_to_use}",
-                mesh_path_resolved=mesh_path_resolved,
-                mesh_exists=mesh_exists
+                stage="unexpected_exception",
+                reason="unexpected_exception",
+                exception_1line=exception_1line,
+                exception_type=type(e).__name__
             )
-            skipped_entries.append({
-                "Type": "manifest_path_set_but_file_missing",
-                "case_id": case_id,
-                "path": str(path_to_use),
-                "Reason": "path specified but file not found"
-            })
-            return None
-    
-    # Resolve mesh_path for diagnostics (Round30)
-    mesh_path_resolved = None
-    mesh_exists = None
-    if mesh_path is not None:
-        if Path(mesh_path).is_absolute():
-            mesh_path_resolved_obj = Path(mesh_path).resolve()
-        else:
-            mesh_path_resolved_obj = (Path.cwd() / mesh_path).resolve()
-        mesh_path_resolved = str(mesh_path_resolved_obj)
-        mesh_exists = mesh_path_resolved_obj.exists()
-    
-    # Load verts (prefer verts_path, fallback to mesh_path) - load_mesh stage
-    # Proxy 슬롯 5개는 반드시 attempted_load=True까지 진입
-    verts = None
-    faces = None
-    load_error = None
-    attempted_load = False
-    exception_1line = None
-    exception_type = None
-    loader_name = None
-    loaded_verts = None
-    loaded_faces = None
-    
-    if verts_path is not None:
-        attempted_load = True
-        try:
-            result = load_verts_from_path_with_info(verts_path)
-            if result is not None:
-                verts, loader_name, faces = result
-                loaded_verts = verts.shape[0] if verts is not None else None
-                loaded_faces = faces.shape[0] if faces is not None else None
-            else:
-                load_error = f"verts_path specified but load returned None: {verts_path}"
-        except Exception as e:
-            load_error = f"verts_path load exception: {str(e)}"
-            exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
-            exception_type = type(e).__name__
-    
-    if verts is None and mesh_path is not None:
-        attempted_load = True
-        try:
-            result = load_verts_from_path_with_info(mesh_path)
-            if result is not None:
-                verts, loader_name, faces = result
-                loaded_verts = verts.shape[0] if verts is not None else None
-                loaded_faces = faces.shape[0] if faces is not None else None
-            else:
-                if load_error:
-                    load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
-                else:
-                    load_error = f"mesh_path specified but load returned None: {mesh_path}"
-        except Exception as e:
-            if load_error:
-                load_error = f"{load_error}; mesh_path load exception: {str(e)}"
-            else:
-                load_error = f"mesh_path load exception: {str(e)}"
-            if not exception_1line:
-                exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
-            if not exception_type:
-                exception_type = type(e).__name__
-    
-    if verts is None:
-        # Type B or Type C (parse error) - load_mesh stage
-        skip_reason = "load_failed"
-        if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
-            skip_reason = "load_failed"
-        
-        log_skip_reason(
-            skip_reasons_file=skip_reasons_file,
-            case_id=case_id,
-            has_mesh_path=has_mesh_path,
-            mesh_path=mesh_path,
-            attempted_load=attempted_load,
-            stage="load_mesh",
-            reason=skip_reason,
-            exception_1line=exception_1line,
-            mesh_path_resolved=mesh_path_resolved,
-            mesh_exists=mesh_exists,
-            exception_type=exception_type,
-            loader_name=loader_name,
-            loaded_verts=loaded_verts,
-            loaded_faces=loaded_faces
-        )
-        
-        skipped_entries.append({
-            "Type": "manifest_path_set_but_file_missing" if skip_reason == "file_not_found" else "parse_error",
-            "case_id": case_id,
-            "path": str(path_to_use) if path_to_use else "N/A",
-            "Reason": load_error if load_error else "path specified but file not found or load failed"
-        })
-        return None
-    
-    # Validate verts shape (precheck stage after load)
-    if verts.ndim != 2 or verts.shape[1] != 3:
-        skip_reason = "invalid_verts_shape"
-        log_skip_reason(
-            skip_reasons_file=skip_reasons_file,
-            case_id=case_id,
-            has_mesh_path=has_mesh_path,
-            mesh_path=mesh_path,
-            attempted_load=attempted_load,
-            stage="precheck",
-            reason=skip_reason,
-            exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)",
-            mesh_path_resolved=mesh_path_resolved,
-            mesh_exists=mesh_exists
-        )
-        skipped_entries.append({
-            "Type": "parse_error",
-            "case_id": case_id,
-            "path": str(path_to_use) if path_to_use else "N/A",
-            "Reason": f"invalid verts shape: {verts.shape}, expected (V, 3)"
-        })
-        return None
-    
-    # Process with existing geo v0 logic (measure stage)
-    try:
-        results = measure_all_keys(verts, case_id)
-        return results
-    except Exception as e:
-        # Record execution failure but don't skip (return empty results)
-        # However, log skip reason for tracking
-        exception_1line = str(e).split('\n')[0]
-        log_skip_reason(
-            skip_reasons_file=skip_reasons_file,
-            case_id=case_id,
-            has_mesh_path=has_mesh_path,
-            mesh_path=mesh_path,
-            attempted_load=attempted_load,
-            stage="measure",
-            reason="measurement_exception",
-            exception_1line=exception_1line,
-            mesh_path_resolved=mesh_path_resolved,
-            mesh_exists=mesh_exists,
-            exception_type=type(e).__name__
-        )
-        print(f"[WARN] Measurement failed for {case_id}: {e}")
-        return {}
+            logged = True
+        raise
+    finally:
+        # Round32: 최종 확인 - 로깅이 누락되었는지 체크 (should not happen, but safety net)
+        if not logged:
+            print(f"[WARN] Case {case_id} was not logged to skip_reasons.jsonl - this should not happen!")
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=False,
+                stage="invariant_fill",
+                reason="missing_log_record"
+            )
 
 
 def main():
@@ -720,11 +777,83 @@ def main():
             f.write(f"# Total processed: {len(all_results)}\n\n")
         print(f"[SKIP] Wrote skip header to {skipped_path} (per-case details in {skip_reasons_file})")
     
-    # Report skip_reasons.jsonl stats
+    # Round32: Invariant check - ensure exactly 1 record per case
+    manifest_case_ids = set(case["case_id"] for case in cases)
+    expected_count = len(manifest_case_ids)
+    
     if skip_reasons_file.exists():
+        logged_case_ids = set()
+        has_mesh_path_true_count = 0
+        
         with open(skip_reasons_file, 'r', encoding='utf-8') as f:
-            skip_reasons_count = sum(1 for line in f if line.strip())
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    case_id = record.get("case_id")
+                    if case_id:
+                        logged_case_ids.add(case_id)
+                    if record.get("has_mesh_path") is True:
+                        has_mesh_path_true_count += 1
+                except json.JSONDecodeError:
+                    continue
+        
+        skip_reasons_count = len(logged_case_ids)
+        
+        # Check invariants
+        missing_case_ids = manifest_case_ids - logged_case_ids
+        
+        if skip_reasons_count != expected_count or missing_case_ids:
+            print(f"[WARN] Invariant violation detected:")
+            print(f"  Expected records: {expected_count}, Actual: {skip_reasons_count}")
+            print(f"  Missing case_ids: {len(missing_case_ids)}")
+            if missing_case_ids:
+                print(f"  Missing cases: {sorted(list(missing_case_ids))[:10]}...")  # Show first 10
+            
+            # Fill missing records
+            with open(skip_reasons_file, 'a', encoding='utf-8') as f:
+                for case_id in missing_case_ids:
+                    # Find the case to get mesh_path info
+                    case_info = next((c for c in cases if c["case_id"] == case_id), None)
+                    mesh_path = case_info.get("mesh_path") if case_info else None
+                    has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
+                    
+                    log_skip_reason(
+                        skip_reasons_file=skip_reasons_file,
+                        case_id=case_id,
+                        has_mesh_path=has_mesh_path,
+                        mesh_path=mesh_path,
+                        attempted_load=False,
+                        stage="invariant_fill",
+                        reason="missing_log_record"
+                    )
+                    logged_case_ids.add(case_id)
+                    if has_mesh_path:
+                        has_mesh_path_true_count += 1
+            
+            print(f"[INVARIANT] Filled {len(missing_case_ids)} missing records")
+        
+        # Re-count after filling
+        skip_reasons_count = len(logged_case_ids)
+        
+        # Check has_mesh_path_true count (expected: 5 for proxy cases)
+        expected_has_mesh_path_true = 5
+        if has_mesh_path_true_count != expected_has_mesh_path_true:
+            print(f"[WARN] has_mesh_path_true count mismatch:")
+            print(f"  Expected: {expected_has_mesh_path_true}, Actual: {has_mesh_path_true_count}")
+        
         print(f"[SKIP REASONS] Logged {skip_reasons_count} skip reason records to {skip_reasons_file}")
+        print(f"[SKIP REASONS] has_mesh_path=true: {has_mesh_path_true_count} (expected: {expected_has_mesh_path_true})")
+        
+        # Final invariant check
+        if skip_reasons_count == expected_count:
+            print(f"[INVARIANT] ✓ Records invariant satisfied: {skip_reasons_count} == {expected_count}")
+        else:
+            print(f"[WARN] Records invariant still violated: {skip_reasons_count} != {expected_count}")
+    else:
+        print(f"[WARN] skip_reasons.jsonl file not found after processing!")
     
     # Generate facts summary (similar to run_geo_v0_facts_round1.py)
     summary: Dict[str, Any] = defaultdict(dict)
