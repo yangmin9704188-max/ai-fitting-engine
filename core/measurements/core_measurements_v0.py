@@ -75,6 +75,7 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     Uses polar angle sorting for stability (from bust_underbust_v0.py pattern).
     
     Round36: If return_debug=True, returns (perimeter, debug_info) tuple.
+    Round37: Improved deduplication and stable path ordering to prevent perimeter explosion.
     """
     if vertices_2d.shape[0] < 3:
         if return_debug:
@@ -88,11 +89,57 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         "max_abs": float(np.max(np.abs(vertices_2d)))
     }
     
-    # Polar angle sorting for stable perimeter computation
-    center = np.mean(vertices_2d, axis=0)
-    angles = np.arctan2(vertices_2d[:, 1] - center[1], vertices_2d[:, 0] - center[0])
+    # Round37: Deduplicate points (remove near-duplicates with epsilon tolerance)
+    epsilon = 1e-6  # 1 micron tolerance
+    unique_verts = []
+    unique_indices = []
+    for i, v in enumerate(vertices_2d):
+        is_duplicate = False
+        for u in unique_verts:
+            if np.linalg.norm(v - u) < epsilon:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            unique_verts.append(v)
+            unique_indices.append(i)
+    
+    if len(unique_verts) < 3:
+        if return_debug:
+            return None, {"n_points": len(vertices_2d), "dedupe_count": len(unique_verts), "reason": "too_few_unique_points"}
+        return None
+    
+    vertices_2d_deduped = np.array(unique_verts, dtype=np.float32)
+    
+    # Round37: Polar angle sorting with improved stability
+    center = np.mean(vertices_2d_deduped, axis=0)
+    centered = vertices_2d_deduped - center
+    
+    # Check for degenerate case (all points at same location)
+    distances = np.linalg.norm(centered, axis=1)
+    if np.max(distances) < 1e-6:
+        if return_debug:
+            return None, {"n_points": len(vertices_2d), "dedupe_count": len(unique_verts), "reason": "all_points_at_center"}
+        return None
+    
+    # Compute angles (atan2: y, x)
+    angles = np.arctan2(centered[:, 1], centered[:, 0])
+    
+    # Round37: Handle identical angles by adding small perturbation based on distance
+    # This ensures stable ordering when multiple points share the same angle
+    for i in range(len(angles)):
+        same_angle_mask = np.abs(angles - angles[i]) < 1e-10
+        if np.sum(same_angle_mask) > 1:
+            # Sort by distance from center for same-angle points
+            same_angle_indices = np.where(same_angle_mask)[0]
+            same_angle_distances = distances[same_angle_indices]
+            sorted_by_dist = same_angle_indices[np.argsort(same_angle_distances)]
+            # Add tiny perturbation to angles based on distance order
+            for idx, orig_idx in enumerate(sorted_by_dist):
+                if orig_idx != i:
+                    angles[orig_idx] += idx * 1e-12  # Tiny perturbation
+    
     sorted_indices = np.argsort(angles)
-    sorted_verts = vertices_2d[sorted_indices]
+    sorted_verts = vertices_2d_deduped[sorted_indices]
     
     # Round36: Capture bbox after sorting
     bbox_after = {
@@ -101,12 +148,12 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         "max_abs": float(np.max(np.abs(sorted_verts)))
     }
     
-    # Compute perimeter and segment lengths
+    # Round37: Compute perimeter with explicit closing edge
     n = sorted_verts.shape[0]
     perimeter = 0.0
     segment_lens = []
     for i in range(n):
-        j = (i + 1) % n
+        j = (i + 1) % n  # Closing edge: last point connects to first
         edge_len = np.linalg.norm(sorted_verts[j] - sorted_verts[i])
         segment_lens.append(float(edge_len))
         perimeter += edge_len
@@ -130,15 +177,21 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
             segment_len_stats = {}
             jump_count = 0
         
+        # Round37: perimeter_raw는 measure_circumference_v0_with_metadata에서 전달됨
+        # 여기서는 perimeter_new만 기록
+        
         debug_info = {
-            "n_points": n,
+            "n_points": len(vertices_2d),  # Original count
+            "n_points_deduped": n,  # Round37: After deduplication
             "bbox_before": bbox_before,
             "bbox_after": bbox_after,
             "segment_len_stats": segment_len_stats,
             "jump_count": jump_count,
-            "perimeter_raw": perimeter_final,
-            "perimeter_final": perimeter_final,
+            "perimeter_new": perimeter_final,  # Round37: New method (with dedupe + stable sort)
+            "perimeter_final": perimeter_final,  # Round36 compatibility
             "points_sorted": True,  # Always sorted by polar angle
+            "dedupe_applied": len(unique_verts) < len(vertices_2d),  # Round37
+            "dedupe_count": len(unique_verts),  # Round37
             "notes": []
         }
         
@@ -1119,11 +1172,19 @@ def measure_circumference_v0_with_metadata(
         median_perimeter = float(np.median(perimeters))
         selected = min(candidates, key=lambda c: abs(c["perimeter"] - median_perimeter))
     
-    value_m = selected["perimeter"]
-    
-    # Round36: Re-compute selected candidate with debug enabled to get full debug info
+    # Round37: Re-compute selected candidate with debug enabled to get full debug info (new method)
     selected_y_value = selected["y_value"]
-    _, selected_debug_full = _compute_circumference_at_height(verts, selected_y_value, tolerance, warnings, y_min, y_max, return_debug=True)
+    perimeter_new, selected_debug_full = _compute_circumference_at_height(verts, selected_y_value, tolerance, warnings, y_min, y_max, return_debug=True)
+    
+    # Round37: Store old perimeter as raw (before path fix)
+    perimeter_raw = selected["perimeter"]  # Old method result
+    
+    # Round37: Use new perimeter (with improved path ordering)
+    if perimeter_new is not None:
+        value_m = perimeter_new
+    else:
+        # Fallback to selected perimeter if new computation failed
+        value_m = perimeter_raw
     
     # Range sanity check (warnings only)
     if value_m < 0.1:
@@ -1131,11 +1192,12 @@ def measure_circumference_v0_with_metadata(
     if value_m > 3.0:
         warnings.append(f"PERIMETER_LARGE: {value_m:.4f}m")
     
-    # Round36: Build circ_debug info for facts_summary.json
+    # Round36/37: Build circ_debug info for facts_summary.json
     circ_debug = {
         "schema_version": "circ_debug@1",
         "key": standard_key,
         "n_points": selected_debug_full.get("n_points", 0) if selected_debug_full else 0,
+        "n_points_deduped": selected_debug_full.get("n_points_deduped", 0) if selected_debug_full else 0,  # Round37
         "axis": "y",
         "plane": "x-z",
         "scale_applied": False,  # Will be determined from bbox
@@ -1143,10 +1205,18 @@ def measure_circumference_v0_with_metadata(
         "bbox_after": selected_debug_full.get("bbox_after", {}) if selected_debug_full else {},
         "segment_len_stats": selected_debug_full.get("segment_len_stats", {}) if selected_debug_full else {},
         "jump_count": selected_debug_full.get("jump_count", 0) if selected_debug_full else 0,
-        "perimeter_raw": selected_debug_full.get("perimeter_raw", value_m) if selected_debug_full else value_m,
-        "perimeter_final": value_m,
+        "perimeter_raw": perimeter_raw,  # Round37: Old method (from selected candidate)
+        "perimeter_new": selected_debug_full.get("perimeter_new", value_m) if selected_debug_full else value_m,  # Round37: New method
+        "perimeter_final": value_m,  # Round36 compatibility
+        "dedupe_applied": selected_debug_full.get("dedupe_applied", False) if selected_debug_full else False,  # Round37
+        "dedupe_count": selected_debug_full.get("dedupe_count", 0) if selected_debug_full else 0,  # Round37
         "notes": selected_debug_full.get("notes", []) if selected_debug_full else []
     }
+    
+    # Round37: Add perimeter comparison note
+    if perimeter_raw is not None and perimeter_raw != value_m:
+        ratio = value_m / perimeter_raw if perimeter_raw > 0 else 0.0
+        circ_debug["notes"].append(f"perimeter_change: raw={perimeter_raw:.4f}m, new={value_m:.4f}m, ratio={ratio:.4f}")
     
     # Round36: Detect scale issue
     if verts_bbox_before["max_abs"] > 10.0:
