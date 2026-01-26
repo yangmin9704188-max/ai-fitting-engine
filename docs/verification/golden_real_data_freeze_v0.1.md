@@ -2,7 +2,7 @@
 
 **Purpose**: Real-data golden NPZ reproducibility freeze via case-id manifest (SSoT).
 
-**Freeze Commit**: `[COMMIT_HASH]` (will be updated after commit)  
+**Freeze Commit**: `67562e0bb7914fbd7841f6f8fad55e85da0cc0a7`  
 **Date**: 2026-01-26
 
 **주의**: Git tag는 생성하지 않습니다. 이 Freeze는 Commit Hash로만 보증됩니다.
