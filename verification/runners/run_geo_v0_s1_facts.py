@@ -671,10 +671,9 @@ def process_case(
             logged = True
             # Round33: Return results with verts and scale_warning for NPZ generation
             return {"results": results, "verts": verts, "case_id": case_id, "scale_warning": scale_warning}
-        except Exception as e:
-            # Record execution failure but don't skip (return empty results)
-            # However, log skip reason for tracking
-            exception_1line = str(e).split('\n')[0]
+        except KeyboardInterrupt as e:
+            # Round37 Hotfix: KeyboardInterrupt도 기록 후 re-raise (사용자 중단은 존중하되 로그는 남김)
+            exception_1line = "KeyboardInterrupt (user interrupt)"
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
                 case_id=case_id,
@@ -682,15 +681,66 @@ def process_case(
                 mesh_path=mesh_path,
                 attempted_load=attempted_load,
                 stage="measure",
-                reason="measurement_exception",
+                reason="exception",
+                exception_1line=exception_1line,
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists,
+                exception_type="KeyboardInterrupt"
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"KeyboardInterrupt during measurement"
+            })
+            print(f"[WARN] Measurement interrupted for {case_id}: KeyboardInterrupt")
+            raise  # Re-raise to respect user interrupt
+        except Exception as e:
+            # Round37 Hotfix: 모든 예외를 exception reason으로 기록
+            exception_1line = str(e).split('\n')[0] if str(e).splitlines() else repr(e)
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="measure",
+                reason="exception",
                 exception_1line=exception_1line,
                 mesh_path_resolved=mesh_path_resolved,
                 mesh_exists=mesh_exists,
                 exception_type=type(e).__name__
             )
             logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"Exception during measurement: {exception_1line}"
+            })
             print(f"[WARN] Measurement failed for {case_id}: {e}")
             return {}
+    except KeyboardInterrupt as e:
+        # Round37 Hotfix: KeyboardInterrupt도 최상위에서 기록 후 re-raise
+        if not logged:
+            exception_1line = "KeyboardInterrupt (user interrupt)"
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="unexpected_exception",
+                reason="exception",
+                exception_1line=exception_1line,
+                exception_type="KeyboardInterrupt"
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"KeyboardInterrupt during processing"
+            })
+        raise  # Re-raise to respect user interrupt
     except Exception as e:
         # Round32: 예상치 못한 예외 발생 시에도 로깅 보장
         if not logged:
@@ -700,13 +750,18 @@ def process_case(
                 case_id=case_id,
                 has_mesh_path=has_mesh_path,
                 mesh_path=mesh_path,
-                attempted_load=False,
+                attempted_load=attempted_load,
                 stage="unexpected_exception",
-                reason="unexpected_exception",
+                reason="exception",
                 exception_1line=exception_1line,
                 exception_type=type(e).__name__
             )
             logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"Unexpected exception: {exception_1line}"
+            })
         raise
     finally:
         # Round32: 최종 확인 - 로깅이 누락되었는지 체크 (should not happen, but safety net)
