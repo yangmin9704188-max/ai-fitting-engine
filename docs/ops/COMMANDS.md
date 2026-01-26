@@ -167,6 +167,36 @@ make judgment FROM_RUN=<run_dir> DRY_RUN=1 SLUG=smoke
 make commands-update
 ```
 
+## Data Conversion
+
+### convert-scan-xlsx-to-csv
+**목적**: 스캔 XLSX를 정규화된 CSV로 변환 (mm -> m, Round28)
+
+**기본 사용법**:
+```bash
+py verification/tools/convert_scan_xlsx_to_csv.py \
+  --input_xlsx "data/raw/scans_3d/ORIGINAL_6th_20M_data.xlsx" \
+  --out_dir "verification/datasets/golden/s1_mesh_v0/metadata" \
+  --source_id "scan_6th_20M" \
+  --raw_unit "mm" \
+  --meta_unit "m" \
+  --precision "0.001" \
+  --major_names "키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레"
+```
+
+**예시**:
+```bash
+# 20M 스캔 메타데이터 변환 (Round28)
+py verification/tools/convert_scan_xlsx_to_csv.py \
+  --input_xlsx "data/raw/scans_3d/ORIGINAL_6th_20M_data.xlsx" \
+  --out_dir "verification/datasets/golden/s1_mesh_v0/metadata" \
+  --source_id "scan_6th_20M" \
+  --raw_unit "mm" \
+  --meta_unit "m" \
+  --precision "0.001" \
+  --major_names "키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레"
+```
+
 ## Quick Recipes
 
 자주 사용하는 조합 명령들입니다.
