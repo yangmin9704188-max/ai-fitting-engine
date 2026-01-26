@@ -671,10 +671,9 @@ def process_case(
             logged = True
             # Round33: Return results with verts and scale_warning for NPZ generation
             return {"results": results, "verts": verts, "case_id": case_id, "scale_warning": scale_warning}
-        except Exception as e:
-            # Record execution failure but don't skip (return empty results)
-            # However, log skip reason for tracking
-            exception_1line = str(e).split('\n')[0]
+        except KeyboardInterrupt as e:
+            # Round37 Hotfix: KeyboardInterrupt도 기록 후 re-raise (사용자 중단은 존중하되 로그는 남김)
+            exception_1line = "KeyboardInterrupt (user interrupt)"
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
                 case_id=case_id,
@@ -682,15 +681,66 @@ def process_case(
                 mesh_path=mesh_path,
                 attempted_load=attempted_load,
                 stage="measure",
-                reason="measurement_exception",
+                reason="exception",
+                exception_1line=exception_1line,
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists,
+                exception_type="KeyboardInterrupt"
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"KeyboardInterrupt during measurement"
+            })
+            print(f"[WARN] Measurement interrupted for {case_id}: KeyboardInterrupt")
+            raise  # Re-raise to respect user interrupt
+        except Exception as e:
+            # Round37 Hotfix: 모든 예외를 exception reason으로 기록
+            exception_1line = str(e).split('\n')[0] if str(e).splitlines() else repr(e)
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="measure",
+                reason="exception",
                 exception_1line=exception_1line,
                 mesh_path_resolved=mesh_path_resolved,
                 mesh_exists=mesh_exists,
                 exception_type=type(e).__name__
             )
             logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"Exception during measurement: {exception_1line}"
+            })
             print(f"[WARN] Measurement failed for {case_id}: {e}")
             return {}
+    except KeyboardInterrupt as e:
+        # Round37 Hotfix: KeyboardInterrupt도 최상위에서 기록 후 re-raise
+        if not logged:
+            exception_1line = "KeyboardInterrupt (user interrupt)"
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=attempted_load,
+                stage="unexpected_exception",
+                reason="exception",
+                exception_1line=exception_1line,
+                exception_type="KeyboardInterrupt"
+            )
+            logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"KeyboardInterrupt during processing"
+            })
+        raise  # Re-raise to respect user interrupt
     except Exception as e:
         # Round32: 예상치 못한 예외 발생 시에도 로깅 보장
         if not logged:
@@ -700,13 +750,18 @@ def process_case(
                 case_id=case_id,
                 has_mesh_path=has_mesh_path,
                 mesh_path=mesh_path,
-                attempted_load=False,
+                attempted_load=attempted_load,
                 stage="unexpected_exception",
-                reason="unexpected_exception",
+                reason="exception",
                 exception_1line=exception_1line,
                 exception_type=type(e).__name__
             )
             logged = True
+            skipped_entries.append({
+                "Type": "measure_exception",
+                "case_id": case_id,
+                "Reason": f"Unexpected exception: {exception_1line}"
+            })
         raise
     finally:
         # Round32: 최종 확인 - 로깅이 누락되었는지 체크 (should not happen, but safety net)
@@ -919,6 +974,8 @@ def main():
     
     # Generate facts summary (similar to run_geo_v0_facts_round1.py)
     summary: Dict[str, Any] = defaultdict(dict)
+    # Round36: Collect circ_debug info for circumference keys
+    circ_debug_by_key: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     
     for case_id, results in all_results.items():
         for key, result in results.items():
@@ -943,6 +1000,14 @@ def main():
             if result.metadata and "warnings" in result.metadata:
                 for warning in result.metadata["warnings"]:
                     s["warnings"][warning] += 1
+            
+            # Round36: Extract circ_debug from metadata for circumference keys
+            if key in CIRCUMFERENCE_KEYS and result.metadata:
+                debug_info = result.metadata.get("debug_info", {})
+                if debug_info and "circ_debug" in debug_info:
+                    circ_debug = debug_info["circ_debug"].copy()
+                    circ_debug["case_id"] = case_id  # Add case_id for traceability
+                    circ_debug_by_key[key].append(circ_debug)
     
     # Compute statistics
     for key in summary:
@@ -995,6 +1060,16 @@ def main():
     # Round34: scale_warnings 추가 (있으면)
     if scale_warnings:
         facts_summary["scale_warnings"] = list(set(scale_warnings))  # Unique warnings
+    
+    # Round36: Add circ_debug info for circumference keys
+    if circ_debug_by_key:
+        facts_summary["circ_debug"] = {}
+        for key, debug_list in circ_debug_by_key.items():
+            # For each key, store the first processed case's debug info (representative sample)
+            if debug_list:
+                facts_summary["circ_debug"][key] = debug_list[0]  # First processed case
+                # Also store count for reference
+                facts_summary["circ_debug"][key]["sample_count"] = len(debug_list)
     
     facts_summary_path = out_dir / "facts_summary.json"
     with open(facts_summary_path, 'w', encoding='utf-8') as f:

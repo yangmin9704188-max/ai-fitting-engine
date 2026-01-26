@@ -69,29 +69,234 @@ def _validate_verts(verts: np.ndarray) -> Tuple[bool, List[str]]:
     return True, warnings
 
 
-def _compute_perimeter(vertices_2d: np.ndarray) -> Optional[float]:
+def _convex_hull_2d_monotone_chain(pts: np.ndarray) -> Optional[np.ndarray]:
     """
-    Compute closed curve perimeter from 2D vertices.
-    Uses polar angle sorting for stability (from bust_underbust_v0.py pattern).
+    Compute 2D convex hull using Andrew's monotone chain algorithm (numpy-only).
+    
+    Returns:
+        Convex hull points in counter-clockwise order, or None if degenerate.
     """
-    if vertices_2d.shape[0] < 3:
+    if pts.shape[0] < 3:
         return None
     
-    # Polar angle sorting for stable perimeter computation
-    center = np.mean(vertices_2d, axis=0)
-    angles = np.arctan2(vertices_2d[:, 1] - center[1], vertices_2d[:, 0] - center[0])
-    sorted_indices = np.argsort(angles)
-    sorted_verts = vertices_2d[sorted_indices]
+    # Sort points by x (then by y if x is equal)
+    sort_indices = np.lexsort((pts[:, 1], pts[:, 0]))
+    sorted_pts = pts[sort_indices]
     
-    # Compute perimeter
-    n = sorted_verts.shape[0]
-    perimeter = 0.0
-    for i in range(n):
-        j = (i + 1) % n
-        edge_len = np.linalg.norm(sorted_verts[j] - sorted_verts[i])
-        perimeter += edge_len
+    # Remove duplicates (consecutive)
+    unique_mask = np.ones(len(sorted_pts), dtype=bool)
+    for i in range(1, len(sorted_pts)):
+        if np.allclose(sorted_pts[i], sorted_pts[i-1], atol=1e-9):
+            unique_mask[i] = False
+    sorted_pts = sorted_pts[unique_mask]
     
-    return float(perimeter)
+    if len(sorted_pts) < 3:
+        return None
+    
+    # Cross product for orientation check (2D: (x1-x0)*(y2-y0) - (y1-y0)*(x2-x0))
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    
+    # Build lower hull
+    lower = []
+    for p in sorted_pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    
+    # Build upper hull
+    upper = []
+    for p in reversed(sorted_pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    
+    # Combine (remove duplicate endpoints)
+    hull = np.array(lower[:-1] + upper[:-1], dtype=np.float32)
+    
+    # Check for degenerate cases
+    if len(hull) < 3:
+        return None
+    
+    # Check if all points are collinear
+    if len(hull) == 3:
+        # Check if the three points are collinear
+        v1 = hull[1] - hull[0]
+        v2 = hull[2] - hull[0]
+        cross_val = v1[0] * v2[1] - v1[1] * v2[0]
+        if abs(cross_val) < 1e-9:
+            return None  # Collinear
+    
+    return hull
+
+
+def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> Optional[float] | Tuple[Optional[float], Dict[str, Any]]:
+    """
+    Compute closed curve perimeter from 2D vertices using convex hull.
+    
+    Round39: Uses 2D convex hull (Andrew monotone chain) instead of polar sort
+    to avoid including interior/concave points that cause perimeter explosion.
+    
+    Round36: If return_debug=True, returns (perimeter, debug_info) tuple.
+    Round37: Improved deduplication.
+    Round37 Hotfix: O(N log N) deduplication + vectorized perimeter computation.
+    """
+    if vertices_2d.shape[0] < 3:
+        if return_debug:
+            return None, {"n_points_raw": 0, "reason": "too_few_points"}
+        return None
+    
+    n_points_raw = vertices_2d.shape[0]
+    
+    # Round36: Capture bbox before processing
+    bbox_before = {
+        "min": [float(np.min(vertices_2d[:, 0])), float(np.min(vertices_2d[:, 1]))],
+        "max": [float(np.max(vertices_2d[:, 0])), float(np.max(vertices_2d[:, 1]))],
+        "max_abs": float(np.max(np.abs(vertices_2d)))
+    }
+    
+    # Round37 Hotfix: O(N log N) deduplication using quantization
+    epsilon = 1e-6  # 1 micron tolerance
+    if epsilon <= 0 or epsilon < 1e-10:
+        epsilon = 1e-6  # Safety clamp (not value clamp)
+    
+    # Quantization-based deduplication (O(N log N))
+    q = np.round(vertices_2d / epsilon).astype(np.int64)
+    unique_indices = np.unique(q, axis=0, return_index=True)[1]
+    vertices_2d_deduped = vertices_2d[np.sort(unique_indices)].astype(np.float32)
+    n_points_dedup = vertices_2d_deduped.shape[0]
+    
+    if n_points_dedup < 3:
+        if return_debug:
+            return None, {
+                "n_points_raw": n_points_raw,
+                "n_points_dedup": n_points_dedup,
+                "epsilon_used": epsilon,
+                "perimeter_method": "convex_hull_v1",
+                "fallback_used": True,
+                "fallback_reason": "too_few_unique_points",
+                "reason": "too_few_unique_points"
+            }
+        return None
+    
+    # Round39: Compute convex hull instead of polar sort
+    hull_pts = _convex_hull_2d_monotone_chain(vertices_2d_deduped)
+    fallback_used = False
+    fallback_reason = None
+    
+    if hull_pts is None or len(hull_pts) < 3:
+        # Fallback to polar sort if convex hull fails
+        fallback_used = True
+        fallback_reason = "hull_degenerate_or_collinear"
+        
+        # Round37: Polar angle sorting fallback
+        center = np.mean(vertices_2d_deduped, axis=0)
+        centered = vertices_2d_deduped - center
+        
+        # Check for degenerate case (all points at same location)
+        distances = np.linalg.norm(centered, axis=1)
+        if np.max(distances) < 1e-6:
+            if return_debug:
+                return None, {
+                    "n_points_raw": n_points_raw,
+                    "n_points_dedup": n_points_dedup,
+                    "epsilon_used": epsilon,
+                    "perimeter_method": "convex_hull_v1",
+                    "fallback_used": True,
+                    "fallback_reason": "all_points_at_center",
+                    "reason": "all_points_at_center"
+                }
+            return None
+        
+        # Compute angles (atan2: y, x)
+        angles = np.arctan2(centered[:, 1], centered[:, 0])
+        
+        # Handle identical angles
+        for i in range(len(angles)):
+            same_angle_mask = np.abs(angles - angles[i]) < 1e-10
+            if np.sum(same_angle_mask) > 1:
+                same_angle_indices = np.where(same_angle_mask)[0]
+                same_angle_distances = distances[same_angle_indices]
+                sorted_by_dist = same_angle_indices[np.argsort(same_angle_distances)]
+                for idx, orig_idx in enumerate(sorted_by_dist):
+                    if orig_idx != i:
+                        angles[orig_idx] += idx * 1e-12
+        
+        sorted_indices = np.argsort(angles)
+        hull_pts = vertices_2d_deduped[sorted_indices]
+    
+    n_points_hull = len(hull_pts)
+    
+    # Round36: Capture bbox after hull
+    bbox_after = {
+        "min": [float(np.min(hull_pts[:, 0])), float(np.min(hull_pts[:, 1]))],
+        "max": [float(np.max(hull_pts[:, 0])), float(np.max(hull_pts[:, 1]))],
+        "max_abs": float(np.max(np.abs(hull_pts)))
+    }
+    
+    # Round37 Hotfix: Vectorized perimeter computation
+    # Compute segment lengths using vectorized operations
+    diffs = np.diff(hull_pts, axis=0, append=hull_pts[0:1])  # Append first point for closing edge
+    seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
+    # Remove the last element (duplicate of first) and add explicit closing edge
+    seg_lengths = seg_lengths[:-1]
+    closing_edge = np.sqrt(((hull_pts[0] - hull_pts[-1]) ** 2).sum())
+    perimeter_final = float(seg_lengths.sum() + closing_edge)
+    
+    # Convert segment lengths to list for debug
+    segment_lens = seg_lengths.tolist()
+    
+    if return_debug:
+        # Round36: Compute segment length statistics
+        if segment_lens:
+            segment_lens_arr = np.array(segment_lens)
+            segment_len_stats = {
+                "min": float(np.min(segment_lens_arr)),
+                "mean": float(np.mean(segment_lens_arr)),
+                "max": float(np.max(segment_lens_arr)),
+                "p95": float(np.percentile(segment_lens_arr, 95))
+            }
+            # Count jumps (outliers)
+            mean_len = segment_len_stats["mean"]
+            jump_count = int(np.sum(segment_lens_arr > mean_len * 10))
+        else:
+            segment_len_stats = {}
+            jump_count = 0
+        
+        # Round37: perimeter_raw는 measure_circumference_v0_with_metadata에서 전달됨
+        # 여기서는 perimeter_new만 기록
+        
+        debug_info = {
+            "n_points_raw": n_points_raw,  # Round37 Hotfix: Original count
+            "n_points": n_points_raw,  # Round36 compatibility
+            "n_points_deduped": n_points_dedup,  # Round37: After deduplication
+            "n_points_dedup": n_points_dedup,  # Round37 Hotfix: Alias
+            "n_points_hull": n_points_hull,  # Round39: Convex hull point count
+            "epsilon_used": epsilon,  # Round37 Hotfix
+            "perimeter_method": "convex_hull_v1",  # Round39
+            "fallback_used": fallback_used,  # Round39
+            "fallback_reason": fallback_reason,  # Round39
+            "bbox_before": bbox_before,
+            "bbox_after": bbox_after,
+            "segment_len_stats": segment_len_stats,
+            "jump_count": jump_count,
+            "perimeter_new": perimeter_final,  # Round37: New method (with dedupe + stable sort)
+            "perimeter_final": perimeter_final,  # Round36 compatibility
+            "points_sorted": not fallback_used,  # Round39: True if convex hull, False if polar sort fallback
+            "dedupe_applied": n_points_dedup < n_points_raw,  # Round37
+            "dedupe_count": n_points_dedup,  # Round37
+            "notes": []
+        }
+        
+        # Round36: Detect potential issues
+        if jump_count > 0:
+            debug_info["notes"].append(f"jump_detected: {jump_count} segments > 10x mean")
+        if bbox_before["max_abs"] > 10.0:
+            debug_info["notes"].append(f"large_bbox_before: max_abs={bbox_before['max_abs']:.2f}")
+        
+        return perimeter_final, debug_info
+    
+    return float(perimeter_final)
 
 
 def _find_cross_section(
@@ -247,13 +452,30 @@ def _compute_circumference_at_height(
     warnings: List[str],
     y_min: Optional[float] = None,
     y_max: Optional[float] = None,
+    return_debug: bool = False,
 ) -> tuple[Optional[float], Optional[Dict[str, Any]]]:
     """Compute circumference at given height. Returns (perimeter or None, debug_info or None)."""
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
-    perimeter = _compute_perimeter(vertices_2d)
-    return perimeter, debug_info
+    
+    # Round37 Hotfix: Optional downsampling for very large point sets (performance guard)
+    max_points = 20000
+    if vertices_2d.shape[0] > max_points:
+        stride = max(1, vertices_2d.shape[0] // max_points)
+        vertices_2d = vertices_2d[::stride]
+        warnings.append(f"DOWNSAMPLED: {vertices_2d.shape[0]} points (stride={stride})")
+    
+    # Round36: Get perimeter with debug info if requested
+    if return_debug:
+        perimeter, perimeter_debug = _compute_perimeter(vertices_2d, return_debug=True)
+        if debug_info and perimeter_debug:
+            # Merge perimeter debug into cross-section debug
+            debug_info.update(perimeter_debug)
+        return perimeter, debug_info
+    else:
+        perimeter = _compute_perimeter(vertices_2d)
+        return perimeter, debug_info
 
 
 # -----------------------------
@@ -961,16 +1183,25 @@ def measure_circumference_v0_with_metadata(
     
     candidates = []
     cross_section_debug_list = []
+    # Round36: Capture verts bbox before processing (for scale detection)
+    verts_bbox_before = {
+        "min": [float(np.min(verts[:, 0])), float(np.min(verts[:, 1])), float(np.min(verts[:, 2]))],
+        "max": [float(np.max(verts[:, 0])), float(np.max(verts[:, 1])), float(np.max(verts[:, 2]))],
+        "max_abs": float(np.max(np.abs(verts)))
+    }
+    
     for i in range(num_slices):
         y_value = y_start + i * slice_step
-        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max)
+        # Round36: Enable debug for selected candidate
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max, return_debug=(i == num_slices // 2))  # Debug middle slice
         if debug_info:
             cross_section_debug_list.append(debug_info)
         if perimeter is not None:
             candidates.append({
                 "y_value": y_value,
                 "perimeter": perimeter,
-                "slice_index": i
+                "slice_index": i,
+                "debug_info": debug_info if debug_info and "n_points" in debug_info else None
             })
     
     # Build debug info
@@ -1021,6 +1252,10 @@ def measure_circumference_v0_with_metadata(
             metadata=metadata
         )
     
+    # Round36: Select candidate and collect debug info for selected one
+    selected_candidate = None
+    selected_debug_info = None
+    
     # Select candidate based on semantic rule
     # BUST/HIP: max (maximum protrusion)
     # WAIST: semantic defines as "most constricted" but we use fixed height (no min search)
@@ -1037,13 +1272,70 @@ def measure_circumference_v0_with_metadata(
         median_perimeter = float(np.median(perimeters))
         selected = min(candidates, key=lambda c: abs(c["perimeter"] - median_perimeter))
     
-    value_m = selected["perimeter"]
+    # Round37: Re-compute selected candidate with debug enabled to get full debug info (new method)
+    selected_y_value = selected["y_value"]
+    perimeter_new, selected_debug_full = _compute_circumference_at_height(verts, selected_y_value, tolerance, warnings, y_min, y_max, return_debug=True)
+    
+    # Round37: Store old perimeter as raw (before path fix)
+    perimeter_raw = selected["perimeter"]  # Old method result
+    
+    # Round37: Use new perimeter (with improved path ordering)
+    if perimeter_new is not None:
+        value_m = perimeter_new
+    else:
+        # Fallback to selected perimeter if new computation failed
+        value_m = perimeter_raw
     
     # Range sanity check (warnings only)
     if value_m < 0.1:
         warnings.append(f"PERIMETER_SMALL: {value_m:.4f}m")
     if value_m > 3.0:
         warnings.append(f"PERIMETER_LARGE: {value_m:.4f}m")
+    
+    # Round36/37: Build circ_debug info for facts_summary.json
+    circ_debug = {
+        "schema_version": "circ_debug@1",
+        "key": standard_key,
+        "n_points": selected_debug_full.get("n_points", 0) if selected_debug_full else 0,
+        "n_points_deduped": selected_debug_full.get("n_points_deduped", 0) if selected_debug_full else 0,  # Round37
+        "axis": "y",
+        "plane": "x-z",
+        "scale_applied": False,  # Will be determined from bbox
+        "bbox_before": verts_bbox_before,
+        "bbox_after": selected_debug_full.get("bbox_after", {}) if selected_debug_full else {},
+        "segment_len_stats": selected_debug_full.get("segment_len_stats", {}) if selected_debug_full else {},
+        "jump_count": selected_debug_full.get("jump_count", 0) if selected_debug_full else 0,
+        "perimeter_raw": perimeter_raw,  # Round37: Old method (from selected candidate)
+        "perimeter_new": selected_debug_full.get("perimeter_new", value_m) if selected_debug_full else value_m,  # Round37: New method
+        "perimeter_final": value_m,  # Round36 compatibility
+        "dedupe_applied": selected_debug_full.get("dedupe_applied", False) if selected_debug_full else False,  # Round37
+        "dedupe_count": selected_debug_full.get("dedupe_count", 0) if selected_debug_full else 0,  # Round37
+        "notes": selected_debug_full.get("notes", []) if selected_debug_full else []
+    }
+    
+    # Round37: Add perimeter comparison note
+    if perimeter_raw is not None and perimeter_raw != value_m:
+        ratio = value_m / perimeter_raw if perimeter_raw > 0 else 0.0
+        circ_debug["notes"].append(f"perimeter_change: raw={perimeter_raw:.4f}m, new={value_m:.4f}m, ratio={ratio:.4f}")
+    
+    # Round36: Detect scale issue
+    if verts_bbox_before["max_abs"] > 10.0:
+        circ_debug["scale_applied"] = True  # Likely mm->m conversion was applied
+        circ_debug["notes"].append(f"SCALE_SUSPECTED: bbox_max_abs={verts_bbox_before['max_abs']:.2f}")
+    
+    # Round36: Detect ordering issue
+    if selected_debug_full and selected_debug_full.get("jump_count", 0) > 0:
+        circ_debug["notes"].append(f"ORDERING_SUSPECTED: jump_count={circ_debug['jump_count']}")
+    
+    # Round36: Classify reason
+    reason_codes = []
+    if circ_debug["scale_applied"]:
+        reason_codes.append("SCALE_SUSPECTED")
+    if circ_debug["jump_count"] > 0:
+        reason_codes.append("ORDERING_SUSPECTED")
+    if not reason_codes:
+        reason_codes.append("OTHER")
+    circ_debug["reason"] = reason_codes[0] if len(reason_codes) == 1 else "MIXED"
     
     # Create metadata with debug info
     debug_info = {
@@ -1056,7 +1348,9 @@ def measure_circumference_v0_with_metadata(
             "candidates_count": len(candidates),
             "target_height_ratio": float((selected["y_value"] - y_min) / y_range) if y_range > 0 else 0.0,
             "search_window_mm": float(tolerance * 1000.0)
-        }
+        },
+        # Round36: Add circ_debug to metadata for runner to extract
+        "circ_debug": circ_debug
     }
     metadata = create_metadata_v0(
         standard_key=standard_key,
