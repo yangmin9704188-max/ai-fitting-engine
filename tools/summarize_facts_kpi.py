@@ -19,6 +19,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import numpy as np
 
 
 def safe_get(data: Dict[str, Any], *keys: str, default: Any = "N/A") -> Any:
@@ -129,14 +130,41 @@ def get_value_distribution(summary_data: Dict[str, Any], key: str) -> Dict[str, 
     if not isinstance(key_stats, dict):
         return result
     
-    # Try to get median (p50)
-    if "median" in key_stats:
-        result["p50"] = key_stats["median"]
+    # Round35: Try multiple paths for median/max (fallback for schema variations)
+    # Path 1: key_stats["median"] (direct)
+    # Path 2: key_stats["value_stats"]["median"] (geo_v0_s1 runner structure)
+    # Path 3: key_stats["values"] -> compute median (if available)
     
-    # For p95, we need to reconstruct from min/max or use max as approximation
-    # In practice, we'll use max as p95 approximation if available
-    if "max" in key_stats:
-        result["p95"] = key_stats["max"]
+    median_val = None
+    max_val = None
+    
+    # Try direct median
+    if "median" in key_stats:
+        median_val = key_stats["median"]
+    # Try value_stats.median
+    elif "value_stats" in key_stats and isinstance(key_stats["value_stats"], dict):
+        value_stats = key_stats["value_stats"]
+        if "median" in value_stats:
+            median_val = value_stats["median"]
+        if "max" in value_stats:
+            max_val = value_stats["max"]
+    # Try computing from values array
+    elif "values" in key_stats and isinstance(key_stats["values"], list) and len(key_stats["values"]) > 0:
+        try:
+            values = [float(v) for v in key_stats["values"] if isinstance(v, (int, float)) and not np.isnan(v)]
+            if values:
+                sorted_vals = sorted(values)
+                median_val = sorted_vals[len(sorted_vals) // 2]  # Approximate median
+                max_val = sorted_vals[-1]  # Max
+        except (ValueError, TypeError):
+            pass
+    
+    # Fallback: try direct max
+    if max_val is None and "max" in key_stats:
+        max_val = key_stats["max"]
+    
+    result["p50"] = median_val
+    result["p95"] = max_val
     
     return result
 
