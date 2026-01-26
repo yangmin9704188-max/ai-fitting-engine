@@ -1,0 +1,166 @@
+{
+	"nodes": [
+		{
+			"id": "home",
+			"type": "text",
+			"x": 0,
+			"y": 0,
+			"width": 300,
+			"height": 200,
+			"color": "1",
+			"text": "# Home\n\n[docs/ops/OBSIDIAN_HOME.md](../OBSIDIAN_HOME.md)\n\n프로젝트 탐색의 단일 진입점"
+		},
+		{
+			"id": "semantic",
+			"type": "text",
+			"x": 400,
+			"y": 0,
+			"width": 300,
+			"height": 200,
+			"color": "2",
+			"text": "# L1 Semantic\n\n[docs/semantic/measurement_semantics_v0.md](../../semantic/measurement_semantics_v0.md)\n\n45개 표준 키 의미론 봉인"
+		},
+		{
+			"id": "contract",
+			"type": "text",
+			"x": 800,
+			"y": 0,
+			"width": 300,
+			"height": 200,
+			"color": "3",
+			"text": "# L2 Contract\n\n[docs/policies/measurements/INDEX.md](../measurements/INDEX.md)\n\n측정 인터페이스 계약"
+		},
+		{
+			"id": "geometric",
+			"type": "text",
+			"x": 400,
+			"y": 300,
+			"width": 300,
+			"height": 200,
+			"color": "4",
+			"text": "# L3 Geometric\n\n[core/measurements/](../../../core/measurements/)\n\n측정 함수 구현"
+		},
+		{
+			"id": "validation",
+			"type": "text",
+			"x": 800,
+			"y": 300,
+			"width": 300,
+			"height": 200,
+			"color": "5",
+			"text": "# L4 Validation\n\n[reports/validation/](../../../reports/validation/)\n\n검증 리포트"
+		},
+		{
+			"id": "judgment",
+			"type": "text",
+			"x": 1200,
+			"y": 0,
+			"width": 300,
+			"height": 200,
+			"color": "6",
+			"text": "# L5 Judgment\n\n[docs/judgments/INDEX.md](../../judgments/INDEX.md)\n\n판단 문서"
+		},
+		{
+			"id": "baseline",
+			"type": "text",
+			"x": 0,
+			"y": 300,
+			"width": 300,
+			"height": 200,
+			"color": "1",
+			"text": "# Current Baseline\n\n**tag**: curated-v0-realdata-v0.1\n**run_dir**: verification/runs/facts/curated_v0/round20_20260125_164801\n**report**: [reports/validation/curated_v0_facts_round1.md](../../../reports/validation/curated_v0_facts_round1.md)"
+		},
+		{
+			"id": "sizekorea",
+			"type": "text",
+			"x": 0,
+			"y": 600,
+			"width": 300,
+			"height": 200,
+			"color": "2",
+			"text": "# SizeKorea Integration\n\n[docs/ops/sizekorea_integration_checklist.md](../sizekorea_integration_checklist.md)\n\n통합 상태 체크리스트"
+		},
+		{
+			"id": "registries",
+			"type": "text",
+			"x": 400,
+			"y": 600,
+			"width": 300,
+			"height": 200,
+			"color": "3",
+			"text": "# Registries\n\n**Round**: [docs/verification/round_registry.json](../../verification/round_registry.json)\n**Golden**: [docs/verification/golden_registry.json](../../verification/golden_registry.json)\n**Coverage**: [docs/verification/coverage_backlog.md](../../verification/coverage_backlog.md)"
+		}
+	],
+	"edges": [
+		{
+			"id": "home-semantic",
+			"fromNode": "home",
+			"fromSide": "right",
+			"toNode": "semantic",
+			"toSide": "left"
+		},
+		{
+			"id": "home-contract",
+			"fromNode": "home",
+			"fromSide": "right",
+			"toNode": "contract",
+			"toSide": "left"
+		},
+		{
+			"id": "home-baseline",
+			"fromNode": "home",
+			"fromSide": "bottom",
+			"toNode": "baseline",
+			"toSide": "top"
+		},
+		{
+			"id": "semantic-contract",
+			"fromNode": "semantic",
+			"fromSide": "right",
+			"toNode": "contract",
+			"toSide": "left"
+		},
+		{
+			"id": "contract-judgment",
+			"fromNode": "contract",
+			"fromSide": "right",
+			"toNode": "judgment",
+			"toSide": "left"
+		},
+		{
+			"id": "semantic-geometric",
+			"fromNode": "semantic",
+			"fromSide": "bottom",
+			"toNode": "geometric",
+			"toSide": "top"
+		},
+		{
+			"id": "geometric-validation",
+			"fromNode": "geometric",
+			"fromSide": "right",
+			"toNode": "validation",
+			"toSide": "left"
+		},
+		{
+			"id": "validation-judgment",
+			"fromNode": "validation",
+			"fromSide": "top",
+			"toNode": "judgment",
+			"toSide": "bottom"
+		},
+		{
+			"id": "baseline-sizekorea",
+			"fromNode": "baseline",
+			"fromSide": "bottom",
+			"toNode": "sizekorea",
+			"toSide": "top"
+		},
+		{
+			"id": "sizekorea-registries",
+			"fromNode": "sizekorea",
+			"fromSide": "right",
+			"toNode": "registries",
+			"toSide": "left"
+		}
+	]
+}
