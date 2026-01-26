@@ -85,31 +85,168 @@ def load_s1_manifest(manifest_path: str) -> Dict[str, Any]:
     return manifest
 
 
-def load_verts_from_path(verts_path: str) -> Optional[np.ndarray]:
-    """Load verts from file path (NPZ or other format)."""
-    path = Path(verts_path).resolve()
+def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray]]]:
+    """Load OBJ using trimesh (loader A, optional).
+    
+    Returns:
+        (vertices, faces) or None if failed
+    """
+    try:
+        import trimesh
+        mesh = trimesh.load(str(path), process=False)
+        if hasattr(mesh, 'vertices') and mesh.vertices is not None:
+            verts = np.array(mesh.vertices, dtype=np.float32)
+            faces = np.array(mesh.faces, dtype=np.int32) if hasattr(mesh, 'faces') and mesh.faces is not None else None
+            # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+            # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+            if verts.shape[0] > 0:
+                max_abs = np.abs(verts).max()
+                if max_abs > 10.0:  # Likely in mm/cm, convert to m
+                    verts = verts / 1000.0  # mm -> m
+                    print(f"[OBJ/trimesh] Converted from mm to m (max_abs={max_abs:.2f})")
+            return verts, faces
+    except ImportError:
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def load_obj_with_fallback_parser(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray]]]:
+    """Load OBJ using pure Python parser (loader B, required).
+    
+    Returns:
+        (vertices, faces) or None if failed
+    """
+    try:
+        vertices = []
+        faces = []
+        
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Parse vertex: "v x y z"
+                if line.startswith('v ') and not line.startswith('vn ') and not line.startswith('vt '):
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        try:
+                            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                            vertices.append([x, y, z])
+                        except ValueError:
+                            continue
+                
+                # Parse face: "f a/b/c d/e/f g/h/i" or "f a d g"
+                elif line.startswith('f '):
+                    parts = line.split()[1:]  # Skip 'f'
+                    face_indices = []
+                    for part in parts:
+                        # Extract vertex index (before first slash, or whole if no slash)
+                        if '/' in part:
+                            idx_str = part.split('/')[0]
+                        else:
+                            idx_str = part
+                        try:
+                            idx = int(idx_str) - 1  # 1-indexed -> 0-indexed
+                            if idx >= 0:
+                                face_indices.append(idx)
+                        except ValueError:
+                            continue
+                    
+                    if len(face_indices) >= 3:
+                        faces.append(face_indices)
+        
+        if len(vertices) == 0:
+            return None
+        
+        verts_array = np.array(vertices, dtype=np.float32)
+        # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+        # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+        max_abs = np.abs(verts_array).max()
+        if max_abs > 10.0:  # Likely in mm/cm, convert to m
+            verts_array = verts_array / 1000.0  # mm -> m
+            print(f"[OBJ/fallback] Converted from mm to m (max_abs={max_abs:.2f})")
+        
+        faces_array = np.array(faces, dtype=np.int32) if len(faces) > 0 else None
+        
+        return verts_array, faces_array
+    except Exception:
+        return None
+
+
+def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray, str, Optional[np.ndarray]]]:
+    """Load verts from file path (NPZ or OBJ format) with loader info.
+    
+    For OBJ files, uses 2-stage loader:
+    - Loader A: trimesh (optional)
+    - Loader B: pure Python OBJ parser (required fallback)
+    
+    Returns:
+        (verts, loader_name, faces) or None if failed
+    """
+    path = Path(verts_path)
     if not path.exists():
         return None
     
+    # Resolve path (absolute or relative to cwd)
+    if path.is_absolute():
+        path_resolved = path.resolve()
+    else:
+        path_resolved = (Path.cwd() / path).resolve()
+    
+    if not path_resolved.exists():
+        return None
+    
     # Try NPZ first
-    if path.suffix == ".npz":
+    if path_resolved.suffix == ".npz":
         try:
-            data = np.load(str(path), allow_pickle=True)
+            data = np.load(str(path_resolved), allow_pickle=True)
             if "verts" in data:
                 verts = data["verts"]
                 # Handle various formats
                 if verts.dtype == object and verts.ndim == 1:
-                    return verts[0] if len(verts) > 0 else None
+                    verts_result = verts[0] if len(verts) > 0 else None
                 elif verts.ndim == 3:
-                    return verts[0]  # (N, V, 3) -> (V, 3)
+                    verts_result = verts[0]  # (N, V, 3) -> (V, 3)
                 elif verts.ndim == 2:
-                    return verts  # (V, 3)
+                    verts_result = verts  # (V, 3)
+                else:
+                    verts_result = None
+                
+                if verts_result is not None:
+                    return (verts_result, "npz", None)
             return None
         except Exception as e:
-            print(f"[WARN] Failed to load NPZ from {path}: {e}")
+            print(f"[WARN] Failed to load NPZ from {path_resolved}: {e}")
             return None
     
-    # Add other formats as needed
+    # Try OBJ (2-stage loader)
+    if path_resolved.suffix.lower() == ".obj":
+        # Loader A: trimesh (optional)
+        result = load_obj_with_trimesh(path_resolved)
+        if result is not None:
+            verts, faces = result
+            return (verts, "trimesh", faces)
+        
+        # Loader B: pure Python OBJ parser (required fallback)
+        result = load_obj_with_fallback_parser(path_resolved)
+        if result is not None:
+            verts, faces = result
+            return (verts, "fallback_obj_parser", faces)
+        
+        return None
+    
+    return None
+
+
+def load_verts_from_path(verts_path: str) -> Optional[np.ndarray]:
+    """Load verts from file path (NPZ or OBJ format) - backward compatibility."""
+    result = load_verts_from_path_with_info(verts_path)
+    if result is not None:
+        verts, _, _ = result
+        return verts
     return None
 
 
@@ -252,7 +389,10 @@ def log_skip_reason(
     exception_1line: Optional[str] = None,
     mesh_path_resolved: Optional[str] = None,
     mesh_exists: Optional[bool] = None,
-    exception_type: Optional[str] = None
+    exception_type: Optional[str] = None,
+    loader_name: Optional[str] = None,
+    loaded_verts: Optional[int] = None,
+    loaded_faces: Optional[int] = None
 ) -> None:
     """Log skip reason to JSONL file (SSoT for per-case skip reasons)."""
     record = {
@@ -271,6 +411,12 @@ def log_skip_reason(
         record["mesh_exists"] = mesh_exists
     if exception_type:
         record["exception_type"] = exception_type
+    if loader_name:
+        record["loader_name"] = loader_name
+    if loaded_verts is not None:
+        record["loaded_verts"] = loaded_verts
+    if loaded_faces is not None:
+        record["loaded_faces"] = loaded_faces
     
     with open(skip_reasons_file, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
@@ -366,35 +512,53 @@ def process_case(
             })
             return None
     
+    # Resolve mesh_path for diagnostics (Round30)
+    mesh_path_resolved = None
+    mesh_exists = None
+    if mesh_path is not None:
+        if Path(mesh_path).is_absolute():
+            mesh_path_resolved_obj = Path(mesh_path).resolve()
+        else:
+            mesh_path_resolved_obj = (Path.cwd() / mesh_path).resolve()
+        mesh_path_resolved = str(mesh_path_resolved_obj)
+        mesh_exists = mesh_path_resolved_obj.exists()
+    
     # Load verts (prefer verts_path, fallback to mesh_path) - load_mesh stage
     # Proxy 슬롯 5개는 반드시 attempted_load=True까지 진입
     verts = None
+    faces = None
     load_error = None
     attempted_load = False
     exception_1line = None
     exception_type = None
+    loader_name = None
+    loaded_verts = None
+    loaded_faces = None
     
     if verts_path is not None:
         attempted_load = True
         try:
-            verts = load_verts_from_path(verts_path)
-            if verts is None:
+            result = load_verts_from_path_with_info(verts_path)
+            if result is not None:
+                verts, loader_name, faces = result
+                loaded_verts = verts.shape[0] if verts is not None else None
+                loaded_faces = faces.shape[0] if faces is not None else None
+            else:
                 load_error = f"verts_path specified but load returned None: {verts_path}"
         except Exception as e:
             load_error = f"verts_path load exception: {str(e)}"
-            exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)  # 1-line exception
+            exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
             exception_type = type(e).__name__
     
     if verts is None and mesh_path is not None:
         attempted_load = True
         try:
-            # Use resolved path for loading
-            if mesh_path_resolved_obj and mesh_path_resolved_obj.exists():
-                verts = load_verts_from_path(str(mesh_path_resolved_obj))
+            result = load_verts_from_path_with_info(mesh_path)
+            if result is not None:
+                verts, loader_name, faces = result
+                loaded_verts = verts.shape[0] if verts is not None else None
+                loaded_faces = faces.shape[0] if faces is not None else None
             else:
-                verts = load_verts_from_path(mesh_path)
-            
-            if verts is None:
                 if load_error:
                     load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
                 else:
@@ -405,7 +569,7 @@ def process_case(
             else:
                 load_error = f"mesh_path load exception: {str(e)}"
             if not exception_1line:
-                exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)  # 1-line exception
+                exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)
             if not exception_type:
                 exception_type = type(e).__name__
     
@@ -426,7 +590,10 @@ def process_case(
             exception_1line=exception_1line,
             mesh_path_resolved=mesh_path_resolved,
             mesh_exists=mesh_exists,
-            exception_type=exception_type
+            exception_type=exception_type,
+            loader_name=loader_name,
+            loaded_verts=loaded_verts,
+            loaded_faces=loaded_faces
         )
         
         skipped_entries.append({

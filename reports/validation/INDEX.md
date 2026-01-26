@@ -271,3 +271,25 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - Round30은 load_failed의 "구체 예외/경로 resolve"를 facts로 남김
 - 상대경로 mesh_path는 Path.cwd() 기준으로 resolve
 - 목표: processed>=1 복구
+
+## Round 31 (Geo v0 S1 Facts - Loader Fallback & Exceptions)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (2단 OBJ 로더: trimesh 옵션 + pure Python parser 필수)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round31_<timestamp>/artifacts/skip_reasons.jsonl` (loader_name, loaded_verts, loaded_faces 추가)
+- **Report**: `reports/validation/geo_v0_s1_facts_round31.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round31_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round31_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round30 관측: proxy 5개는 mesh_exists=true인데 load_mesh에서 전부 load_failed
+- Round31은 예외 1줄을 facts로 남기면서도 processed=5까지 바로 찍을 수 있도록 로더를 이중화
+- Loader A: trimesh (옵션, MTL/재질 의존 최소화)
+- Loader B: pure Python OBJ parser (필수, 'v '와 'f ' 라인만 파싱)
+- 목표: processed>=5 복구
