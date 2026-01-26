@@ -5,10 +5,22 @@
 ## Baseline Configuration
 
 ### curated_v0 Lane (Fixed)
-- **baseline_tag (alias)**: `curated-v0-realdata-v0.1`
+- **baseline_tag (alias)**: `curated-v0-realdata-v0.1` (주의: Git tag 아님, Round 내부 alias로만 사용)
 - **baseline_run_dir**: `verification/runs/facts/curated_v0/round20_20260125_164801`
 - **baseline_report**: `reports/validation/curated_v0_facts_round1.md`
 - **lane**: `curated_v0` (fixed)
+
+### prev_run_dir 추론 규칙 (정합성 강화)
+- prev_run_dir는 같은 lane에서 시간상 가장 최근 run_dir
+- 선택 조건:
+  1) 경로가 `verification/runs/facts/<lane>/round*_YYYYMMDD_HHMMSS` 형태
+  2) postprocess 산출물(KPI.md 또는 lineage/manifest 등) 존재로 run_dir임이 확인됨
+- prev가 없으면 baseline_run_dir로 fallback (경고만, 빌드 깨지지 않게)
+- **prev==baseline이면 KPI_DIFF가 0으로 수렴하는 것은 정상임** (비교 오염 방지)
+
+### postprocess 입력 계약 (3종 고정)
+- `tools/postprocess_round.py`는 항상 `{current_run_dir, prev_run_dir, baseline_run_dir}` 3종을 사용
+- Ops 래퍼(`make curated_v0_round`)는 runner 스킵 가능하나 postprocess는 항상 실행 (죽지 않는 마감)
 
 ## Core Registries
 
@@ -23,9 +35,10 @@
 - **Schema**: `golden_registry@1`
 
 ### Coverage Backlog
-- **Path**: [`docs/verification/coverage_backlog.md`](../verification/coverage_backlog.md)
+- **Path**: [`reports/validation/coverage_backlog.md`](../../reports/validation/coverage_backlog.md)
 - **Purpose**: Facts-only tracking of all-null keys (NaN 100%) across rounds
 - **Policy**: No judgment, no auto-fix, accumulation only
+- **추적 태그**: 신규 항목 누적 시 행 끝에 `[RoundXX]` 또는 `run_dir=...` 또는 `ts=...` 태그 추가
 
 ## Golden S0 Freeze
 
@@ -87,6 +100,21 @@ py verification/runners/run_geo_v0_facts_round1.py \
   - Golden candidate signals
   - Action mapping (권고/후속 작업)
   - Evidence checklist
+
+### 커밋 금지 (Lock)
+- `verification/runs/**` 및 `data/processed/**` 커밋 금지 (경로/명령만 기록)
+- golden/재현 목적 NPZ는 allowlist에 한해 예외 허용 (규칙 위반 금지)
+
+### SoT / 운영 신호 (Lock)
+- **SoT**: [`SYNC_HUB.md`](../../SYNC_HUB.md)
+- **운영 신호**: [`docs/sync/CURRENT_STATE.md`](../sync/CURRENT_STATE.md)
+- 변경 PR은 필요 시 CURRENT_STATE 업데이트를 동반 (운영 규칙 준수)
+
+### Visual Proxy 정책
+- **best-effort**: 실패 시 warning 기록하되 DoD/완료를 차단하지 않음
+- **measurement-only NPZ (verts 없음)**: 
+  - `artifacts/visual/` 생성
+  - `SKIPPED.txt` 또는 `README.md`에 사유 명시: `Reason: measurement-only NPZ (No verts available)`
 
 ## Judgments
 
