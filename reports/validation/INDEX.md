@@ -11,6 +11,7 @@ Round-specific facts reports (fixed filenames). **Baseline**: Round 17.
 | 20 | `curated_v0_facts_round1.md` |
 | 21 | `curated_v0_facts_round21.md` (Gate: [docs/policies/validation/curated_v0_realdata_gate_v0.md](../policies/validation/curated_v0_realdata_gate_v0.md)) |
 | 22 | `curated_v0_facts_round22.md` (Freeze: [docs/verification/golden_real_data_freeze_v0.1.md](../../verification/golden_real_data_freeze_v0.1.md)) |
+| 23 | `geo_v0_s1_facts_round23.md` (S1 manifest: [verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json](../../../verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json)) |
 
 See `docs/verification/golden_s0_freeze_v0.md` for S0 reproduce commands and freeze rule.
 
@@ -73,3 +74,22 @@ RUN_DIR="$RUN_DIR"
 
 **주의**: Round22는 동일 케이스 재실행이므로 원칙상 KPI_DIFF는 0에 수렴하는 것이 정상입니다.
 0이 아니면 "재생성 로직의 결정성(Determinism) 문제 가능성"이라는 강력 경고 신호입니다.
+
+## Round 23 (Geo v0 S1 Facts - Mesh/Verts Input Contract)
+
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (S1 입력 계약, meta_unit="m")
+- **Report**: `reports/validation/geo_v0_s1_facts_round23.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round23_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round23_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- S1 manifest는 입력 계약이며 meta_unit="m" 포함
+- skip 사유는 Type A (manifest_path_is_null) / Type B (manifest_path_set_but_file_missing)로 구분 기록
+- 알고리즘 변경이 아니라 "연결/입력/프로비넌스"만 수행

@@ -72,6 +72,27 @@ curated_v0_round:
 	@echo "Running postprocess_round.py (always executed)..."
 	@python tools/postprocess_round.py --current_run_dir $(RUN_DIR) || true
 
+geo_v0_s1_round:
+	@if [ -z "$(RUN_DIR)" ]; then \
+		echo "Error: RUN_DIR is required. Usage: make geo_v0_s1_round RUN_DIR=<out_dir>"; \
+		exit 1; \
+	fi
+	@if [ "$(SKIP_RUNNER)" != "1" ]; then \
+		if [ ! -f "$(RUN_DIR)/facts_summary.json" ]; then \
+			echo "Running geo v0 S1 facts runner..."; \
+			python verification/runners/run_geo_v0_s1_facts.py \
+				--manifest verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json \
+				--out_dir $(RUN_DIR); \
+		else \
+			echo "facts_summary.json already exists in $(RUN_DIR), skipping runner."; \
+			echo "To force re-run, delete $(RUN_DIR)/facts_summary.json or run without SKIP_RUNNER=1"; \
+		fi \
+	else \
+		echo "SKIP_RUNNER=1: Skipping runner execution."; \
+	fi
+	@echo "Running postprocess_round.py (always executed)..."
+	@python tools/postprocess_round.py --current_run_dir $(RUN_DIR) || true
+
 # Ops lock warning sensor
 ops_guard:
 	@python tools/ops/check_ops_lock.py --base $(BASE) || true

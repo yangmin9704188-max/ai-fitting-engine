@@ -28,6 +28,7 @@
 - **Path**: [`docs/verification/round_registry.json`](../verification/round_registry.json)
 - **Purpose**: Tracks all verification rounds, baseline configuration, and round history per lane
 - **Schema**: `round_registry@1`
+- **Round23**: geo_v0_s1 facts runner (S1 manifest input contract, meta_unit="m")
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
