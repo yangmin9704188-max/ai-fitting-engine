@@ -204,7 +204,7 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         
         return perimeter_final, debug_info
     
-    return float(perimeter)
+    return float(perimeter_final)
 
 
 def _find_cross_section(
