@@ -249,7 +249,10 @@ def log_skip_reason(
     attempted_load: bool,
     stage: str,
     reason: str,
-    exception_1line: Optional[str] = None
+    exception_1line: Optional[str] = None,
+    mesh_path_resolved: Optional[str] = None,
+    mesh_exists: Optional[bool] = None,
+    exception_type: Optional[str] = None
 ) -> None:
     """Log skip reason to JSONL file (SSoT for per-case skip reasons)."""
     record = {
@@ -262,9 +265,30 @@ def log_skip_reason(
     }
     if exception_1line:
         record["exception_1line"] = exception_1line
+    if mesh_path_resolved is not None:
+        record["mesh_path_resolved"] = mesh_path_resolved
+    if mesh_exists is not None:
+        record["mesh_exists"] = mesh_exists
+    if exception_type:
+        record["exception_type"] = exception_type
     
     with open(skip_reasons_file, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
+def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
+    """Resolve mesh path (absolute or relative to cwd).
+    
+    Returns:
+        (resolved_path, exists)
+    """
+    if Path(mesh_path).is_absolute():
+        resolved = Path(mesh_path).resolve()
+    else:
+        # Relative path: resolve from current working directory
+        resolved = (Path.cwd() / mesh_path).resolve()
+    
+    return resolved, resolved.exists()
 
 
 def process_case(
@@ -305,10 +329,22 @@ def process_case(
     # Determine which path to use (prefer verts_path over mesh_path)
     path_to_use = verts_path if verts_path is not None else mesh_path
     
+    # Resolve mesh_path for diagnostics (Round30)
+    mesh_path_resolved = None
+    mesh_exists = None
+    mesh_path_resolved_obj = None
+    if mesh_path is not None:
+        mesh_path_resolved_obj, mesh_exists = resolve_mesh_path(mesh_path)
+        mesh_path_resolved = str(mesh_path_resolved_obj)
+    
     # Type B: manifest path set but file missing (precheck stage)
     if path_to_use is not None:
-        path_abs = Path(path_to_use).resolve()
-        if not path_abs.exists():
+        if verts_path is not None:
+            path_abs = Path(verts_path).resolve() if Path(verts_path).is_absolute() else (Path.cwd() / verts_path).resolve()
+        else:
+            path_abs = mesh_path_resolved_obj if mesh_path_resolved_obj else None
+        
+        if path_abs is None or not path_abs.exists():
             skip_reason = "file_not_found"
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
@@ -317,8 +353,10 @@ def process_case(
                 mesh_path=mesh_path,
                 attempted_load=False,
                 stage="precheck",
-                reason=skip_reason,
-                exception_1line=f"File not found: {path_to_use}"
+                reason=            skip_reason,
+                exception_1line=f"File not found: {path_to_use}",
+                mesh_path_resolved=mesh_path_resolved,
+                mesh_exists=mesh_exists
             )
             skipped_entries.append({
                 "Type": "manifest_path_set_but_file_missing",
@@ -334,6 +372,7 @@ def process_case(
     load_error = None
     attempted_load = False
     exception_1line = None
+    exception_type = None
     
     if verts_path is not None:
         attempted_load = True
@@ -343,12 +382,18 @@ def process_case(
                 load_error = f"verts_path specified but load returned None: {verts_path}"
         except Exception as e:
             load_error = f"verts_path load exception: {str(e)}"
-            exception_1line = str(e).split('\n')[0]  # 1-line exception
+            exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)  # 1-line exception
+            exception_type = type(e).__name__
     
     if verts is None and mesh_path is not None:
         attempted_load = True
         try:
-            verts = load_verts_from_path(mesh_path)
+            # Use resolved path for loading
+            if mesh_path_resolved_obj and mesh_path_resolved_obj.exists():
+                verts = load_verts_from_path(str(mesh_path_resolved_obj))
+            else:
+                verts = load_verts_from_path(mesh_path)
+            
             if verts is None:
                 if load_error:
                     load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
@@ -360,13 +405,15 @@ def process_case(
             else:
                 load_error = f"mesh_path load exception: {str(e)}"
             if not exception_1line:
-                exception_1line = str(e).split('\n')[0]  # 1-line exception
+                exception_1line = str(e).splitlines()[0] if str(e).splitlines() else repr(e)  # 1-line exception
+            if not exception_type:
+                exception_type = type(e).__name__
     
     if verts is None:
         # Type B or Type C (parse error) - load_mesh stage
         skip_reason = "load_failed"
         if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
-            skip_reason = "parse_error"
+            skip_reason = "load_failed"
         
         log_skip_reason(
             skip_reasons_file=skip_reasons_file,
@@ -376,11 +423,14 @@ def process_case(
             attempted_load=attempted_load,
             stage="load_mesh",
             reason=skip_reason,
-            exception_1line=exception_1line
+            exception_1line=exception_1line,
+            mesh_path_resolved=mesh_path_resolved,
+            mesh_exists=mesh_exists,
+            exception_type=exception_type
         )
         
         skipped_entries.append({
-            "Type": "manifest_path_set_but_file_missing" if skip_reason == "load_failed" else "parse_error",
+            "Type": "manifest_path_set_but_file_missing" if skip_reason == "file_not_found" else "parse_error",
             "case_id": case_id,
             "path": str(path_to_use) if path_to_use else "N/A",
             "Reason": load_error if load_error else "path specified but file not found or load failed"
@@ -398,7 +448,9 @@ def process_case(
             attempted_load=attempted_load,
             stage="precheck",
             reason=skip_reason,
-            exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)"
+            exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)",
+            mesh_path_resolved=mesh_path_resolved,
+            mesh_exists=mesh_exists
         )
         skipped_entries.append({
             "Type": "parse_error",
@@ -424,7 +476,10 @@ def process_case(
             attempted_load=attempted_load,
             stage="measure",
             reason="measurement_exception",
-            exception_1line=exception_1line
+            exception_1line=exception_1line,
+            mesh_path_resolved=mesh_path_resolved,
+            mesh_exists=mesh_exists,
+            exception_type=type(e).__name__
         )
         print(f"[WARN] Measurement failed for {case_id}: {e}")
         return {}
