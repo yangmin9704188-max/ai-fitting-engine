@@ -192,3 +192,40 @@ RUN_DIR="$RUN_DIR"
 - 목적: 정확도가 아니라 S1 입력 계약 + processed 확보 + 운영 마감(postprocess)
 - proxy 슬롯 5개: 311610164126, 20_F_1049, 121607160426, 21_F_4430, 511609194879
 - baseline alias 등록: geo-v0-s1-proxy-v0.1 (Git tag 아님, lane 내부 alias)
+
+## Round 28 (Geo v0 S1 Facts - 20M XLSX→CSV Metadata Conversion)
+
+- **입력 XLSX**: `data/raw/scans_3d/ORIGINAL_6th_20M_data.xlsx` (레포 루트 기준 상대경로)
+- **변환 스크립트**: `verification/tools/convert_scan_xlsx_to_csv.py`
+- **출력 CSV**: 
+  - `verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_20M_measurements_m.csv` (전체)
+  - `verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_20M_major_measurements_m.csv` (major subset)
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (measurements_csv 경로 업데이트)
+- **Report**: `reports/validation/geo_v0_s1_facts_round28.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round28_<timestamp>/facts_summary.json`
+
+### 변환 커맨드
+
+```bash
+py verification/tools/convert_scan_xlsx_to_csv.py \
+  --input_xlsx "data/raw/scans_3d/ORIGINAL_6th_20M_data.xlsx" \
+  --out_dir "verification/datasets/golden/s1_mesh_v0/metadata" \
+  --source_id "scan_6th_20M" \
+  --raw_unit "mm" \
+  --meta_unit "m" \
+  --precision "0.001" \
+  --major_names "키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레"
+```
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round28_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- 단위 변환: raw_unit="mm" → meta_unit="m", precision=0.001m
+- S1 입력 계약 강화: 20M OBJ + 20M CSV 일치
+- 원본 XLSX는 data/raw 아래에 있으므로 git 추적 대상 아님 (.gitignore에 *.xlsx 포함)
