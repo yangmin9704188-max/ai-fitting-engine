@@ -794,31 +794,23 @@ def main():
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
     
-    # Round33: Generate verts NPZ for proxy cases (if any processed)
+    # Round34: Generate verts NPZ for proxy cases (if any processed)
     npz_path = None
+    npz_path_abs = None
     npz_has_verts = False
     if len(processed_verts) > 0:
         try:
-            # Save verts NPZ
-            verts_npz_path = artifacts_dir / "verts_proxy.npz"
-            # Format: (N, V, 3) array or list of (V, 3) arrays
+            # Round34: Save verts NPZ to artifacts/visual/ (postprocess가 찾는 위치)
+            verts_npz_path = visual_dir / "verts_proxy.npz"
+            # Format: object array of (V, 3) arrays (각 케이스마다 다른 vertex 수 허용)
             if len(processed_verts) == 1:
-                verts_array = processed_verts[0]
-                if verts_array.ndim == 2:
-                    verts_array = verts_array[np.newaxis, :, :]  # (1, V, 3)
+                # Single case: wrap in object array
+                verts_array = np.array([processed_verts[0]], dtype=object)
             else:
-                # Multiple cases: stack or use object array
-                max_verts = max(v.shape[0] for v in processed_verts)
-                verts_list = []
-                for v in processed_verts:
-                    if v.shape[0] < max_verts:
-                        # Pad with NaN or repeat last vertex
-                        padded = np.pad(v, ((0, max_verts - v.shape[0]), (0, 0)), mode='constant', constant_values=np.nan)
-                        verts_list.append(padded)
-                    else:
-                        verts_list.append(v)
-                verts_array = np.array(verts_list, dtype=object) if len(set(v.shape[0] for v in processed_verts)) > 1 else np.array(verts_list)
+                # Multiple cases: use object array to handle different vertex counts
+                verts_array = np.array(processed_verts, dtype=object)
             
+            # Round34: Use case_id (not case_ids) for compatibility
             np.savez_compressed(
                 str(verts_npz_path),
                 verts=verts_array,
@@ -826,7 +818,9 @@ def main():
                 meta_unit="m",
                 schema_version="s1_mesh_v0@1"
             )
+            # Round34: Store relative path (run_dir 기준)
             npz_path = str(verts_npz_path.relative_to(out_dir))
+            npz_path_abs = str(verts_npz_path.resolve())
             npz_has_verts = True
             print(f"[NPZ] Saved verts NPZ: {verts_npz_path} ({len(processed_verts)} cases)")
             if scale_warnings:
@@ -965,7 +959,7 @@ def main():
         else:
             s["value_stats"] = {}
     
-    # Save facts summary
+    # Round34: Save facts summary with KPI fields and NPZ paths
     facts_summary = {
         "schema_version": "facts_summary_v1",
         "git_sha": get_git_sha(),
@@ -974,19 +968,31 @@ def main():
         "processed_cases": len(all_results),
         "skipped_cases": len(skipped_entries),
         "summary": dict(summary),
-        # Round33: NPZ evidence for postprocess
+        # Round34: KPI 필드 (summarize_facts_kpi.py가 기대하는 형태)
+        "n_samples": len(cases),  # total_cases와 동일
         "meta_unit": "m",
-        "npz_has_verts": npz_has_verts,
     }
     
-    # Round33: Add NPZ paths (multiple keys for postprocess compatibility)
-    if npz_path:
-        facts_summary["npz_path"] = npz_path
-        facts_summary["verts_npz_path"] = npz_path
-        facts_summary["dataset_path"] = npz_path  # Alternative key
-        facts_summary["npz_path_abs"] = str((out_dir / npz_path).resolve())
+    # Round34: summary.valid_cases 추가 (KPI가 기대하는 형태)
+    if "summary" not in facts_summary:
+        facts_summary["summary"] = {}
+    facts_summary["summary"]["valid_cases"] = len(all_results)  # processed_cases와 동일
     
-    # Round33: Add scale warnings if any
+    # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
+    # Round33 호환성: verts_npz_path도 포함
+    if npz_path:
+        facts_summary["npz_path"] = npz_path  # 상대 경로
+        facts_summary["verts_npz_path"] = npz_path  # Round33 호환성
+        facts_summary["dataset_path"] = npz_path  # visual_provenance.py가 찾는 키
+        if npz_path_abs:
+            facts_summary["npz_path_abs"] = npz_path_abs  # 절대 경로
+        facts_summary["npz_has_verts"] = npz_has_verts
+        facts_summary["missing_key"] = ""  # verts가 있으면 빈 문자열
+    else:
+        facts_summary["npz_has_verts"] = False
+        facts_summary["missing_key"] = "verts"  # verts가 없으면
+    
+    # Round34: scale_warnings 추가 (있으면)
     if scale_warnings:
         facts_summary["scale_warnings"] = list(set(scale_warnings))  # Unique warnings
     
@@ -996,6 +1002,8 @@ def main():
     
     print(f"[DONE] Facts summary saved: {facts_summary_path}")
     print(f"[DONE] Processed: {len(all_results)}, Skipped: {len(skipped_entries)}")
+    if npz_path:
+        print(f"[DONE] NPZ path: {npz_path} (has_verts: {npz_has_verts})")
 
 
 if __name__ == "__main__":

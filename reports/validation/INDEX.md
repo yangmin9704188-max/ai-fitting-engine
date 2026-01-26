@@ -339,3 +339,49 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - has_mesh_path 판정 단일화: (mesh_path is not None) and (str(mesh_path).strip() != "")
 - 성공 케이스도 로깅 (stage="measure", reason="success")
 - 누락된 케이스는 자동 채우기 (stage="invariant_fill", reason="missing_log_record")
+
+## Round 33 (Geo v0 S1 Facts - OBJ Loader Fallback + Verts NPZ Evidence)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (OBJ 로더 fallback 개선 + verts NPZ 생성)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/artifacts/skip_reasons.jsonl` (A/B/C/D 구분)
+- **Verts NPZ**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/artifacts/verts_proxy.npz` (postprocess용 증거)
+- **Report**: `reports/validation/geo_v0_s1_facts_round33.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/facts_summary.json` (npz_path, npz_has_verts 포함)
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round33_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round32 관측: skip_reasons.jsonl records=200, has_mesh_path_true=5 달성
+- Round33 목표: proxy 5개 케이스가 Processed>=5로 집계되고, verts NPZ 증거를 남겨 postprocess가 NPZ_PATH_NOT_FOUND로 끝나지 않도록 함
+- OBJ 로더 fallback 개선: MTL/재질 완전 무시, encoding='utf-8', errors='ignore'
+- 단위 canonicalization: max_abs > 10.0이면 mm->m 변환, SCALE_ASSUMED_MM_TO_M warning 기록
+- skip_reasons.jsonl 개선: Type A (manifest_path_is_null), B (mesh_exists_false), C (npz_has_verts=False), D (load_failed) 구분
+- postprocess_round.py 보강: npz_path/verts_npz_path/dataset_path 다중 키 지원
+
+## Round 34 (Geo v0 S1 Facts - NPZ 경로 연결 + KPI 집계 필드 보강)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (NPZ 경로 연결 + KPI 필드 보강)
+- **Verts NPZ**: `verification/runs/facts/geo_v0_s1/round34_<timestamp>/artifacts/visual/verts_proxy.npz` (postprocess용)
+- **Report**: `reports/validation/geo_v0_s1_facts_round34.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round34_<timestamp>/facts_summary.json` (n_samples, summary.valid_cases, npz_path_abs 포함)
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round34_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round33 관측: proxy 5개는 stage=measure, reason=success로 성공했지만, postprocess KPI가 N/A이며 Visual provenance가 NPZ_PATH_NOT_FOUND로 스킵됨
+- Round34 목표: NPZ 증거(verts 포함) 생성/연결 + KPI 집계 입력 잠금
+- NPZ 저장 위치: `artifacts/visual/verts_proxy.npz` (postprocess가 찾는 위치)
+- facts_summary.json에 KPI 필드 추가: `n_samples`, `summary.valid_cases`
+- facts_summary.json에 NPZ 경로 추가: `npz_path`, `dataset_path`, `npz_path_abs` (visual_provenance.py가 찾는 키)
