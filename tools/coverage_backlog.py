@@ -162,7 +162,7 @@ def update_coverage_backlog(
     registry_path: Path
 ) -> None:
     """Update coverage_backlog.md with 100% NaN keys (all-null keys only)."""
-    backlog_path = project_root / "docs" / "verification" / "coverage_backlog.md"
+    backlog_path = project_root / "reports" / "validation" / "coverage_backlog.md"
     
     # Extract round number and lane
     current_round = extract_round_from_path(run_dir)
