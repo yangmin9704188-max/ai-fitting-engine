@@ -919,6 +919,8 @@ def main():
     
     # Generate facts summary (similar to run_geo_v0_facts_round1.py)
     summary: Dict[str, Any] = defaultdict(dict)
+    # Round36: Collect circ_debug info for circumference keys
+    circ_debug_by_key: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     
     for case_id, results in all_results.items():
         for key, result in results.items():
@@ -943,6 +945,14 @@ def main():
             if result.metadata and "warnings" in result.metadata:
                 for warning in result.metadata["warnings"]:
                     s["warnings"][warning] += 1
+            
+            # Round36: Extract circ_debug from metadata for circumference keys
+            if key in CIRCUMFERENCE_KEYS and result.metadata:
+                debug_info = result.metadata.get("debug_info", {})
+                if debug_info and "circ_debug" in debug_info:
+                    circ_debug = debug_info["circ_debug"].copy()
+                    circ_debug["case_id"] = case_id  # Add case_id for traceability
+                    circ_debug_by_key[key].append(circ_debug)
     
     # Compute statistics
     for key in summary:
@@ -995,6 +1005,16 @@ def main():
     # Round34: scale_warnings 추가 (있으면)
     if scale_warnings:
         facts_summary["scale_warnings"] = list(set(scale_warnings))  # Unique warnings
+    
+    # Round36: Add circ_debug info for circumference keys
+    if circ_debug_by_key:
+        facts_summary["circ_debug"] = {}
+        for key, debug_list in circ_debug_by_key.items():
+            # For each key, store the first processed case's debug info (representative sample)
+            if debug_list:
+                facts_summary["circ_debug"][key] = debug_list[0]  # First processed case
+                # Also store count for reference
+                facts_summary["circ_debug"][key]["sample_count"] = len(debug_list)
     
     facts_summary_path = out_dir / "facts_summary.json"
     with open(facts_summary_path, 'w', encoding='utf-8') as f:
