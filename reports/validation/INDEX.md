@@ -93,3 +93,37 @@ RUN_DIR="$RUN_DIR"
 - S1 manifest는 입력 계약이며 meta_unit="m" 포함
 - skip 사유는 Type A (manifest_path_is_null) / Type B (manifest_path_set_but_file_missing)로 구분 기록
 - 알고리즘 변경이 아니라 "연결/입력/프로비넌스"만 수행
+
+## Round 24 (Geo v0 S1 Facts - 20F OBJ/XLSX Proxy)
+
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (proxy mesh 연결)
+- **Mesh**: `verification/datasets/golden/s1_mesh_v0/meshes/6th_20F.obj` (6차_20대_여성.obj)
+- **Measurements**: `verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_20F_measurements_m.csv` (XLSX→CSV, mm→m)
+- **Report**: `reports/validation/geo_v0_s1_facts_round24.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round24_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+# 1) Convert XLSX to CSV (mm -> m)
+python verification/tools/convert_scan_xlsx_to_csv.py \
+  --input_xlsx "20F_data.xlsx" \
+  --out_dir "verification/datasets/golden/s1_mesh_v0/metadata" \
+  --source_id "scan_6th_20F" \
+  --raw_unit "mm" \
+  --meta_unit "m" \
+  --precision "0.001" \
+  --major_names "키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레" \
+  && \
+# 2) Copy OBJ file (if not already copied)
+# cp data/raw/scans_3d/6차_20대_여성.obj verification/datasets/golden/s1_mesh_v0/meshes/6th_20F.obj \
+# 3) Facts runner
+RUN_DIR="verification/runs/facts/geo_v0_s1/round24_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- 단위 변환 계약: raw mm -> meta_unit m, precision 0.001m
+- proxy mesh (정합 주장 금지): curated_v0 case_id와 1:1 정합 주장 금지, note로 명시
+- major 항목: 키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레
