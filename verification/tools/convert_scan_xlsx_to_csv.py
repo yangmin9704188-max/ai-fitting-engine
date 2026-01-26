@@ -44,7 +44,7 @@ def convert_xlsx_to_csv(
     Convert scan XLSX to CSV with unit normalization.
     
     Args:
-        input_xlsx: Input XLSX file path
+        input_xlsx: Input XLSX file path (relative paths resolved from cwd)
         out_dir: Output directory
         source_id: Source identifier (e.g., "scan_6th_20F")
         raw_unit: Raw unit (default: "mm")
@@ -55,15 +55,40 @@ def convert_xlsx_to_csv(
     Returns:
         (full_csv_path, major_csv_path or None)
     """
-    input_xlsx = _REPO_ROOT / input_xlsx if not input_xlsx.is_absolute() else input_xlsx
-    out_dir = _REPO_ROOT / out_dir if not out_dir.is_absolute() else out_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Resolve input_xlsx: absolute paths as-is, relative paths from cwd
+    input_xlsx_original = input_xlsx
+    if input_xlsx.is_absolute():
+        input_xlsx_resolved = input_xlsx.resolve()
+    else:
+        # Relative path: resolve from current working directory
+        input_xlsx_resolved = (Path.cwd() / input_xlsx).resolve()
     
-    if not input_xlsx.exists():
-        print(f"ERROR: Input XLSX not found: {input_xlsx}")
+    # Resolve out_dir: relative paths from repo root (for consistency with other tools)
+    if out_dir.is_absolute():
+        out_dir_resolved = out_dir.resolve()
+    else:
+        out_dir_resolved = (_REPO_ROOT / out_dir).resolve()
+    
+    out_dir_resolved.mkdir(parents=True, exist_ok=True)
+    
+    # Error message with full context
+    if not input_xlsx_resolved.exists():
+        cwd = Path.cwd()
+        exists = input_xlsx_resolved.exists()
+        error_msg = [
+            "ERROR: Input XLSX not found",
+            f"  cwd: {cwd}",
+            f"  input_xlsx (original): {input_xlsx_original}",
+            f"  input_xlsx (resolved): {input_xlsx_resolved}",
+            f"  exists: {exists}",
+        ]
+        print("\n".join(error_msg))
         sys.exit(1)
     
-    print(f"[XLSX] Reading: {input_xlsx}")
+    input_xlsx = input_xlsx_resolved
+    out_dir = out_dir_resolved
+    
+    print(f"[XLSX] Reading: {input_xlsx} (resolved from: {input_xlsx_original})")
     
     # Read first 3 rows to parse structure
     df_meta = pd.read_excel(input_xlsx, nrows=1, header=None, engine='openpyxl')
