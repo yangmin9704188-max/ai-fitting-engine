@@ -588,8 +588,13 @@ def update_golden_registry(
         print(f"Warning: Failed to load facts_summary.json for golden registry: {e}", file=sys.stderr)
         return
     
-    # Extract npz_path
-    npz_path_str = facts_data.get("dataset_path") or facts_data.get("npz_path_abs")
+    # Round33: Extract npz_path (multiple keys for compatibility)
+    npz_path_str = (
+        facts_data.get("npz_path") or
+        facts_data.get("verts_npz_path") or
+        facts_data.get("dataset_path") or
+        facts_data.get("npz_path_abs")
+    )
     if not npz_path_str:
         return  # No NPZ path, skip
     

@@ -294,6 +294,30 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - Loader B: pure Python OBJ parser (필수, 'v '와 'f ' 라인만 파싱)
 - 목표: processed>=5 복구
 
+## Round 33 (Geo v0 S1 Facts - OBJ Loader Fallback + Verts NPZ Evidence)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (OBJ 로더 fallback 개선 + verts NPZ 생성)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/artifacts/skip_reasons.jsonl` (A/B/C/D 구분)
+- **Verts NPZ**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/artifacts/verts_proxy.npz` (postprocess용 증거)
+- **Report**: `reports/validation/geo_v0_s1_facts_round33.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round33_<timestamp>/facts_summary.json` (npz_path, npz_has_verts 포함)
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round33_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round32 관측: skip_reasons.jsonl records=200, has_mesh_path_true=5 달성
+- Round33 목표: proxy 5개 케이스가 Processed>=5로 집계되고, verts NPZ 증거를 남겨 postprocess가 NPZ_PATH_NOT_FOUND로 끝나지 않도록 함
+- OBJ 로더 fallback 개선: MTL/재질 완전 무시, encoding='utf-8', errors='ignore'
+- 단위 canonicalization: max_abs > 10.0이면 mm->m 변환, SCALE_ASSUMED_MM_TO_M warning 기록
+- skip_reasons.jsonl 개선: Type A (manifest_path_is_null), B (mesh_exists_false), C (npz_has_verts=False), D (load_failed) 구분
+- postprocess_round.py 보강: npz_path/verts_npz_path/dataset_path 다중 키 지원
+
 ## Round 32 (Geo v0 S1 Facts - Skip Reasons Invariant)
 
 - **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (케이스당 1레코드 로깅 불변식 보장)
