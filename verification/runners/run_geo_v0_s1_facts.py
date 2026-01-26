@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
 import subprocess
+import traceback
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -240,10 +241,37 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     return results
 
 
+def log_skip_reason(
+    skip_reasons_file: Path,
+    case_id: str,
+    has_mesh_path: bool,
+    mesh_path: Optional[str],
+    attempted_load: bool,
+    stage: str,
+    reason: str,
+    exception_1line: Optional[str] = None
+) -> None:
+    """Log skip reason to JSONL file (SSoT for per-case skip reasons)."""
+    record = {
+        "case_id": case_id,
+        "has_mesh_path": has_mesh_path,
+        "mesh_path": mesh_path,
+        "attempted_load": attempted_load,
+        "stage": stage,
+        "reason": reason,
+    }
+    if exception_1line:
+        record["exception_1line"] = exception_1line
+    
+    with open(skip_reasons_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def process_case(
     case: Dict[str, Any],
     out_dir: Path,
-    skipped_entries: List[Dict[str, Any]]
+    skipped_entries: List[Dict[str, Any]],
+    skip_reasons_file: Path
 ) -> Optional[Dict[str, MeasurementResult]]:
     """Process a single case from S1 manifest.
     
@@ -253,11 +281,22 @@ def process_case(
     case_id = case["case_id"]
     mesh_path = case.get("mesh_path")
     verts_path = case.get("verts_path")
+    has_mesh_path = mesh_path is not None
     
-    # Type A: manifest path is null
+    # Type A: manifest path is null (precheck stage)
     if mesh_path is None and verts_path is None:
+        skip_reason = "manifest_path_is_null"
+        log_skip_reason(
+            skip_reasons_file=skip_reasons_file,
+            case_id=case_id,
+            has_mesh_path=False,
+            mesh_path=None,
+            attempted_load=False,
+            stage="precheck",
+            reason=skip_reason
+        )
         skipped_entries.append({
-            "Type": "manifest_path_is_null",
+            "Type": skip_reason,
             "case_id": case_id,
             "Reason": "S1 manifest has null path (no mesh/verts assigned)"
         })
@@ -266,10 +305,21 @@ def process_case(
     # Determine which path to use (prefer verts_path over mesh_path)
     path_to_use = verts_path if verts_path is not None else mesh_path
     
-    # Type B: manifest path set but file missing
+    # Type B: manifest path set but file missing (precheck stage)
     if path_to_use is not None:
         path_abs = Path(path_to_use).resolve()
         if not path_abs.exists():
+            skip_reason = "file_not_found"
+            log_skip_reason(
+                skip_reasons_file=skip_reasons_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                attempted_load=False,
+                stage="precheck",
+                reason=skip_reason,
+                exception_1line=f"File not found: {path_to_use}"
+            )
             skipped_entries.append({
                 "Type": "manifest_path_set_but_file_missing",
                 "case_id": case_id,
@@ -278,19 +328,25 @@ def process_case(
             })
             return None
     
-    # Load verts (prefer verts_path, fallback to mesh_path)
+    # Load verts (prefer verts_path, fallback to mesh_path) - load_mesh stage
+    # Proxy 슬롯 5개는 반드시 attempted_load=True까지 진입
     verts = None
     load_error = None
+    attempted_load = False
+    exception_1line = None
     
     if verts_path is not None:
+        attempted_load = True
         try:
             verts = load_verts_from_path(verts_path)
             if verts is None:
                 load_error = f"verts_path specified but load returned None: {verts_path}"
         except Exception as e:
             load_error = f"verts_path load exception: {str(e)}"
+            exception_1line = str(e).split('\n')[0]  # 1-line exception
     
     if verts is None and mesh_path is not None:
+        attempted_load = True
         try:
             verts = load_verts_from_path(mesh_path)
             if verts is None:
@@ -303,23 +359,47 @@ def process_case(
                 load_error = f"{load_error}; mesh_path load exception: {str(e)}"
             else:
                 load_error = f"mesh_path load exception: {str(e)}"
+            if not exception_1line:
+                exception_1line = str(e).split('\n')[0]  # 1-line exception
     
     if verts is None:
-        # Type B or Type C (parse error)
-        skip_type = "manifest_path_set_but_file_missing"
+        # Type B or Type C (parse error) - load_mesh stage
+        skip_reason = "load_failed"
         if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
-            skip_type = "parse_error"
+            skip_reason = "parse_error"
+        
+        log_skip_reason(
+            skip_reasons_file=skip_reasons_file,
+            case_id=case_id,
+            has_mesh_path=has_mesh_path,
+            mesh_path=mesh_path,
+            attempted_load=attempted_load,
+            stage="load_mesh",
+            reason=skip_reason,
+            exception_1line=exception_1line
+        )
         
         skipped_entries.append({
-            "Type": skip_type,
+            "Type": "manifest_path_set_but_file_missing" if skip_reason == "load_failed" else "parse_error",
             "case_id": case_id,
             "path": str(path_to_use) if path_to_use else "N/A",
             "Reason": load_error if load_error else "path specified but file not found or load failed"
         })
         return None
     
-    # Validate verts shape
+    # Validate verts shape (precheck stage after load)
     if verts.ndim != 2 or verts.shape[1] != 3:
+        skip_reason = "invalid_verts_shape"
+        log_skip_reason(
+            skip_reasons_file=skip_reasons_file,
+            case_id=case_id,
+            has_mesh_path=has_mesh_path,
+            mesh_path=mesh_path,
+            attempted_load=attempted_load,
+            stage="precheck",
+            reason=skip_reason,
+            exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)"
+        )
         skipped_entries.append({
             "Type": "parse_error",
             "case_id": case_id,
@@ -328,12 +408,24 @@ def process_case(
         })
         return None
     
-    # Process with existing geo v0 logic
+    # Process with existing geo v0 logic (measure stage)
     try:
         results = measure_all_keys(verts, case_id)
         return results
     except Exception as e:
         # Record execution failure but don't skip (return empty results)
+        # However, log skip reason for tracking
+        exception_1line = str(e).split('\n')[0]
+        log_skip_reason(
+            skip_reasons_file=skip_reasons_file,
+            case_id=case_id,
+            has_mesh_path=has_mesh_path,
+            mesh_path=mesh_path,
+            attempted_load=attempted_load,
+            stage="measure",
+            reason="measurement_exception",
+            exception_1line=exception_1line
+        )
         print(f"[WARN] Measurement failed for {case_id}: {e}")
         return {}
 
@@ -359,9 +451,17 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create artifacts/visual directory for skip records
-    visual_dir = out_dir / "artifacts" / "visual"
+    # Create artifacts directories
+    artifacts_dir = out_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    visual_dir = artifacts_dir / "visual"
     visual_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create skip_reasons.jsonl file (SSoT for per-case skip reasons)
+    skip_reasons_file = artifacts_dir / "skip_reasons.jsonl"
+    if skip_reasons_file.exists():
+        skip_reasons_file.unlink()  # Clear previous run
+    print(f"[SKIP REASONS] Logging to: {skip_reasons_file}")
     
     # Load S1 manifest
     print(f"[S1 MANIFEST] Loading: {args.manifest}")
@@ -381,25 +481,28 @@ def main():
         if (i + 1) % 50 == 0:
             print(f"[PROCESS] Processed {i + 1}/{len(cases)} cases...")
         
-        results = process_case(case, out_dir, skipped_entries)
+        results = process_case(case, out_dir, skipped_entries, skip_reasons_file)
         if results is not None:
             all_results[case_id] = results
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
     
-    # Write SKIPPED.txt if any skips
+    # Write SKIPPED.txt if any skips (visual best-effort 증빙 헤더만)
+    # 케이스별 상세 사유는 skip_reasons.jsonl에 기록됨 (overwrite 방지)
     if skipped_entries:
         skipped_path = visual_dir / "SKIPPED.txt"
         with open(skipped_path, 'w', encoding='utf-8') as f:
-            f.write("# S1 Facts Runner Skip Records\n\n")
-            for entry in skipped_entries:
-                f.write(f"Type: {entry['Type']}\n")
-                f.write(f"case_id: {entry['case_id']}\n")
-                if 'path' in entry:
-                    f.write(f"path: {entry['path']}\n")
-                f.write(f"Reason: {entry['Reason']}\n")
-                f.write("\n")
-        print(f"[SKIP] Wrote {len(skipped_entries)} skip records to {skipped_path}")
+            f.write("# S1 Facts Runner Skip Records\n")
+            f.write("# Per-case skip reasons are logged to artifacts/skip_reasons.jsonl\n")
+            f.write(f"# Total skipped: {len(skipped_entries)}\n")
+            f.write(f"# Total processed: {len(all_results)}\n\n")
+        print(f"[SKIP] Wrote skip header to {skipped_path} (per-case details in {skip_reasons_file})")
+    
+    # Report skip_reasons.jsonl stats
+    if skip_reasons_file.exists():
+        with open(skip_reasons_file, 'r', encoding='utf-8') as f:
+            skip_reasons_count = sum(1 for line in f if line.strip())
+        print(f"[SKIP REASONS] Logged {skip_reasons_count} skip reason records to {skip_reasons_file}")
     
     # Generate facts summary (similar to run_geo_v0_facts_round1.py)
     summary: Dict[str, Any] = defaultdict(dict)
