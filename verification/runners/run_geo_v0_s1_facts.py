@@ -232,7 +232,10 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
         )
     
     # WEIGHT_KG (metadata only, no measurement)
-    results["WEIGHT_KG"] = create_weight_metadata()
+    # A안: weight 값이 없으면 metadata 생성 스킵 + reason 기록
+    # Weight cannot be computed from mesh - it must be provided as input.
+    # Since we don't have weight input in S1 manifest, skip WEIGHT_KG metadata creation.
+    # This is facts-only: we record that weight is not available, not a failure.
     
     return results
 
@@ -275,33 +278,53 @@ def process_case(
             })
             return None
     
-    # Load verts
+    # Load verts (prefer verts_path, fallback to mesh_path)
+    verts = None
+    load_error = None
+    
     if verts_path is not None:
-        verts = load_verts_from_path(verts_path)
-        if verts is None:
-            skipped_entries.append({
-                "Type": "manifest_path_set_but_file_missing",
-                "case_id": case_id,
-                "path": str(verts_path),
-                "Reason": "path specified but file not found or load failed"
-            })
-            return None
-    elif mesh_path is not None:
-        # TODO: Load mesh and extract verts (if mesh loader exists)
-        # For now, treat as not available
+        try:
+            verts = load_verts_from_path(verts_path)
+            if verts is None:
+                load_error = f"verts_path specified but load returned None: {verts_path}"
+        except Exception as e:
+            load_error = f"verts_path load exception: {str(e)}"
+    
+    if verts is None and mesh_path is not None:
+        try:
+            verts = load_verts_from_path(mesh_path)
+            if verts is None:
+                if load_error:
+                    load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
+                else:
+                    load_error = f"mesh_path specified but load returned None: {mesh_path}"
+        except Exception as e:
+            if load_error:
+                load_error = f"{load_error}; mesh_path load exception: {str(e)}"
+            else:
+                load_error = f"mesh_path load exception: {str(e)}"
+    
+    if verts is None:
+        # Type B or Type C (parse error)
+        skip_type = "manifest_path_set_but_file_missing"
+        if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
+            skip_type = "parse_error"
+        
         skipped_entries.append({
-            "Type": "manifest_path_set_but_file_missing",
+            "Type": skip_type,
             "case_id": case_id,
-            "path": str(mesh_path),
-            "Reason": "mesh_path specified but mesh loader not yet implemented"
+            "path": str(path_to_use) if path_to_use else "N/A",
+            "Reason": load_error if load_error else "path specified but file not found or load failed"
         })
         return None
-    else:
-        # Should not reach here (Type A already handled)
+    
+    # Validate verts shape
+    if verts.ndim != 2 or verts.shape[1] != 3:
         skipped_entries.append({
-            "Type": "manifest_path_is_null",
+            "Type": "parse_error",
             "case_id": case_id,
-            "Reason": "S1 manifest has null path (no mesh/verts assigned)"
+            "path": str(path_to_use) if path_to_use else "N/A",
+            "Reason": f"invalid verts shape: {verts.shape}, expected (V, 3)"
         })
         return None
     
