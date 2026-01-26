@@ -44,6 +44,7 @@
 - **Round37**: geo_v0_s1 facts runner (둘레 계산 경로 안정화: polar sort + dedupe, perimeter 폭증 제거)
 - **Round38**: geo_v0_s1 facts runner (S1 proxy 다양화: 20M/30M/40M 2-2-1 분산 매핑, 입력 다양성 검증)
 - **Round38b**: geo_v0_s1 facts runner (HOTFIX: circumference perimeter NameError 수정)
+- **Round39**: geo_v0_s1 facts runner (둘레 계산을 2D convex hull 기반으로 교체, 폭증 기하학적 해결)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
