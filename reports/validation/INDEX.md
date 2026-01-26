@@ -170,3 +170,25 @@ RUN_DIR="$RUN_DIR"
 - proxy 처리 커버리지 확대: 1→N (최소 5개, 동일 OBJ 재사용)
 - create_weight_metadata() 경고 축소: A안 (weight 값이 없으면 metadata 생성 스킵 + reason 기록)
 - 목표: processed >= 5 확보 (정확도 검증 금지)
+
+## Round 28 (Geo v0 S1 Facts - 20M Proxy Switch)
+
+- **Baseline**: `verification/runs/facts/geo_v0_s1/round25_20260127_003039` (geo_v0_s1 lane baseline, alias: geo-v0-s1-proxy-v0.1)
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (proxy mesh 5개를 20M으로 전환)
+- **Mesh**: `verification/datasets/golden/s1_mesh_v0/meshes/6th_20M.obj` (20F 오염 확인 → 20M으로 전환)
+- **Report**: `reports/validation/geo_v0_s1_facts_round28.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round28_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round28_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- 20F OBJ 오염 확인 → S1 proxy 입력을 20M으로 전환
+- 목적: 정확도가 아니라 S1 입력 계약 + processed 확보 + 운영 마감(postprocess)
+- proxy 슬롯 5개: 311610164126, 20_F_1049, 121607160426, 21_F_4430, 511609194879
+- baseline alias 등록: geo-v0-s1-proxy-v0.1 (Git tag 아님, lane 내부 alias)
