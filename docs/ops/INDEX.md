@@ -30,6 +30,7 @@
 - **Schema**: `round_registry@1`
 - **Round23**: geo_v0_s1 facts runner (S1 manifest input contract, meta_unit="m")
 - **Round24**: geo_v0_s1 facts runner (20F OBJ/XLSX proxy mesh, mm→m normalization)
+- **Round25**: geo_v0_s1 facts runner (20F OBJ 직접 로드, processed>0 목표)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
