@@ -127,3 +127,46 @@ RUN_DIR="$RUN_DIR"
 - 단위 변환 계약: raw mm -> meta_unit m, precision 0.001m
 - proxy mesh (정합 주장 금지): curated_v0 case_id와 1:1 정합 주장 금지, note로 명시
 - major 항목: 키,가슴둘레,배꼽수준허리둘레,엉덩이둘레,넙다리둘레
+
+## Round 25 (Geo v0 S1 Facts - 20F OBJ Processing)
+
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (20F OBJ 실존 경로 연결)
+- **Mesh**: `verification/datasets/golden/s1_mesh_v0/meshes/6th_20F.obj` (실존 파일, 903222 bytes)
+- **Measurements**: `verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_20F_measurements_m.csv`
+- **Report**: `reports/validation/geo_v0_s1_facts_round25.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round25_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round25_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- Round24에서 200/200 skipped(verts 없음) 관측 → Round25는 OBJ 직접 로드로 processed>0 목표
+- 입력 로딩 방식: A안 (OBJ 직접 로드, trimesh 또는 fallback parser 사용)
+- SKIPPED 사유: Type A (null), Type B (file missing), Type C (parse error) 구분
+
+## Round 26 (Geo v0 S1 Facts - Baseline Lock & Proxy Coverage)
+
+- **Baseline**: `verification/runs/facts/geo_v0_s1/round25_20260127_003039` (geo_v0_s1 lane 초기 기준선)
+- **Manifest**: `verification/datasets/golden/s1_mesh_v0/s1_manifest_v0.json` (proxy mesh 5개 이상 연결)
+- **Mesh**: `verification/datasets/golden/s1_mesh_v0/meshes/6th_20F.obj` (동일 OBJ를 여러 case_id에 연결)
+- **Report**: `reports/validation/geo_v0_s1_facts_round26.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round26_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round26_$(date +%Y%m%d_%H%M%S)" \
+make geo_v0_s1_round \
+RUN_DIR="$RUN_DIR"
+```
+
+**주의**: 
+- Round25에서 baseline/prev가 UNSET으로 떨어짐 → Round26은 baseline/prev 비교 정합성 잠금
+- proxy 처리 커버리지 확대: 1→N (최소 5개, 동일 OBJ 재사용)
+- create_weight_metadata() 경고 축소: A안 (weight 값이 없으면 metadata 생성 스킵 + reason 기록)
+- 목표: processed >= 5 확보 (정확도 검증 금지)
