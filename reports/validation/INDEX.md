@@ -408,6 +408,28 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - 원인 분류 reason 코드: SCALE_SUSPECTED, ORDERING_SUSPECTED, PROJECTION_SUSPECTED, OTHER
 - 정답 보정 금지: 계측으로 원인을 "사실"로 남기는 라운드
 
+## Round 37 (Geo v0 S1 Facts - 둘레 계산 경로 안정화)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (기존 구조 유지)
+- **Measurement**: `core/measurements/core_measurements_v0.py` (perimeter 경로 안정화)
+- **Report**: `reports/validation/geo_v0_s1_facts_round37.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round37_<timestamp>/facts_summary.json` (circ_debug 포함)
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round37_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round36 관측: WIDTH/DEPTH는 타당하나 CIRC(둘레)만 19m~134m로 폭증
+- Round37 목표: 단면 추출이 아니라 "추출된 점들을 연결해 perimeter를 계산하는 경로/순서 알고리즘"이 원인으로, 폐곡선 경로를 안정적으로 구성하여 폭증 제거
+- 구현: polar sort + 중복점 제거(dedupe) + 동일각 처리 개선
+- circ_debug 확장: perimeter_raw(이전)와 perimeter_new(새 방식) 비교 기록
+- 정답 클램프 금지: 최소 변경으로 경로 안정화만 수행
+
 ## Round 35 (Geo v0 S1 Facts - KPI 분포 통계 스키마 연결)
 
 - **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (기존 구조 유지)
