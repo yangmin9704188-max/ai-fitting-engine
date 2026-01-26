@@ -85,11 +85,11 @@ def load_s1_manifest(manifest_path: str) -> Dict[str, Any]:
     return manifest
 
 
-def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray]]]:
+def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray], Optional[str]]]:
     """Load OBJ using trimesh (loader A, optional).
     
     Returns:
-        (vertices, faces) or None if failed
+        (vertices, faces, scale_warning) or None if failed
     """
     try:
         import trimesh
@@ -97,14 +97,16 @@ def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.
         if hasattr(mesh, 'vertices') and mesh.vertices is not None:
             verts = np.array(mesh.vertices, dtype=np.float32)
             faces = np.array(mesh.faces, dtype=np.int32) if hasattr(mesh, 'faces') and mesh.faces is not None else None
-            # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
-            # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+            # Round33: OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+            # If OBJ is in mm, convert to m (assume > 10.0 means mm/cm scale)
+            scale_warning = None
             if verts.shape[0] > 0:
                 max_abs = np.abs(verts).max()
                 if max_abs > 10.0:  # Likely in mm/cm, convert to m
                     verts = verts / 1000.0  # mm -> m
+                    scale_warning = f"SCALE_ASSUMED_MM_TO_M (max_abs={max_abs:.2f})"
                     print(f"[OBJ/trimesh] Converted from mm to m (max_abs={max_abs:.2f})")
-            return verts, faces
+            return (verts, faces, scale_warning)
     except ImportError:
         return None
     except Exception:
@@ -112,11 +114,11 @@ def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.
     return None
 
 
-def load_obj_with_fallback_parser(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray]]]:
+def load_obj_with_fallback_parser(path: Path) -> Optional[tuple[np.ndarray, Optional[np.ndarray], Optional[str]]]:
     """Load OBJ using pure Python parser (loader B, required).
     
     Returns:
-        (vertices, faces) or None if failed
+        (vertices, faces, scale_warning) or None if failed
     """
     try:
         vertices = []
@@ -162,21 +164,24 @@ def load_obj_with_fallback_parser(path: Path) -> Optional[tuple[np.ndarray, Opti
             return None
         
         verts_array = np.array(vertices, dtype=np.float32)
-        # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
-        # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+        # Round33: OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+        # If OBJ is in mm, convert to m (assume > 10.0 means mm/cm scale)
         max_abs = np.abs(verts_array).max()
+        scale_warning = None
         if max_abs > 10.0:  # Likely in mm/cm, convert to m
             verts_array = verts_array / 1000.0  # mm -> m
+            scale_warning = f"SCALE_ASSUMED_MM_TO_M (max_abs={max_abs:.2f})"
             print(f"[OBJ/fallback] Converted from mm to m (max_abs={max_abs:.2f})")
         
         faces_array = np.array(faces, dtype=np.int32) if len(faces) > 0 else None
         
-        return verts_array, faces_array
+        # Return with scale warning for logging
+        return (verts_array, faces_array, scale_warning)
     except Exception:
         return None
 
 
-def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray, str, Optional[np.ndarray]]]:
+def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray, str, Optional[np.ndarray], Optional[str]]]:
     """Load verts from file path (NPZ or OBJ format) with loader info.
     
     For OBJ files, uses 2-stage loader:
@@ -184,7 +189,7 @@ def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray
     - Loader B: pure Python OBJ parser (required fallback)
     
     Returns:
-        (verts, loader_name, faces) or None if failed
+        (verts, loader_name, faces, scale_warning) or None if failed
     """
     path = Path(verts_path)
     if not path.exists():
@@ -216,7 +221,7 @@ def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray
                     verts_result = None
                 
                 if verts_result is not None:
-                    return (verts_result, "npz", None)
+                    return (verts_result, "npz", None, None)
             return None
         except Exception as e:
             print(f"[WARN] Failed to load NPZ from {path_resolved}: {e}")
@@ -227,14 +232,14 @@ def load_verts_from_path_with_info(verts_path: str) -> Optional[tuple[np.ndarray
         # Loader A: trimesh (optional)
         result = load_obj_with_trimesh(path_resolved)
         if result is not None:
-            verts, faces = result
-            return (verts, "trimesh", faces)
+            verts, faces, scale_warning = result
+            return (verts, "trimesh", faces, scale_warning)
         
         # Loader B: pure Python OBJ parser (required fallback)
         result = load_obj_with_fallback_parser(path_resolved)
         if result is not None:
-            verts, faces = result
-            return (verts, "fallback_obj_parser", faces)
+            verts, faces, scale_warning = result
+            return (verts, "fallback_obj_parser", faces, scale_warning)
         
         return None
     
@@ -245,7 +250,7 @@ def load_verts_from_path(verts_path: str) -> Optional[np.ndarray]:
     """Load verts from file path (NPZ or OBJ format) - backward compatibility."""
     result = load_verts_from_path_with_info(verts_path)
     if result is not None:
-        verts, _, _ = result
+        verts, _, _, _ = result
         return verts
     return None
 
@@ -462,7 +467,7 @@ def process_case(
     # Use try/finally to ensure logging even on unexpected exceptions
     try:
     
-        # Type A: manifest path is null (precheck stage)
+        # Round33: Type A: manifest path is null (precheck stage)
         if mesh_path is None and verts_path is None:
             skip_reason = "manifest_path_is_null"
             log_skip_reason(
@@ -476,7 +481,7 @@ def process_case(
             )
             logged = True
             skipped_entries.append({
-                "Type": skip_reason,
+                "Type": "A: manifest_path_is_null",
                 "case_id": case_id,
                 "Reason": "S1 manifest has null path (no mesh/verts assigned)"
             })
@@ -516,7 +521,7 @@ def process_case(
                 )
                 logged = True
                 skipped_entries.append({
-                    "Type": "manifest_path_set_but_file_missing",
+                    "Type": "B: mesh_exists_false",
                     "case_id": case_id,
                     "path": str(path_to_use),
                     "Reason": "path specified but file not found"
@@ -544,14 +549,17 @@ def process_case(
         loaded_verts = None
         loaded_faces = None
         
+        scale_warning = None
         if verts_path is not None:
             attempted_load = True
             try:
                 result = load_verts_from_path_with_info(verts_path)
                 if result is not None:
-                    verts, loader_name, faces = result
+                    verts, loader_name, faces, scale_warn = result
                     loaded_verts = verts.shape[0] if verts is not None else None
                     loaded_faces = faces.shape[0] if faces is not None else None
+                    if scale_warn and not scale_warning:
+                        scale_warning = scale_warn
                 else:
                     load_error = f"verts_path specified but load returned None: {verts_path}"
             except Exception as e:
@@ -564,9 +572,11 @@ def process_case(
             try:
                 result = load_verts_from_path_with_info(mesh_path)
                 if result is not None:
-                    verts, loader_name, faces = result
+                    verts, loader_name, faces, scale_warn = result
                     loaded_verts = verts.shape[0] if verts is not None else None
                     loaded_faces = faces.shape[0] if faces is not None else None
+                    if scale_warn and not scale_warning:
+                        scale_warning = scale_warn
                 else:
                     if load_error:
                         load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
@@ -606,7 +616,7 @@ def process_case(
             )
             logged = True
             skipped_entries.append({
-                "Type": "manifest_path_set_but_file_missing" if skip_reason == "file_not_found" else "parse_error",
+                "Type": "D: load_failed",
                 "case_id": case_id,
                 "path": str(path_to_use) if path_to_use else "N/A",
                 "Reason": load_error if load_error else "path specified but file not found or load failed"
@@ -630,7 +640,7 @@ def process_case(
             )
             logged = True
             skipped_entries.append({
-                "Type": "parse_error",
+                "Type": "D: load_failed",
                 "case_id": case_id,
                 "path": str(path_to_use) if path_to_use else "N/A",
                 "Reason": f"invalid verts shape: {verts.shape}, expected (V, 3)"
@@ -641,6 +651,8 @@ def process_case(
         try:
             results = measure_all_keys(verts, case_id)
             # Round32: 성공 케이스도 로깅 (invariant: 1 record per case)
+            # Round33: scale_warning을 exception_1line에 포함 (facts-only)
+            exception_1line_for_log = scale_warning if scale_warning else None
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
                 case_id=case_id,
@@ -653,10 +665,12 @@ def process_case(
                 mesh_exists=mesh_exists,
                 loader_name=loader_name,
                 loaded_verts=loaded_verts,
-                loaded_faces=loaded_faces
+                loaded_faces=loaded_faces,
+                exception_1line=exception_1line_for_log
             )
             logged = True
-            return results
+            # Round33: Return results with verts and scale_warning for NPZ generation
+            return {"results": results, "verts": verts, "case_id": case_id, "scale_warning": scale_warning}
         except Exception as e:
             # Record execution failure but don't skip (return empty results)
             # However, log skip reason for tracking
@@ -753,6 +767,10 @@ def main():
     # Process cases
     all_results: Dict[str, Dict[str, MeasurementResult]] = {}
     skipped_entries: List[Dict[str, Any]] = []
+    # Round33: Collect verts from processed cases for NPZ generation
+    processed_verts: List[np.ndarray] = []
+    processed_case_ids: List[str] = []
+    scale_warnings: List[str] = []
     
     print(f"[PROCESS] Processing {len(cases)} cases...")
     for i, case in enumerate(cases):
@@ -760,11 +778,61 @@ def main():
         if (i + 1) % 50 == 0:
             print(f"[PROCESS] Processed {i + 1}/{len(cases)} cases...")
         
-        results = process_case(case, out_dir, skipped_entries, skip_reasons_file)
-        if results is not None:
-            all_results[case_id] = results
+        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file)
+        if result_data is not None:
+            # Round33: Handle new return format with verts
+            if isinstance(result_data, dict) and "results" in result_data:
+                all_results[case_id] = result_data["results"]
+                if "verts" in result_data:
+                    processed_verts.append(result_data["verts"])
+                    processed_case_ids.append(case_id)
+                    if result_data.get("scale_warning"):
+                        scale_warnings.append(result_data["scale_warning"])
+            else:
+                # Backward compatibility: old format (just results dict)
+                all_results[case_id] = result_data
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
+    
+    # Round33: Generate verts NPZ for proxy cases (if any processed)
+    npz_path = None
+    npz_has_verts = False
+    if len(processed_verts) > 0:
+        try:
+            # Save verts NPZ
+            verts_npz_path = artifacts_dir / "verts_proxy.npz"
+            # Format: (N, V, 3) array or list of (V, 3) arrays
+            if len(processed_verts) == 1:
+                verts_array = processed_verts[0]
+                if verts_array.ndim == 2:
+                    verts_array = verts_array[np.newaxis, :, :]  # (1, V, 3)
+            else:
+                # Multiple cases: stack or use object array
+                max_verts = max(v.shape[0] for v in processed_verts)
+                verts_list = []
+                for v in processed_verts:
+                    if v.shape[0] < max_verts:
+                        # Pad with NaN or repeat last vertex
+                        padded = np.pad(v, ((0, max_verts - v.shape[0]), (0, 0)), mode='constant', constant_values=np.nan)
+                        verts_list.append(padded)
+                    else:
+                        verts_list.append(v)
+                verts_array = np.array(verts_list, dtype=object) if len(set(v.shape[0] for v in processed_verts)) > 1 else np.array(verts_list)
+            
+            np.savez_compressed(
+                str(verts_npz_path),
+                verts=verts_array,
+                case_id=np.array(processed_case_ids, dtype=object),
+                meta_unit="m",
+                schema_version="s1_mesh_v0@1"
+            )
+            npz_path = str(verts_npz_path.relative_to(out_dir))
+            npz_has_verts = True
+            print(f"[NPZ] Saved verts NPZ: {verts_npz_path} ({len(processed_verts)} cases)")
+            if scale_warnings:
+                print(f"[NPZ] Scale warnings: {len(scale_warnings)} cases had mm->m conversion")
+        except Exception as e:
+            print(f"[WARN] Failed to save verts NPZ: {e}")
     
     # Write SKIPPED.txt if any skips (visual best-effort 증빙 헤더만)
     # 케이스별 상세 사유는 skip_reasons.jsonl에 기록됨 (overwrite 방지)
@@ -906,7 +974,21 @@ def main():
         "processed_cases": len(all_results),
         "skipped_cases": len(skipped_entries),
         "summary": dict(summary),
+        # Round33: NPZ evidence for postprocess
+        "meta_unit": "m",
+        "npz_has_verts": npz_has_verts,
     }
+    
+    # Round33: Add NPZ paths (multiple keys for postprocess compatibility)
+    if npz_path:
+        facts_summary["npz_path"] = npz_path
+        facts_summary["verts_npz_path"] = npz_path
+        facts_summary["dataset_path"] = npz_path  # Alternative key
+        facts_summary["npz_path_abs"] = str((out_dir / npz_path).resolve())
+    
+    # Round33: Add scale warnings if any
+    if scale_warnings:
+        facts_summary["scale_warnings"] = list(set(scale_warnings))  # Unique warnings
     
     facts_summary_path = out_dir / "facts_summary.json"
     with open(facts_summary_path, 'w', encoding='utf-8') as f:
