@@ -76,11 +76,14 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     
     Round36: If return_debug=True, returns (perimeter, debug_info) tuple.
     Round37: Improved deduplication and stable path ordering to prevent perimeter explosion.
+    Round37 Hotfix: O(N log N) deduplication + vectorized perimeter computation for performance.
     """
     if vertices_2d.shape[0] < 3:
         if return_debug:
             return None, {}
         return None
+    
+    n_points_raw = vertices_2d.shape[0]
     
     # Round36: Capture bbox before sorting
     bbox_before = {
@@ -89,26 +92,21 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         "max_abs": float(np.max(np.abs(vertices_2d)))
     }
     
-    # Round37: Deduplicate points (remove near-duplicates with epsilon tolerance)
+    # Round37 Hotfix: O(N log N) deduplication using quantization
     epsilon = 1e-6  # 1 micron tolerance
-    unique_verts = []
-    unique_indices = []
-    for i, v in enumerate(vertices_2d):
-        is_duplicate = False
-        for u in unique_verts:
-            if np.linalg.norm(v - u) < epsilon:
-                is_duplicate = True
-                break
-        if not is_duplicate:
-            unique_verts.append(v)
-            unique_indices.append(i)
+    if epsilon <= 0 or epsilon < 1e-10:
+        epsilon = 1e-6  # Safety clamp (not value clamp)
     
-    if len(unique_verts) < 3:
+    # Quantization-based deduplication (O(N log N))
+    q = np.round(vertices_2d / epsilon).astype(np.int64)
+    unique_indices = np.unique(q, axis=0, return_index=True)[1]
+    vertices_2d_deduped = vertices_2d[np.sort(unique_indices)].astype(np.float32)
+    n_points_dedup = vertices_2d_deduped.shape[0]
+    
+    if n_points_dedup < 3:
         if return_debug:
-            return None, {"n_points": len(vertices_2d), "dedupe_count": len(unique_verts), "reason": "too_few_unique_points"}
+            return None, {"n_points_raw": n_points_raw, "n_points_dedup": n_points_dedup, "epsilon_used": epsilon, "reason": "too_few_unique_points"}
         return None
-    
-    vertices_2d_deduped = np.array(unique_verts, dtype=np.float32)
     
     # Round37: Polar angle sorting with improved stability
     center = np.mean(vertices_2d_deduped, axis=0)
@@ -118,7 +116,7 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     distances = np.linalg.norm(centered, axis=1)
     if np.max(distances) < 1e-6:
         if return_debug:
-            return None, {"n_points": len(vertices_2d), "dedupe_count": len(unique_verts), "reason": "all_points_at_center"}
+            return None, {"n_points_raw": n_points_raw, "n_points_dedup": n_points_dedup, "epsilon_used": epsilon, "reason": "all_points_at_center"}
         return None
     
     # Compute angles (atan2: y, x)
@@ -148,17 +146,17 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         "max_abs": float(np.max(np.abs(sorted_verts)))
     }
     
-    # Round37: Compute perimeter with explicit closing edge
-    n = sorted_verts.shape[0]
-    perimeter = 0.0
-    segment_lens = []
-    for i in range(n):
-        j = (i + 1) % n  # Closing edge: last point connects to first
-        edge_len = np.linalg.norm(sorted_verts[j] - sorted_verts[i])
-        segment_lens.append(float(edge_len))
-        perimeter += edge_len
+    # Round37 Hotfix: Vectorized perimeter computation
+    # Compute segment lengths using vectorized operations
+    diffs = np.diff(sorted_verts, axis=0, append=sorted_verts[0:1])  # Append first point for closing edge
+    seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
+    # Remove the last element (duplicate of first) and add explicit closing edge
+    seg_lengths = seg_lengths[:-1]
+    closing_edge = np.sqrt(((sorted_verts[0] - sorted_verts[-1]) ** 2).sum())
+    perimeter_final = float(seg_lengths.sum() + closing_edge)
     
-    perimeter_final = float(perimeter)
+    # Convert segment lengths to list for debug
+    segment_lens = seg_lengths.tolist()
     
     if return_debug:
         # Round36: Compute segment length statistics
@@ -181,8 +179,11 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
         # 여기서는 perimeter_new만 기록
         
         debug_info = {
-            "n_points": len(vertices_2d),  # Original count
-            "n_points_deduped": n,  # Round37: After deduplication
+            "n_points_raw": n_points_raw,  # Round37 Hotfix: Original count
+            "n_points": n_points_raw,  # Round36 compatibility
+            "n_points_deduped": n_points_dedup,  # Round37: After deduplication
+            "n_points_dedup": n_points_dedup,  # Round37 Hotfix: Alias
+            "epsilon_used": epsilon,  # Round37 Hotfix
             "bbox_before": bbox_before,
             "bbox_after": bbox_after,
             "segment_len_stats": segment_len_stats,
@@ -190,8 +191,8 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
             "perimeter_new": perimeter_final,  # Round37: New method (with dedupe + stable sort)
             "perimeter_final": perimeter_final,  # Round36 compatibility
             "points_sorted": True,  # Always sorted by polar angle
-            "dedupe_applied": len(unique_verts) < len(vertices_2d),  # Round37
-            "dedupe_count": len(unique_verts),  # Round37
+            "dedupe_applied": n_points_dedup < n_points_raw,  # Round37
+            "dedupe_count": n_points_dedup,  # Round37
             "notes": []
         }
         
@@ -365,6 +366,13 @@ def _compute_circumference_at_height(
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
+    
+    # Round37 Hotfix: Optional downsampling for very large point sets (performance guard)
+    max_points = 20000
+    if vertices_2d.shape[0] > max_points:
+        stride = max(1, vertices_2d.shape[0] // max_points)
+        vertices_2d = vertices_2d[::stride]
+        warnings.append(f"DOWNSAMPLED: {vertices_2d.shape[0]} points (stride={stride})")
     
     # Round36: Get perimeter with debug info if requested
     if return_debug:
