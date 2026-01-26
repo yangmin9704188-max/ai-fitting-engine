@@ -69,13 +69,24 @@ def _validate_verts(verts: np.ndarray) -> Tuple[bool, List[str]]:
     return True, warnings
 
 
-def _compute_perimeter(vertices_2d: np.ndarray) -> Optional[float]:
+def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> Optional[float] | Tuple[Optional[float], Dict[str, Any]]:
     """
     Compute closed curve perimeter from 2D vertices.
     Uses polar angle sorting for stability (from bust_underbust_v0.py pattern).
+    
+    Round36: If return_debug=True, returns (perimeter, debug_info) tuple.
     """
     if vertices_2d.shape[0] < 3:
+        if return_debug:
+            return None, {}
         return None
+    
+    # Round36: Capture bbox before sorting
+    bbox_before = {
+        "min": [float(np.min(vertices_2d[:, 0])), float(np.min(vertices_2d[:, 1]))],
+        "max": [float(np.max(vertices_2d[:, 0])), float(np.max(vertices_2d[:, 1]))],
+        "max_abs": float(np.max(np.abs(vertices_2d)))
+    }
     
     # Polar angle sorting for stable perimeter computation
     center = np.mean(vertices_2d, axis=0)
@@ -83,13 +94,61 @@ def _compute_perimeter(vertices_2d: np.ndarray) -> Optional[float]:
     sorted_indices = np.argsort(angles)
     sorted_verts = vertices_2d[sorted_indices]
     
-    # Compute perimeter
+    # Round36: Capture bbox after sorting
+    bbox_after = {
+        "min": [float(np.min(sorted_verts[:, 0])), float(np.min(sorted_verts[:, 1]))],
+        "max": [float(np.max(sorted_verts[:, 0])), float(np.max(sorted_verts[:, 1]))],
+        "max_abs": float(np.max(np.abs(sorted_verts)))
+    }
+    
+    # Compute perimeter and segment lengths
     n = sorted_verts.shape[0]
     perimeter = 0.0
+    segment_lens = []
     for i in range(n):
         j = (i + 1) % n
         edge_len = np.linalg.norm(sorted_verts[j] - sorted_verts[i])
+        segment_lens.append(float(edge_len))
         perimeter += edge_len
+    
+    perimeter_final = float(perimeter)
+    
+    if return_debug:
+        # Round36: Compute segment length statistics
+        if segment_lens:
+            segment_lens_arr = np.array(segment_lens)
+            segment_len_stats = {
+                "min": float(np.min(segment_lens_arr)),
+                "mean": float(np.mean(segment_lens_arr)),
+                "max": float(np.max(segment_lens_arr)),
+                "p95": float(np.percentile(segment_lens_arr, 95))
+            }
+            # Count jumps (outliers)
+            mean_len = segment_len_stats["mean"]
+            jump_count = int(np.sum(segment_lens_arr > mean_len * 10))
+        else:
+            segment_len_stats = {}
+            jump_count = 0
+        
+        debug_info = {
+            "n_points": n,
+            "bbox_before": bbox_before,
+            "bbox_after": bbox_after,
+            "segment_len_stats": segment_len_stats,
+            "jump_count": jump_count,
+            "perimeter_raw": perimeter_final,
+            "perimeter_final": perimeter_final,
+            "points_sorted": True,  # Always sorted by polar angle
+            "notes": []
+        }
+        
+        # Round36: Detect potential issues
+        if jump_count > 0:
+            debug_info["notes"].append(f"jump_detected: {jump_count} segments > 10x mean")
+        if bbox_before["max_abs"] > 10.0:
+            debug_info["notes"].append(f"large_bbox_before: max_abs={bbox_before['max_abs']:.2f}")
+        
+        return perimeter_final, debug_info
     
     return float(perimeter)
 
@@ -247,13 +306,23 @@ def _compute_circumference_at_height(
     warnings: List[str],
     y_min: Optional[float] = None,
     y_max: Optional[float] = None,
+    return_debug: bool = False,
 ) -> tuple[Optional[float], Optional[Dict[str, Any]]]:
     """Compute circumference at given height. Returns (perimeter or None, debug_info or None)."""
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
-    perimeter = _compute_perimeter(vertices_2d)
-    return perimeter, debug_info
+    
+    # Round36: Get perimeter with debug info if requested
+    if return_debug:
+        perimeter, perimeter_debug = _compute_perimeter(vertices_2d, return_debug=True)
+        if debug_info and perimeter_debug:
+            # Merge perimeter debug into cross-section debug
+            debug_info.update(perimeter_debug)
+        return perimeter, debug_info
+    else:
+        perimeter = _compute_perimeter(vertices_2d)
+        return perimeter, debug_info
 
 
 # -----------------------------
@@ -961,16 +1030,25 @@ def measure_circumference_v0_with_metadata(
     
     candidates = []
     cross_section_debug_list = []
+    # Round36: Capture verts bbox before processing (for scale detection)
+    verts_bbox_before = {
+        "min": [float(np.min(verts[:, 0])), float(np.min(verts[:, 1])), float(np.min(verts[:, 2]))],
+        "max": [float(np.max(verts[:, 0])), float(np.max(verts[:, 1])), float(np.max(verts[:, 2]))],
+        "max_abs": float(np.max(np.abs(verts)))
+    }
+    
     for i in range(num_slices):
         y_value = y_start + i * slice_step
-        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max)
+        # Round36: Enable debug for selected candidate
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max, return_debug=(i == num_slices // 2))  # Debug middle slice
         if debug_info:
             cross_section_debug_list.append(debug_info)
         if perimeter is not None:
             candidates.append({
                 "y_value": y_value,
                 "perimeter": perimeter,
-                "slice_index": i
+                "slice_index": i,
+                "debug_info": debug_info if debug_info and "n_points" in debug_info else None
             })
     
     # Build debug info
@@ -1021,6 +1099,10 @@ def measure_circumference_v0_with_metadata(
             metadata=metadata
         )
     
+    # Round36: Select candidate and collect debug info for selected one
+    selected_candidate = None
+    selected_debug_info = None
+    
     # Select candidate based on semantic rule
     # BUST/HIP: max (maximum protrusion)
     # WAIST: semantic defines as "most constricted" but we use fixed height (no min search)
@@ -1039,11 +1121,51 @@ def measure_circumference_v0_with_metadata(
     
     value_m = selected["perimeter"]
     
+    # Round36: Re-compute selected candidate with debug enabled to get full debug info
+    selected_y_value = selected["y_value"]
+    _, selected_debug_full = _compute_circumference_at_height(verts, selected_y_value, tolerance, warnings, y_min, y_max, return_debug=True)
+    
     # Range sanity check (warnings only)
     if value_m < 0.1:
         warnings.append(f"PERIMETER_SMALL: {value_m:.4f}m")
     if value_m > 3.0:
         warnings.append(f"PERIMETER_LARGE: {value_m:.4f}m")
+    
+    # Round36: Build circ_debug info for facts_summary.json
+    circ_debug = {
+        "schema_version": "circ_debug@1",
+        "key": standard_key,
+        "n_points": selected_debug_full.get("n_points", 0) if selected_debug_full else 0,
+        "axis": "y",
+        "plane": "x-z",
+        "scale_applied": False,  # Will be determined from bbox
+        "bbox_before": verts_bbox_before,
+        "bbox_after": selected_debug_full.get("bbox_after", {}) if selected_debug_full else {},
+        "segment_len_stats": selected_debug_full.get("segment_len_stats", {}) if selected_debug_full else {},
+        "jump_count": selected_debug_full.get("jump_count", 0) if selected_debug_full else 0,
+        "perimeter_raw": selected_debug_full.get("perimeter_raw", value_m) if selected_debug_full else value_m,
+        "perimeter_final": value_m,
+        "notes": selected_debug_full.get("notes", []) if selected_debug_full else []
+    }
+    
+    # Round36: Detect scale issue
+    if verts_bbox_before["max_abs"] > 10.0:
+        circ_debug["scale_applied"] = True  # Likely mm->m conversion was applied
+        circ_debug["notes"].append(f"SCALE_SUSPECTED: bbox_max_abs={verts_bbox_before['max_abs']:.2f}")
+    
+    # Round36: Detect ordering issue
+    if selected_debug_full and selected_debug_full.get("jump_count", 0) > 0:
+        circ_debug["notes"].append(f"ORDERING_SUSPECTED: jump_count={circ_debug['jump_count']}")
+    
+    # Round36: Classify reason
+    reason_codes = []
+    if circ_debug["scale_applied"]:
+        reason_codes.append("SCALE_SUSPECTED")
+    if circ_debug["jump_count"] > 0:
+        reason_codes.append("ORDERING_SUSPECTED")
+    if not reason_codes:
+        reason_codes.append("OTHER")
+    circ_debug["reason"] = reason_codes[0] if len(reason_codes) == 1 else "MIXED"
     
     # Create metadata with debug info
     debug_info = {
@@ -1056,7 +1178,9 @@ def measure_circumference_v0_with_metadata(
             "candidates_count": len(candidates),
             "target_height_ratio": float((selected["y_value"] - y_min) / y_range) if y_range > 0 else 0.0,
             "search_window_mm": float(tolerance * 1000.0)
-        }
+        },
+        # Round36: Add circ_debug to metadata for runner to extract
+        "circ_debug": circ_debug
     }
     metadata = create_metadata_v0(
         standard_key=standard_key,
