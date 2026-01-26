@@ -229,3 +229,24 @@ RUN_DIR="$RUN_DIR"
 - 단위 변환: raw_unit="mm" → meta_unit="m", precision=0.001m
 - S1 입력 계약 강화: 20M OBJ + 20M CSV 일치
 - 원본 XLSX는 data/raw 아래에 있으므로 git 추적 대상 아님 (.gitignore에 *.xlsx 포함)
+
+## Round 29 (Geo v0 S1 Facts - Per-Case Skip Reasons Logging)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (케이스별 스킵 사유 로깅 추가)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round29_<timestamp>/artifacts/skip_reasons.jsonl` (SSoT)
+- **Report**: `reports/validation/geo_v0_s1_facts_round29.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round29_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round29_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round28에서 processed=0이고 artifacts/visual/SKIPPED.txt는 헤더 4줄만 존재하여 케이스별 원인 추적 불가
+- Round29는 케이스별 스킵 사유를 skip_reasons.jsonl에 기록 (SSoT)
+- proxy 슬롯 5개는 반드시 attempted_load=True까지 진입하여 로드 시도
+- artifacts/visual/SKIPPED.txt는 헤더만 유지, 케이스별 사유는 skip_reasons.jsonl에 기록 (overwrite 방지)

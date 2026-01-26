@@ -33,6 +33,7 @@
 - **Round25**: geo_v0_s1 facts runner (20F OBJ 직접 로드, processed>0 목표)
 - **Round26**: geo_v0_s1 facts runner (baseline lock, proxy coverage 확대, weight 경고 축소)
 - **Round28**: geo_v0_s1 facts runner (20M proxy switch, baseline alias 등록, XLSX→CSV 변환)
+- **Round29**: geo_v0_s1 facts runner (per-case skip reasons logging, SSoT)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
