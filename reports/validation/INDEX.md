@@ -250,3 +250,24 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - Round29는 케이스별 스킵 사유를 skip_reasons.jsonl에 기록 (SSoT)
 - proxy 슬롯 5개는 반드시 attempted_load=True까지 진입하여 로드 시도
 - artifacts/visual/SKIPPED.txt는 헤더만 유지, 케이스별 사유는 skip_reasons.jsonl에 기록 (overwrite 방지)
+
+## Round 30 (Geo v0 S1 Facts - Load Failed Diagnostics)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (load_failed 진단 필드 추가)
+- **Skip Reasons Log**: `verification/runs/facts/geo_v0_s1/round30_<timestamp>/artifacts/skip_reasons.jsonl` (mesh_path_resolved, mesh_exists, exception_1line 추가)
+- **Report**: `reports/validation/geo_v0_s1_facts_round30.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round30_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round30_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round29 로깅: 200 중 195는 manifest_path_is_null(정상), proxy 5개는 stage=load_mesh, reason=load_failed로 전부 실패
+- Round30은 load_failed의 "구체 예외/경로 resolve"를 facts로 남김
+- 상대경로 mesh_path는 Path.cwd() 기준으로 resolve
+- 목표: processed>=1 복구
