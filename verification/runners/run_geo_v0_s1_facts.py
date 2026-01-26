@@ -85,7 +85,11 @@ def load_s1_manifest(manifest_path: str) -> Dict[str, Any]:
 
 
 def load_verts_from_path(verts_path: str) -> Optional[np.ndarray]:
-    """Load verts from file path (NPZ or other format)."""
+    """Load verts from file path (NPZ, OBJ, or other format).
+    
+    Returns:
+        (V, 3) numpy array of vertices in meters, or None if load failed
+    """
     path = Path(verts_path).resolve()
     if not path.exists():
         return None
@@ -106,6 +110,52 @@ def load_verts_from_path(verts_path: str) -> Optional[np.ndarray]:
             return None
         except Exception as e:
             print(f"[WARN] Failed to load NPZ from {path}: {e}")
+            return None
+    
+    # Try OBJ file (A안: OBJ 직접 로드)
+    if path.suffix.lower() == ".obj":
+        try:
+            # Try trimesh first (if available)
+            try:
+                import trimesh
+                mesh = trimesh.load(str(path), process=False)
+                if hasattr(mesh, 'vertices') and mesh.vertices is not None:
+                    verts = np.array(mesh.vertices, dtype=np.float32)
+                    # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+                    # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+                    if verts.shape[0] > 0:
+                        max_abs = np.abs(verts).max()
+                        if max_abs > 10.0:  # Likely in mm/cm, convert to m
+                            verts = verts / 1000.0  # mm -> m
+                            print(f"[OBJ] Converted from mm to m (max_abs={max_abs:.2f})")
+                    return verts
+            except ImportError:
+                # Fallback: simple OBJ parser (v lines only)
+                verts = []
+                with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('v ') and not line.startswith('vn ') and not line.startswith('vt '):
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                try:
+                                    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                                    verts.append([x, y, z])
+                                except ValueError:
+                                    continue
+                
+                if len(verts) > 0:
+                    verts_array = np.array(verts, dtype=np.float32)
+                    # OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
+                    # If OBJ is in mm, convert to m (assume > 1.0 means mm/cm scale)
+                    max_abs = np.abs(verts_array).max()
+                    if max_abs > 10.0:  # Likely in mm/cm, convert to m
+                        verts_array = verts_array / 1000.0  # mm -> m
+                        print(f"[OBJ] Converted from mm to m (max_abs={max_abs:.2f})")
+                    return verts_array
+                return None
+        except Exception as e:
+            print(f"[WARN] Failed to load OBJ from {path}: {e}")
             return None
     
     # Add other formats as needed
@@ -275,33 +325,53 @@ def process_case(
             })
             return None
     
-    # Load verts
+    # Load verts (prefer verts_path, fallback to mesh_path)
+    verts = None
+    load_error = None
+    
     if verts_path is not None:
-        verts = load_verts_from_path(verts_path)
-        if verts is None:
-            skipped_entries.append({
-                "Type": "manifest_path_set_but_file_missing",
-                "case_id": case_id,
-                "path": str(verts_path),
-                "Reason": "path specified but file not found or load failed"
-            })
-            return None
-    elif mesh_path is not None:
-        # TODO: Load mesh and extract verts (if mesh loader exists)
-        # For now, treat as not available
+        try:
+            verts = load_verts_from_path(verts_path)
+            if verts is None:
+                load_error = f"verts_path specified but load returned None: {verts_path}"
+        except Exception as e:
+            load_error = f"verts_path load exception: {str(e)}"
+    
+    if verts is None and mesh_path is not None:
+        try:
+            verts = load_verts_from_path(mesh_path)
+            if verts is None:
+                if load_error:
+                    load_error = f"{load_error}; mesh_path load also returned None: {mesh_path}"
+                else:
+                    load_error = f"mesh_path specified but load returned None: {mesh_path}"
+        except Exception as e:
+            if load_error:
+                load_error = f"{load_error}; mesh_path load exception: {str(e)}"
+            else:
+                load_error = f"mesh_path load exception: {str(e)}"
+    
+    if verts is None:
+        # Type B or Type C (parse error)
+        skip_type = "manifest_path_set_but_file_missing"
+        if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
+            skip_type = "parse_error"
+        
         skipped_entries.append({
-            "Type": "manifest_path_set_but_file_missing",
+            "Type": skip_type,
             "case_id": case_id,
-            "path": str(mesh_path),
-            "Reason": "mesh_path specified but mesh loader not yet implemented"
+            "path": str(path_to_use) if path_to_use else "N/A",
+            "Reason": load_error if load_error else "path specified but file not found or load failed"
         })
         return None
-    else:
-        # Should not reach here (Type A already handled)
+    
+    # Validate verts shape
+    if verts.ndim != 2 or verts.shape[1] != 3:
         skipped_entries.append({
-            "Type": "manifest_path_is_null",
+            "Type": "parse_error",
             "case_id": case_id,
-            "Reason": "S1 manifest has null path (no mesh/verts assigned)"
+            "path": str(path_to_use) if path_to_use else "N/A",
+            "Reason": f"invalid verts shape: {verts.shape}, expected (V, 3)"
         })
         return None
     
