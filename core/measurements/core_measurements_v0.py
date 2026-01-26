@@ -69,23 +69,86 @@ def _validate_verts(verts: np.ndarray) -> Tuple[bool, List[str]]:
     return True, warnings
 
 
+def _convex_hull_2d_monotone_chain(pts: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Compute 2D convex hull using Andrew's monotone chain algorithm (numpy-only).
+    
+    Returns:
+        Convex hull points in counter-clockwise order, or None if degenerate.
+    """
+    if pts.shape[0] < 3:
+        return None
+    
+    # Sort points by x (then by y if x is equal)
+    sort_indices = np.lexsort((pts[:, 1], pts[:, 0]))
+    sorted_pts = pts[sort_indices]
+    
+    # Remove duplicates (consecutive)
+    unique_mask = np.ones(len(sorted_pts), dtype=bool)
+    for i in range(1, len(sorted_pts)):
+        if np.allclose(sorted_pts[i], sorted_pts[i-1], atol=1e-9):
+            unique_mask[i] = False
+    sorted_pts = sorted_pts[unique_mask]
+    
+    if len(sorted_pts) < 3:
+        return None
+    
+    # Cross product for orientation check (2D: (x1-x0)*(y2-y0) - (y1-y0)*(x2-x0))
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    
+    # Build lower hull
+    lower = []
+    for p in sorted_pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    
+    # Build upper hull
+    upper = []
+    for p in reversed(sorted_pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    
+    # Combine (remove duplicate endpoints)
+    hull = np.array(lower[:-1] + upper[:-1], dtype=np.float32)
+    
+    # Check for degenerate cases
+    if len(hull) < 3:
+        return None
+    
+    # Check if all points are collinear
+    if len(hull) == 3:
+        # Check if the three points are collinear
+        v1 = hull[1] - hull[0]
+        v2 = hull[2] - hull[0]
+        cross_val = v1[0] * v2[1] - v1[1] * v2[0]
+        if abs(cross_val) < 1e-9:
+            return None  # Collinear
+    
+    return hull
+
+
 def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> Optional[float] | Tuple[Optional[float], Dict[str, Any]]:
     """
-    Compute closed curve perimeter from 2D vertices.
-    Uses polar angle sorting for stability (from bust_underbust_v0.py pattern).
+    Compute closed curve perimeter from 2D vertices using convex hull.
+    
+    Round39: Uses 2D convex hull (Andrew monotone chain) instead of polar sort
+    to avoid including interior/concave points that cause perimeter explosion.
     
     Round36: If return_debug=True, returns (perimeter, debug_info) tuple.
-    Round37: Improved deduplication and stable path ordering to prevent perimeter explosion.
-    Round37 Hotfix: O(N log N) deduplication + vectorized perimeter computation for performance.
+    Round37: Improved deduplication.
+    Round37 Hotfix: O(N log N) deduplication + vectorized perimeter computation.
     """
     if vertices_2d.shape[0] < 3:
         if return_debug:
-            return None, {}
+            return None, {"n_points_raw": 0, "reason": "too_few_points"}
         return None
     
     n_points_raw = vertices_2d.shape[0]
     
-    # Round36: Capture bbox before sorting
+    # Round36: Capture bbox before processing
     bbox_before = {
         "min": [float(np.min(vertices_2d[:, 0])), float(np.min(vertices_2d[:, 1]))],
         "max": [float(np.max(vertices_2d[:, 0])), float(np.max(vertices_2d[:, 1]))],
@@ -105,54 +168,79 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     
     if n_points_dedup < 3:
         if return_debug:
-            return None, {"n_points_raw": n_points_raw, "n_points_dedup": n_points_dedup, "epsilon_used": epsilon, "reason": "too_few_unique_points"}
+            return None, {
+                "n_points_raw": n_points_raw,
+                "n_points_dedup": n_points_dedup,
+                "epsilon_used": epsilon,
+                "perimeter_method": "convex_hull_v1",
+                "fallback_used": True,
+                "fallback_reason": "too_few_unique_points",
+                "reason": "too_few_unique_points"
+            }
         return None
     
-    # Round37: Polar angle sorting with improved stability
-    center = np.mean(vertices_2d_deduped, axis=0)
-    centered = vertices_2d_deduped - center
+    # Round39: Compute convex hull instead of polar sort
+    hull_pts = _convex_hull_2d_monotone_chain(vertices_2d_deduped)
+    fallback_used = False
+    fallback_reason = None
     
-    # Check for degenerate case (all points at same location)
-    distances = np.linalg.norm(centered, axis=1)
-    if np.max(distances) < 1e-6:
-        if return_debug:
-            return None, {"n_points_raw": n_points_raw, "n_points_dedup": n_points_dedup, "epsilon_used": epsilon, "reason": "all_points_at_center"}
-        return None
+    if hull_pts is None or len(hull_pts) < 3:
+        # Fallback to polar sort if convex hull fails
+        fallback_used = True
+        fallback_reason = "hull_degenerate_or_collinear"
+        
+        # Round37: Polar angle sorting fallback
+        center = np.mean(vertices_2d_deduped, axis=0)
+        centered = vertices_2d_deduped - center
+        
+        # Check for degenerate case (all points at same location)
+        distances = np.linalg.norm(centered, axis=1)
+        if np.max(distances) < 1e-6:
+            if return_debug:
+                return None, {
+                    "n_points_raw": n_points_raw,
+                    "n_points_dedup": n_points_dedup,
+                    "epsilon_used": epsilon,
+                    "perimeter_method": "convex_hull_v1",
+                    "fallback_used": True,
+                    "fallback_reason": "all_points_at_center",
+                    "reason": "all_points_at_center"
+                }
+            return None
+        
+        # Compute angles (atan2: y, x)
+        angles = np.arctan2(centered[:, 1], centered[:, 0])
+        
+        # Handle identical angles
+        for i in range(len(angles)):
+            same_angle_mask = np.abs(angles - angles[i]) < 1e-10
+            if np.sum(same_angle_mask) > 1:
+                same_angle_indices = np.where(same_angle_mask)[0]
+                same_angle_distances = distances[same_angle_indices]
+                sorted_by_dist = same_angle_indices[np.argsort(same_angle_distances)]
+                for idx, orig_idx in enumerate(sorted_by_dist):
+                    if orig_idx != i:
+                        angles[orig_idx] += idx * 1e-12
+        
+        sorted_indices = np.argsort(angles)
+        hull_pts = vertices_2d_deduped[sorted_indices]
     
-    # Compute angles (atan2: y, x)
-    angles = np.arctan2(centered[:, 1], centered[:, 0])
+    n_points_hull = len(hull_pts)
     
-    # Round37: Handle identical angles by adding small perturbation based on distance
-    # This ensures stable ordering when multiple points share the same angle
-    for i in range(len(angles)):
-        same_angle_mask = np.abs(angles - angles[i]) < 1e-10
-        if np.sum(same_angle_mask) > 1:
-            # Sort by distance from center for same-angle points
-            same_angle_indices = np.where(same_angle_mask)[0]
-            same_angle_distances = distances[same_angle_indices]
-            sorted_by_dist = same_angle_indices[np.argsort(same_angle_distances)]
-            # Add tiny perturbation to angles based on distance order
-            for idx, orig_idx in enumerate(sorted_by_dist):
-                if orig_idx != i:
-                    angles[orig_idx] += idx * 1e-12  # Tiny perturbation
-    
-    sorted_indices = np.argsort(angles)
-    sorted_verts = vertices_2d_deduped[sorted_indices]
-    
-    # Round36: Capture bbox after sorting
+    # Round36: Capture bbox after hull
     bbox_after = {
-        "min": [float(np.min(sorted_verts[:, 0])), float(np.min(sorted_verts[:, 1]))],
-        "max": [float(np.max(sorted_verts[:, 0])), float(np.max(sorted_verts[:, 1]))],
-        "max_abs": float(np.max(np.abs(sorted_verts)))
+        "min": [float(np.min(hull_pts[:, 0])), float(np.min(hull_pts[:, 1]))],
+        "max": [float(np.max(hull_pts[:, 0])), float(np.max(hull_pts[:, 1]))],
+        "max_abs": float(np.max(np.abs(hull_pts)))
     }
     
     # Round37 Hotfix: Vectorized perimeter computation
     # Compute segment lengths using vectorized operations
-    diffs = np.diff(sorted_verts, axis=0, append=sorted_verts[0:1])  # Append first point for closing edge
+    diffs = np.diff(hull_pts, axis=0, append=hull_pts[0:1])  # Append first point for closing edge
     seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
     # Remove the last element (duplicate of first) and add explicit closing edge
     seg_lengths = seg_lengths[:-1]
-    closing_edge = np.sqrt(((sorted_verts[0] - sorted_verts[-1]) ** 2).sum())
+    closing_edge = np.sqrt(((hull_pts[0] - hull_pts[-1]) ** 2).sum())
     perimeter_final = float(seg_lengths.sum() + closing_edge)
     
     # Convert segment lengths to list for debug
@@ -183,14 +271,18 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
             "n_points": n_points_raw,  # Round36 compatibility
             "n_points_deduped": n_points_dedup,  # Round37: After deduplication
             "n_points_dedup": n_points_dedup,  # Round37 Hotfix: Alias
+            "n_points_hull": n_points_hull,  # Round39: Convex hull point count
             "epsilon_used": epsilon,  # Round37 Hotfix
+            "perimeter_method": "convex_hull_v1",  # Round39
+            "fallback_used": fallback_used,  # Round39
+            "fallback_reason": fallback_reason,  # Round39
             "bbox_before": bbox_before,
             "bbox_after": bbox_after,
             "segment_len_stats": segment_len_stats,
             "jump_count": jump_count,
             "perimeter_new": perimeter_final,  # Round37: New method (with dedupe + stable sort)
             "perimeter_final": perimeter_final,  # Round36 compatibility
-            "points_sorted": True,  # Always sorted by polar angle
+            "points_sorted": not fallback_used,  # Round39: True if convex hull, False if polar sort fallback
             "dedupe_applied": n_points_dedup < n_points_raw,  # Round37
             "dedupe_count": n_points_dedup,  # Round37
             "notes": []
