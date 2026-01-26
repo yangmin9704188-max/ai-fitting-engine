@@ -385,3 +385,24 @@ py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
 - NPZ 저장 위치: `artifacts/visual/verts_proxy.npz` (postprocess가 찾는 위치)
 - facts_summary.json에 KPI 필드 추가: `n_samples`, `summary.valid_cases`
 - facts_summary.json에 NPZ 경로 추가: `npz_path`, `dataset_path`, `npz_path_abs` (visual_provenance.py가 찾는 키)
+
+## Round 35 (Geo v0 S1 Facts - KPI 분포 통계 스키마 연결)
+
+- **Runner**: `verification/runners/run_geo_v0_s1_facts.py` (기존 구조 유지)
+- **KPI Generator**: `tools/summarize_facts_kpi.py` (value_stats 경로 fallback 추가)
+- **Report**: `reports/validation/geo_v0_s1_facts_round35.md`
+- **Facts summary**: `verification/runs/facts/geo_v0_s1/round35_<timestamp>/facts_summary.json`
+
+### Run commands
+
+```bash
+RUN_DIR="verification/runs/facts/geo_v0_s1/round35_$(date +%Y%m%d_%H%M%S)" && \
+py verification/runners/run_geo_v0_s1_facts.py --out_dir "$RUN_DIR" && \
+py tools/postprocess_round.py --current_run_dir "$RUN_DIR"
+```
+
+**주의**: 
+- Round34 관측: Processed=5, NPZ/Visual 생성 성공, NaN Rate는 집계되었으나 KPI 분포 통계(p50/p95)와 BUST/WAIST/HIP p50이 N/A로 남음
+- Round35 원인: summarize_facts_kpi.py가 `summary[key]["median"]`을 찾지만, 실제로는 `summary[key]["value_stats"]["median"]`에 있음
+- Round35 해결: summarize_facts_kpi.py의 get_value_distribution 함수에 value_stats 경로 fallback 추가
+- 최소 수정 원칙: runner는 변경하지 않고, KPI 요약기만 보강

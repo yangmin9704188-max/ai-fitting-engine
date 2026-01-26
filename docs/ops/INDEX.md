@@ -39,6 +39,7 @@
 - **Round32**: geo_v0_s1 facts runner (per-case skip_reasons invariant: 200 records, has_mesh_path_true=5)
 - **Round33**: geo_v0_s1 facts runner (OBJ loader fallback + verts NPZ evidence for postprocess)
 - **Round34**: geo_v0_s1 facts runner (NPZ 경로 연결 + KPI 집계 필드 보강)
+- **Round35**: geo_v0_s1 facts runner (KPI 분포 통계 p50/p95 스키마 연결)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
