@@ -18,21 +18,23 @@
     },
     {
       "case_id": "121607160426",
-      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_20M.obj",
+      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_30M.obj",
       "verts_path": null,
-      "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case"
+      "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case",
+      "measurements_csv": "verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_30M_measurements_m.csv"
     },
     {
       "case_id": "21_F_4430",
-      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_20M.obj",
+      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_30M.obj",
       "verts_path": null,
       "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case"
     },
     {
       "case_id": "511609194879",
-      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_20M.obj",
+      "mesh_path": "verification/datasets/golden/s1_mesh_v0/meshes/6th_40M.obj",
       "verts_path": null,
-      "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case"
+      "note": "proxy mesh for S1 pipeline validation; not 1:1 identity with curated_v0 case",
+      "measurements_csv": "verification/datasets/golden/s1_mesh_v0/metadata/scan_6th_40M_measurements_m.csv"
     },
     {
       "case_id": "211608191617",

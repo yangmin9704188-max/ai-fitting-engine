@@ -42,6 +42,7 @@
 - **Round35**: geo_v0_s1 facts runner (KPI 분포 통계 p50/p95 스키마 연결)
 - **Round36**: geo_v0_s1 facts runner (둘레 계산 디버그 계측: circ_debug facts-only)
 - **Round37**: geo_v0_s1 facts runner (둘레 계산 경로 안정화: polar sort + dedupe, perimeter 폭증 제거)
+- **Round38**: geo_v0_s1 facts runner (S1 proxy 다양화: 20M/30M/40M 2-2-1 분산 매핑, 입력 다양성 검증)
 
 ### Golden Registry
 - **Path**: [`docs/verification/golden_registry.json`](../verification/golden_registry.json)
