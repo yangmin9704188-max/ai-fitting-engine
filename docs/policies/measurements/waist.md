@@ -4,7 +4,7 @@ title: "Waist Circumference"
 
 version: "v1.0"
 
-status: "frozen"
+status: "legacy"
 
 created\_date: "2026-01-16"
 
@@ -14,7 +14,13 @@ author: "Yang"
 
 ---
 
+> **⚠️ LEGACY DOCUMENT**  
+> **status**: legacy  
+> **superseded_by**: [docs/policies/measurements/INDEX.md](INDEX.md)  
+> **reason**: pre-sizekorea definition; anchors updated  
+> **note**: do not treat as SoT
 
+---
 
 \# Waist Circumference v1.0
 

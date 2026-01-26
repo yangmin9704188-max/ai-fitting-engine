@@ -1,10 +1,18 @@
 ---
 title: "Body Measurement Meta-Policy"
 version: "v1.3"
-status: "frozen"
+status: "legacy"
 created_date: "2026-01-16"
 frozen_commit_sha: "9731aa4"
 author: "Yang"
+---
+
+> **⚠️ LEGACY DOCUMENT**  
+> **status**: legacy  
+> **superseded_by**: [docs/policies/measurements/INDEX.md](INDEX.md)  
+> **reason**: pre-sizekorea definition; anchors updated  
+> **note**: do not treat as SoT
+
 ---
 
 # Body Measurement Meta-Policy v1.3
