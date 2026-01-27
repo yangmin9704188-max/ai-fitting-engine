@@ -1,6 +1,6 @@
 {
   "schema_version": "round_registry@1",
-  "updated_at": "2026-01-28T08:29:20.018077",
+  "updated_at": "2026-01-28T08:55:53.988167",
   "lanes": {
     "curated_v0": {
       "baseline": {
@@ -189,11 +189,25 @@
           "source_npz": "artifacts/visual/verts_proxy.npz",
           "source_path_abs": null,
           "notes": ""
+        },
+        {
+          "round_id": "round63_20260128_084855",
+          "round_num": 63,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round63_20260128_084855",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round63_20260128_084855/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round63_20260128_084855_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round63_20260128_084855/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round63_20260128_084855/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-28T08:55:53.988167",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
         }
       ],
       "latest": {
-        "round_id": "round62_20260128_082547",
-        "run_dir": "verification/runs/facts/geo_v0_s1/round62_20260128_082547"
+        "round_id": "round63_20260128_084855",
+        "run_dir": "verification/runs/facts/geo_v0_s1/round63_20260128_084855"
       }
     }
   }
