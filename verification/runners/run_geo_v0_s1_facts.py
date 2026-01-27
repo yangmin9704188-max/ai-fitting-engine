@@ -99,12 +99,18 @@ def load_obj_with_trimesh(path: Path) -> Optional[tuple[np.ndarray, Optional[np.
             faces = np.array(mesh.faces, dtype=np.int32) if hasattr(mesh, 'faces') and mesh.faces is not None else None
             # Round33: OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
             # If OBJ is in mm, convert to m (assume > 10.0 means mm/cm scale)
+            # Round40: scale_warning을 상세 정보 딕셔너리로 변경
             scale_warning = None
             if verts.shape[0] > 0:
                 max_abs = np.abs(verts).max()
                 if max_abs > 10.0:  # Likely in mm/cm, convert to m
                     verts = verts / 1000.0  # mm -> m
-                    scale_warning = f"SCALE_ASSUMED_MM_TO_M (max_abs={max_abs:.2f})"
+                    # Round40: 상세 정보 딕셔너리로 변경 (case_id는 나중에 추가)
+                    scale_warning = {
+                        "trigger_rule": "max_abs > 10.0",
+                        "max_abs": float(max_abs),
+                        "source_path": str(path)
+                    }
                     print(f"[OBJ/trimesh] Converted from mm to m (max_abs={max_abs:.2f})")
             return (verts, faces, scale_warning)
     except ImportError:
@@ -166,11 +172,17 @@ def load_obj_with_fallback_parser(path: Path) -> Optional[tuple[np.ndarray, Opti
         verts_array = np.array(vertices, dtype=np.float32)
         # Round33: OBJ files may be in mm/cm, but S1 manifest meta_unit="m" assumes meters
         # If OBJ is in mm, convert to m (assume > 10.0 means mm/cm scale)
+        # Round40: scale_warning을 상세 정보 딕셔너리로 변경
         max_abs = np.abs(verts_array).max()
         scale_warning = None
         if max_abs > 10.0:  # Likely in mm/cm, convert to m
             verts_array = verts_array / 1000.0  # mm -> m
-            scale_warning = f"SCALE_ASSUMED_MM_TO_M (max_abs={max_abs:.2f})"
+            # Round40: 상세 정보 딕셔너리로 변경 (case_id는 나중에 추가)
+            scale_warning = {
+                "trigger_rule": "max_abs > 10.0",
+                "max_abs": float(max_abs),
+                "source_path": str(path)
+            }
             print(f"[OBJ/fallback] Converted from mm to m (max_abs={max_abs:.2f})")
         
         faces_array = np.array(faces, dtype=np.int32) if len(faces) > 0 else None
@@ -825,7 +837,9 @@ def main():
     # Round33: Collect verts from processed cases for NPZ generation
     processed_verts: List[np.ndarray] = []
     processed_case_ids: List[str] = []
-    scale_warnings: List[str] = []
+    # Round40: scale_warnings를 상세 정보 리스트로 변경
+    scale_warnings: List[str] = []  # Backward compatibility: 문자열 리스트 유지
+    scale_warnings_detailed: List[Dict[str, Any]] = []  # Round40: 상세 정보 리스트
     
     print(f"[PROCESS] Processing {len(cases)} cases...")
     for i, case in enumerate(cases):
@@ -841,8 +855,19 @@ def main():
                 if "verts" in result_data:
                     processed_verts.append(result_data["verts"])
                     processed_case_ids.append(case_id)
-                    if result_data.get("scale_warning"):
-                        scale_warnings.append(result_data["scale_warning"])
+                    # Round40: scale_warning 처리 (딕셔너리 또는 문자열)
+                    scale_warn = result_data.get("scale_warning")
+                    if scale_warn:
+                        if isinstance(scale_warn, dict):
+                            # Round40: 상세 정보 딕셔너리에 case_id 추가
+                            scale_warn_with_case = scale_warn.copy()
+                            scale_warn_with_case["case_id"] = case_id
+                            scale_warnings_detailed.append(scale_warn_with_case)
+                            # Backward compatibility: 문자열도 유지
+                            scale_warnings.append(f"SCALE_ASSUMED_MM_TO_M (max_abs={scale_warn.get('max_abs', 0):.2f})")
+                        else:
+                            # Backward compatibility: 문자열인 경우
+                            scale_warnings.append(scale_warn)
             else:
                 # Backward compatibility: old format (just results dict)
                 all_results[case_id] = result_data
@@ -955,6 +980,25 @@ def main():
         # Re-count after filling
         skip_reasons_count = len(logged_case_ids)
         
+        # Round40: has_mesh_path_null 집계
+        has_mesh_path_null_count = 0
+        skip_reasons_by_reason: Dict[str, int] = defaultdict(int)
+        
+        # Re-read skip_reasons.jsonl for detailed analysis
+        with open(skip_reasons_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    if record.get("has_mesh_path") is None:
+                        has_mesh_path_null_count += 1
+                    reason = record.get("reason", "unknown")
+                    skip_reasons_by_reason[reason] += 1
+                except json.JSONDecodeError:
+                    continue
+        
         # Check has_mesh_path_true count (expected: 5 for proxy cases)
         expected_has_mesh_path_true = 5
         if has_mesh_path_true_count != expected_has_mesh_path_true:
@@ -963,21 +1007,66 @@ def main():
         
         print(f"[SKIP REASONS] Logged {skip_reasons_count} skip reason records to {skip_reasons_file}")
         print(f"[SKIP REASONS] has_mesh_path=true: {has_mesh_path_true_count} (expected: {expected_has_mesh_path_true})")
+        print(f"[SKIP REASONS] has_mesh_path=null: {has_mesh_path_null_count}")
         
         # Final invariant check
         if skip_reasons_count == expected_count:
-            print(f"[INVARIANT] ✓ Records invariant satisfied: {skip_reasons_count} == {expected_count}")
+            print(f"[INVARIANT] OK Records invariant satisfied: {skip_reasons_count} == {expected_count}")
         else:
             print(f"[WARN] Records invariant still violated: {skip_reasons_count} != {expected_count}")
     else:
         print(f"[WARN] skip_reasons.jsonl file not found after processing!")
+        has_mesh_path_true_count = 0
+        has_mesh_path_null_count = 0
+        skip_reasons_by_reason = {}
     
     # Generate facts summary (similar to run_geo_v0_facts_round1.py)
     summary: Dict[str, Any] = defaultdict(dict)
     # Round36: Collect circ_debug info for circumference keys
     circ_debug_by_key: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    # Round40: Round41 대비 관측가능성 지표 (best-effort)
+    per_case_debug: Dict[str, Dict[str, Any]] = {}
+    debug_collection_failed_reasons: List[str] = []
     
     for case_id, results in all_results.items():
+        # Round40: per-case debug 지표 수집 (best-effort, 실패해도 계속 진행)
+        try:
+            case_debug = {}
+            # 슬라이스 단면 컴포넌트 수, centroid 거리, 면적 등 수집 시도
+            # (metadata의 debug_info에서 추출 가능한 정보 활용)
+            for key, result in results.items():
+                if result.metadata and "debug_info" in result.metadata:
+                    debug_info = result.metadata["debug_info"]
+                    if key in CIRCUMFERENCE_KEYS and "circ_debug" in debug_info:
+                        circ_debug = debug_info["circ_debug"]
+                        # 슬라이스 관련 정보 추출 시도
+                        if "slice_index" in circ_debug:
+                            case_debug[f"{key}_slice_index"] = circ_debug.get("slice_index")
+                        if "vertices_2d" in circ_debug:
+                            vertices_2d = circ_debug["vertices_2d"]
+                            if isinstance(vertices_2d, (list, np.ndarray)) and len(vertices_2d) > 0:
+                                # 컴포넌트 수 (연결된 컴포넌트 수는 단순화하여 점 개수로 대체)
+                                case_debug[f"{key}_component_points"] = len(vertices_2d)
+                                # Centroid 거리 (가능하면)
+                                try:
+                                    centroid = np.mean(vertices_2d, axis=0)
+                                    origin_dist = np.linalg.norm(centroid)
+                                    case_debug[f"{key}_centroid_dist"] = float(origin_dist)
+                                except:
+                                    pass
+                                # 면적 (가능하면, convex hull 기반)
+                                try:
+                                    from scipy.spatial import ConvexHull
+                                    if len(vertices_2d) >= 3:
+                                        hull = ConvexHull(vertices_2d)
+                                        case_debug[f"{key}_area"] = float(hull.volume)  # 2D면 volume이 면적
+                                except:
+                                    pass
+            if case_debug:
+                per_case_debug[case_id] = case_debug
+        except Exception as e:
+            debug_collection_failed_reasons.append(f"{case_id}: {str(e)}")
+        
         for key, result in results.items():
             if key not in summary:
                 summary[key] = {
@@ -1043,6 +1132,16 @@ def main():
         facts_summary["summary"] = {}
     facts_summary["summary"]["valid_cases"] = len(all_results)  # processed_cases와 동일
     
+    # Round40: Coverage 사실 기록 강화 (top-level)
+    if skip_reasons_file.exists():
+        facts_summary["has_mesh_path_true"] = has_mesh_path_true_count
+        facts_summary["has_mesh_path_null"] = has_mesh_path_null_count
+        facts_summary["skip_reasons"] = dict(skip_reasons_by_reason)
+    else:
+        facts_summary["has_mesh_path_true"] = 0
+        facts_summary["has_mesh_path_null"] = 0
+        facts_summary["skip_reasons"] = {}
+    
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
     if npz_path:
@@ -1057,9 +1156,16 @@ def main():
         facts_summary["npz_has_verts"] = False
         facts_summary["missing_key"] = "verts"  # verts가 없으면
     
-    # Round34: scale_warnings 추가 (있으면)
+    # Round34: scale_warnings 추가 (있으면) - backward compatibility
     if scale_warnings:
         facts_summary["scale_warnings"] = list(set(scale_warnings))  # Unique warnings
+    
+    # Round40: scale_warnings_detailed 추가 (Top-K 20)
+    if scale_warnings_detailed:
+        # Top-K 20으로 제한 (max_abs 기준 내림차순 정렬)
+        sorted_warnings = sorted(scale_warnings_detailed, key=lambda x: x.get("max_abs", 0), reverse=True)
+        facts_summary["scale_warnings_detailed"] = sorted_warnings[:20]
+        facts_summary["scale_warnings_total_count"] = len(scale_warnings_detailed)
     
     # Round36: Add circ_debug info for circumference keys
     if circ_debug_by_key:
@@ -1070,6 +1176,14 @@ def main():
                 facts_summary["circ_debug"][key] = debug_list[0]  # First processed case
                 # Also store count for reference
                 facts_summary["circ_debug"][key]["sample_count"] = len(debug_list)
+    
+    # Round40: Round41 대비 관측가능성 지표 추가 (best-effort)
+    if per_case_debug:
+        facts_summary["per_case_debug"] = per_case_debug
+        facts_summary["per_case_debug_count"] = len(per_case_debug)
+    if debug_collection_failed_reasons:
+        facts_summary["per_case_debug_failed_reasons"] = debug_collection_failed_reasons[:10]  # Top 10만
+        facts_summary["per_case_debug_failed_count"] = len(debug_collection_failed_reasons)
     
     facts_summary_path = out_dir / "facts_summary.json"
     with open(facts_summary_path, 'w', encoding='utf-8') as f:
