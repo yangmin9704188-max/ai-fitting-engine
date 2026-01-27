@@ -273,9 +273,29 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     
     # WAIST group: Use shared slice (CIRC, WIDTH, DEPTH)
     try:
-        waist_results = measure_waist_group_with_shared_slice(verts)
+        waist_results = measure_waist_group_with_shared_slice(verts, case_id=case_id)
         results.update(waist_results)
     except Exception as e:
+        # Round52: Classify exception into sub-codes and record fingerprint
+        exception_type = e.__class__.__name__
+        exception_message = str(e)
+        
+        # Round52: Classify into sub-codes
+        exec_fail_subcode = "UNHANDLED_EXCEPTION"
+        if "empty" in exception_message.lower() or "slice" in exception_message.lower() and "empty" in exception_message.lower():
+            exec_fail_subcode = "SLICE_EMPTY"
+        elif "too few" in exception_message.lower() or "points" in exception_message.lower() and ("<" in exception_message or "few" in exception_message.lower()):
+            exec_fail_subcode = "TOO_FEW_POINTS"
+        elif "numeric" in exception_message.lower() or "nan" in exception_message.lower() or "inf" in exception_message.lower():
+            exec_fail_subcode = "NUMERIC_ERROR"
+        elif exception_type in ["ValueError", "TypeError", "IndexError"]:
+            exec_fail_subcode = "NUMERIC_ERROR"
+        
+        # Round52: Compute stable short hash fingerprint
+        import hashlib
+        fingerprint_input = f"{exception_type}:{exception_message[:200]}"  # Limit message length
+        fingerprint_hash = hashlib.md5(fingerprint_input.encode('utf-8')).hexdigest()[:8]
+        
         for key in ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M"]:
             results[key] = MeasurementResult(
                 standard_key=key,
@@ -285,16 +305,40 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                     "value_m": float('nan'),
                     "unit": "m",
                     "precision": 0.001,
-                    "warnings": [f"EXEC_FAIL: {str(e)}"],
-                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
+                    "warnings": [f"EXEC_FAIL:{exec_fail_subcode}"],
+                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"},
+                    # Round52: Add exception taxonomy
+                    "exec_fail_subcode": exec_fail_subcode,
+                    "exception_type": exception_type,
+                    "exception_fingerprint": fingerprint_hash
                 }
             )
     
     # HIP group: Use shared slice (CIRC, WIDTH, DEPTH)
     try:
-        hip_results = measure_hip_group_with_shared_slice(verts)
+        hip_results = measure_hip_group_with_shared_slice(verts, case_id=case_id)
         results.update(hip_results)
     except Exception as e:
+        # Round52: Classify exception into sub-codes and record fingerprint
+        exception_type = e.__class__.__name__
+        exception_message = str(e)
+        
+        # Round52: Classify into sub-codes
+        exec_fail_subcode = "UNHANDLED_EXCEPTION"
+        if "empty" in exception_message.lower() or "slice" in exception_message.lower() and "empty" in exception_message.lower():
+            exec_fail_subcode = "SLICE_EMPTY"
+        elif "too few" in exception_message.lower() or "points" in exception_message.lower() and ("<" in exception_message or "few" in exception_message.lower()):
+            exec_fail_subcode = "TOO_FEW_POINTS"
+        elif "numeric" in exception_message.lower() or "nan" in exception_message.lower() or "inf" in exception_message.lower():
+            exec_fail_subcode = "NUMERIC_ERROR"
+        elif exception_type in ["ValueError", "TypeError", "IndexError"]:
+            exec_fail_subcode = "NUMERIC_ERROR"
+        
+        # Round52: Compute stable short hash fingerprint
+        import hashlib
+        fingerprint_input = f"{exception_type}:{exception_message[:200]}"  # Limit message length
+        fingerprint_hash = hashlib.md5(fingerprint_input.encode('utf-8')).hexdigest()[:8]
+        
         for key in ["HIP_CIRC_M", "HIP_WIDTH_M", "HIP_DEPTH_M"]:
             results[key] = MeasurementResult(
                 standard_key=key,
@@ -304,8 +348,12 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                     "value_m": float('nan'),
                     "unit": "m",
                     "precision": 0.001,
-                    "warnings": [f"EXEC_FAIL: {str(e)}"],
-                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
+                    "warnings": [f"EXEC_FAIL:{exec_fail_subcode}"],
+                    "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"},
+                    # Round52: Add exception taxonomy
+                    "exec_fail_subcode": exec_fail_subcode,
+                    "exception_type": exception_type,
+                    "exception_fingerprint": fingerprint_hash
                 }
             )
     
@@ -1079,6 +1127,10 @@ def main():
     # Round51: Key-level failure reason tracking for WAIST/HIP NaN regression
     KEY_FAILURE_TRACK_KEYS = ["WAIST_CIRC_M", "WAIST_WIDTH_M", "WAIST_DEPTH_M", "HIP_CIRC_M", "HIP_WIDTH_M"]
     key_failure_reasons: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # Round52: EXEC_FAIL breakdown and exception fingerprinting
+    key_exec_fail_breakdown: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    key_exception_type: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    key_exception_fingerprint: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     # Round40: Round41 대비 관측가능성 지표 (best-effort)
     per_case_debug: Dict[str, Dict[str, Any]] = {}
     debug_collection_failed_reasons: List[str] = []
@@ -1137,18 +1189,31 @@ def main():
             value = result.value_m
             if np.isnan(value) or not np.isfinite(value):
                 s["nan_count"] += 1
-                # Round51: Record failure reason for NaN keys (WAIST/HIP)
+                # Round51/52: Record failure reason for NaN keys (WAIST/HIP)
                 if key in KEY_FAILURE_TRACK_KEYS:
                     failure_reason = "UNKNOWN"
+                    exec_fail_subcode = None
+                    exception_type = None
+                    exception_fingerprint = None
+                    
                     # Try to extract failure reason from metadata
                     if result.metadata:
+                        # Round52: Extract EXEC_FAIL sub-code and exception info
+                        exec_fail_subcode = result.metadata.get("exec_fail_subcode")
+                        exception_type = result.metadata.get("exception_type")
+                        exception_fingerprint = result.metadata.get("exception_fingerprint")
+                        
                         warnings = result.metadata.get("warnings", [])
                         if warnings:
                             # Extract first meaningful warning as failure reason
                             for warning in warnings:
                                 if isinstance(warning, str):
-                                    # Extract base reason code (before colon)
-                                    if ":" in warning:
+                                    # Round52: Handle EXEC_FAIL:SUBCODE format
+                                    if warning.startswith("EXEC_FAIL:"):
+                                        failure_reason = "EXEC_FAIL"
+                                        if exec_fail_subcode is None:
+                                            exec_fail_subcode = warning.split(":", 1)[1] if ":" in warning else "UNHANDLED_EXCEPTION"
+                                    elif ":" in warning:
                                         failure_reason = warning.split(":")[0]
                                     else:
                                         failure_reason = warning
@@ -1159,7 +1224,17 @@ def main():
                             failure_reason = debug_info["reason_not_found"]
                         elif "failure_reason" in debug_info:
                             failure_reason = debug_info["failure_reason"]
+                    
+                    # Round51: Aggregate failure reason
                     key_failure_reasons[key][failure_reason] += 1
+                    
+                    # Round52: Aggregate EXEC_FAIL breakdown
+                    if failure_reason == "EXEC_FAIL" and exec_fail_subcode:
+                        key_exec_fail_breakdown[key][exec_fail_subcode] += 1
+                    if exception_type:
+                        key_exception_type[key][exception_type] += 1
+                    if exception_fingerprint:
+                        key_exception_fingerprint[key][exception_fingerprint] += 1
             else:
                 s["values"].append(float(value))
             
@@ -1678,6 +1753,36 @@ def main():
             sorted_reasons = sorted(reasons.items(), key=lambda x: x[1], reverse=True)
             key_failure_reasons_topk[key] = dict(sorted_reasons[:5])
         facts_summary["key_failure_reasons_topk"] = key_failure_reasons_topk
+    
+    # Round52: EXEC_FAIL breakdown aggregation
+    if key_exec_fail_breakdown:
+        key_exec_fail_breakdown_topk: Dict[str, Dict[str, int]] = {}
+        for key in key_exec_fail_breakdown:
+            breakdown = key_exec_fail_breakdown[key]
+            # Sort by count descending and take top 5
+            sorted_breakdown = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
+            key_exec_fail_breakdown_topk[key] = dict(sorted_breakdown[:5])
+        facts_summary["key_exec_fail_breakdown_topk"] = key_exec_fail_breakdown_topk
+    
+    # Round52: Exception type aggregation
+    if key_exception_type:
+        key_exception_type_topk: Dict[str, Dict[str, int]] = {}
+        for key in key_exception_type:
+            types = key_exception_type[key]
+            # Sort by count descending and take top 5
+            sorted_types = sorted(types.items(), key=lambda x: x[1], reverse=True)
+            key_exception_type_topk[key] = dict(sorted_types[:5])
+        facts_summary["key_exception_type_topk"] = key_exception_type_topk
+    
+    # Round52: Exception fingerprint aggregation
+    if key_exception_fingerprint:
+        key_exception_fingerprint_topk: Dict[str, Dict[str, int]] = {}
+        for key in key_exception_fingerprint:
+            fingerprints = key_exception_fingerprint[key]
+            # Sort by count descending and take top 5
+            sorted_fingerprints = sorted(fingerprints.items(), key=lambda x: x[1], reverse=True)
+            key_exception_fingerprint_topk[key] = dict(sorted_fingerprints[:5])
+        facts_summary["key_exception_fingerprint_topk"] = key_exception_fingerprint_topk
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}
