@@ -310,11 +310,40 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
             )
     
     # Circumference keys
+    # Round41: Torso keys for torso-only analysis
+    TORSO_CIRC_KEYS = ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
+    
     for key in CIRCUMFERENCE_KEYS:
         if key not in results:
             try:
                 result = measure_circumference_v0_with_metadata(verts, key)
                 results[key] = result
+                
+                # Round41: Extract torso-only circumference for torso keys
+                if key in TORSO_CIRC_KEYS:
+                    torso_key = key.replace("_CIRC_M", "_CIRC_TORSO_M")
+                    torso_perimeter = None
+                    torso_warning = None
+                    
+                    if result.metadata and "debug_info" in result.metadata:
+                        debug_info = result.metadata["debug_info"]
+                        if "torso_components" in debug_info:
+                            torso_info = debug_info["torso_components"]
+                            if torso_info.get("torso_selected") and torso_info.get("torso_perimeter") is not None:
+                                torso_perimeter = torso_info["torso_perimeter"]
+                            else:
+                                torso_warning = "torso_component_selection_failed"
+                    
+                    # Create torso-only result
+                    torso_metadata = result.metadata.copy() if result.metadata else {}
+                    if torso_warning:
+                        torso_metadata.setdefault("warnings", []).append(torso_warning)
+                    
+                    results[torso_key] = MeasurementResult(
+                        standard_key=torso_key,
+                        value_m=torso_perimeter if torso_perimeter is not None else float('nan'),
+                        metadata=torso_metadata
+                    )
             except Exception as e:
                 results[key] = MeasurementResult(
                     standard_key=key,
@@ -328,6 +357,21 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                         "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
                     }
                 )
+                # Round41: Also create NaN torso result on failure
+                if key in TORSO_CIRC_KEYS:
+                    torso_key = key.replace("_CIRC_M", "_CIRC_TORSO_M")
+                    results[torso_key] = MeasurementResult(
+                        standard_key=torso_key,
+                        value_m=float('nan'),
+                        metadata={
+                            "standard_key": torso_key,
+                            "value_m": float('nan'),
+                            "unit": "m",
+                            "precision": 0.001,
+                            "warnings": [f"EXEC_FAIL: {str(e)}"],
+                            "version": {"semantic_tag": "semantic-v0", "schema_version": "metadata-schema-v0"}
+                        }
+                    )
     
     # Width/Depth keys
     for key in WIDTH_DEPTH_KEYS:
@@ -1184,6 +1228,75 @@ def main():
     if debug_collection_failed_reasons:
         facts_summary["per_case_debug_failed_reasons"] = debug_collection_failed_reasons[:10]  # Top 10만
         facts_summary["per_case_debug_failed_count"] = len(debug_collection_failed_reasons)
+    
+    # Round41: full vs torso-only delta 통계
+    torso_delta_stats: Dict[str, Dict[str, Any]] = {}
+    TORSO_CIRC_KEYS = ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
+    
+    for full_key in TORSO_CIRC_KEYS:
+        torso_key = full_key.replace("_CIRC_M", "_CIRC_TORSO_M")
+        
+        if full_key in summary and torso_key in summary:
+            full_values = summary[full_key].get("values", [])
+            torso_values = summary[torso_key].get("values", [])
+            
+            # Compute deltas for cases where both are valid
+            deltas = []
+            deltas_abs = []
+            deltas_pct = []
+            
+            # Match by case_id
+            for case_id, results in all_results.items():
+                if full_key in results and torso_key in results:
+                    full_val = results[full_key].value_m
+                    torso_val = results[torso_key].value_m
+                    
+                    if not (np.isnan(full_val) or not np.isfinite(full_val)) and \
+                       not (np.isnan(torso_val) or not np.isfinite(torso_val)):
+                        delta = torso_val - full_val
+                        delta_abs = abs(delta)
+                        delta_pct = (delta / full_val * 100) if full_val != 0 else float('nan')
+                        
+                        deltas.append(float(delta))
+                        deltas_abs.append(float(delta_abs))
+                        if not np.isnan(delta_pct):
+                            deltas_pct.append(float(delta_pct))
+            
+            if deltas:
+                torso_delta_stats[full_key] = {
+                    "n_valid_pairs": len(deltas),
+                    "delta_stats": {
+                        "min": float(np.min(deltas)),
+                        "max": float(np.max(deltas)),
+                        "median": float(np.median(deltas)),
+                        "mean": float(np.mean(deltas)),
+                        "p50": float(np.percentile(deltas, 50)),
+                        "p90": float(np.percentile(deltas, 90)),
+                        "p95": float(np.percentile(deltas, 95)),
+                    },
+                    "delta_abs_stats": {
+                        "min": float(np.min(deltas_abs)),
+                        "max": float(np.max(deltas_abs)),
+                        "median": float(np.median(deltas_abs)),
+                        "mean": float(np.mean(deltas_abs)),
+                        "p50": float(np.percentile(deltas_abs, 50)),
+                        "p90": float(np.percentile(deltas_abs, 90)),
+                        "p95": float(np.percentile(deltas_abs, 95)),
+                    }
+                }
+                if deltas_pct:
+                    torso_delta_stats[full_key]["delta_pct_stats"] = {
+                        "min": float(np.min(deltas_pct)),
+                        "max": float(np.max(deltas_pct)),
+                        "median": float(np.median(deltas_pct)),
+                        "mean": float(np.mean(deltas_pct)),
+                        "p50": float(np.percentile(deltas_pct, 50)),
+                        "p90": float(np.percentile(deltas_pct, 90)),
+                        "p95": float(np.percentile(deltas_pct, 95)),
+                    }
+    
+    if torso_delta_stats:
+        facts_summary["torso_delta_stats"] = torso_delta_stats
     
     facts_summary_path = out_dir / "facts_summary.json"
     with open(facts_summary_path, 'w', encoding='utf-8') as f:

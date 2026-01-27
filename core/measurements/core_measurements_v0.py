@@ -445,6 +445,145 @@ def _find_nearest_valid_plane(
     return None, None, None
 
 
+def _find_connected_components_2d(
+    vertices_2d: np.ndarray,
+    connectivity_threshold: float = 0.01
+) -> List[np.ndarray]:
+    """
+    Round41: Find connected components in 2D point cloud.
+    Uses distance-based connectivity: points within threshold are connected.
+    
+    Returns:
+        List of component arrays, each is (N_i, 2) subset of vertices_2d
+    """
+    if vertices_2d.shape[0] < 3:
+        return []
+    
+    n = vertices_2d.shape[0]
+    visited = np.zeros(n, dtype=bool)
+    components = []
+    
+    for i in range(n):
+        if visited[i]:
+            continue
+        
+        # BFS to find all connected points
+        component_indices = []
+        queue = [i]
+        visited[i] = True
+        
+        while queue:
+            current = queue.pop(0)
+            component_indices.append(current)
+            
+            # Find neighbors within threshold
+            distances = np.linalg.norm(vertices_2d - vertices_2d[current], axis=1)
+            neighbors = np.where((distances < connectivity_threshold) & (~visited))[0]
+            
+            for neighbor in neighbors:
+                visited[neighbor] = True
+                queue.append(neighbor)
+        
+        if len(component_indices) >= 3:  # Minimum 3 points for a valid component
+            components.append(vertices_2d[component_indices])
+    
+    return components
+
+
+def _compute_component_stats(
+    component: np.ndarray,
+    body_center_2d: np.ndarray
+) -> Dict[str, Any]:
+    """
+    Round41: Compute statistics for a connected component.
+    
+    Returns:
+        Dict with: area, perimeter, centroid, dist_to_body_center
+    """
+    stats = {}
+    
+    # Centroid
+    centroid = np.mean(component, axis=0)
+    stats["centroid"] = [float(centroid[0]), float(centroid[1])]
+    
+    # Distance to body center
+    dist_to_body_center = np.linalg.norm(centroid - body_center_2d)
+    stats["dist_to_body_center"] = float(dist_to_body_center)
+    
+    # Perimeter (using convex hull for stability)
+    perimeter = _compute_perimeter(component)
+    stats["perimeter"] = float(perimeter) if perimeter is not None else float('nan')
+    
+    # Area (using convex hull)
+    try:
+        from scipy.spatial import ConvexHull
+        if len(component) >= 3:
+            hull = ConvexHull(component)
+            stats["area"] = float(hull.volume)  # 2D: volume is area
+        else:
+            stats["area"] = float('nan')
+    except ImportError:
+        # Fallback: approximate area using bounding box
+        bbox_area = (np.max(component[:, 0]) - np.min(component[:, 0])) * \
+                    (np.max(component[:, 1]) - np.min(component[:, 1]))
+        stats["area"] = float(bbox_area)
+    except Exception:
+        stats["area"] = float('nan')
+    
+    return stats
+
+
+def _select_torso_component(
+    components: List[np.ndarray],
+    body_center_2d: np.ndarray,
+    warnings: List[str]
+) -> tuple[Optional[np.ndarray], Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Round41: Select torso-only component using deterministic rules.
+    
+    Rules:
+    1. dist_to_body_center 최소 우선
+    2. tie-breaker: area 최대
+    
+    Returns:
+        (selected_component or None, component_stats or None, warning_reason or None)
+    """
+    if len(components) == 0:
+        return None, None, "no_components"
+    
+    if len(components) == 1:
+        # Single component: use it
+        stats = _compute_component_stats(components[0], body_center_2d)
+        return components[0], stats, None
+    
+    # Multiple components: select by rules
+    component_stats_list = []
+    for comp in components:
+        stats = _compute_component_stats(comp, body_center_2d)
+        component_stats_list.append((comp, stats))
+    
+    # Sort by dist_to_body_center (ascending), then by area (descending)
+    component_stats_list.sort(
+        key=lambda x: (
+            x[1]["dist_to_body_center"] if not np.isnan(x[1]["dist_to_body_center"]) else float('inf'),
+            -x[1]["area"] if not np.isnan(x[1]["area"]) else float('inf')
+        )
+    )
+    
+    selected_comp, selected_stats = component_stats_list[0]
+    
+    # Check if selection is ambiguous
+    if len(component_stats_list) > 1:
+        second_comp, second_stats = component_stats_list[1]
+        if abs(selected_stats["dist_to_body_center"] - second_stats["dist_to_body_center"]) < 1e-6:
+            # Same distance: check if area tie-breaker was needed
+            if abs(selected_stats["area"] - second_stats["area"]) < 1e-6:
+                warnings.append(f"TORSO_SELECTION_AMBIGUOUS: multiple components with same dist and area")
+                return None, None, "ambiguous_selection"
+    
+    return selected_comp, selected_stats, None
+
+
 def _compute_circumference_at_height(
     verts: np.ndarray,
     y_value: float,
@@ -453,8 +592,13 @@ def _compute_circumference_at_height(
     y_min: Optional[float] = None,
     y_max: Optional[float] = None,
     return_debug: bool = False,
+    return_torso_components: bool = False,  # Round41: Enable torso-only analysis
 ) -> tuple[Optional[float], Optional[Dict[str, Any]]]:
-    """Compute circumference at given height. Returns (perimeter or None, debug_info or None)."""
+    """
+    Compute circumference at given height. Returns (perimeter or None, debug_info or None).
+    
+    Round41: If return_torso_components=True, also analyzes connected components and selects torso-only.
+    """
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
@@ -466,15 +610,53 @@ def _compute_circumference_at_height(
         vertices_2d = vertices_2d[::stride]
         warnings.append(f"DOWNSAMPLED: {vertices_2d.shape[0]} points (stride={stride})")
     
+    # Round41: Compute body center (2D projection of body center)
+    body_center_3d = np.mean(verts, axis=0)
+    body_center_2d = np.array([body_center_3d[0], body_center_3d[2]])  # x, z
+    
+    # Round41: Find connected components if requested
+    torso_component = None
+    torso_stats = None
+    all_components_stats = []
+    if return_torso_components:
+        components = _find_connected_components_2d(vertices_2d, connectivity_threshold=0.01)
+        if len(components) > 0:
+            all_components_stats = [_compute_component_stats(comp, body_center_2d) for comp in components]
+            torso_component, torso_stats, torso_warning = _select_torso_component(components, body_center_2d, warnings)
+            if torso_warning:
+                warnings.append(f"TORSO_COMPONENT_SELECTION_FAILED: {torso_warning}")
+    
     # Round36: Get perimeter with debug info if requested
     if return_debug:
         perimeter, perimeter_debug = _compute_perimeter(vertices_2d, return_debug=True)
         if debug_info and perimeter_debug:
             # Merge perimeter debug into cross-section debug
             debug_info.update(perimeter_debug)
+        
+        # Round41: Add torso component info to debug
+        if return_torso_components:
+            debug_info["torso_components"] = {
+                "n_components": len(all_components_stats),
+                "all_components": all_components_stats,
+                "torso_selected": torso_stats is not None,
+                "torso_stats": torso_stats,
+                "torso_perimeter": float(torso_stats["perimeter"]) if torso_stats and not np.isnan(torso_stats["perimeter"]) else None
+            }
+        
         return perimeter, debug_info
     else:
         perimeter = _compute_perimeter(vertices_2d)
+        
+        # Round41: Also compute torso perimeter if requested
+        if return_torso_components and torso_component is not None:
+            torso_perimeter = _compute_perimeter(torso_component)
+            if debug_info:
+                debug_info["torso_components"] = {
+                    "n_components": len(all_components_stats),
+                    "torso_selected": True,
+                    "torso_perimeter": float(torso_perimeter) if torso_perimeter is not None else None
+                }
+        
         return perimeter, debug_info
 
 
@@ -1273,8 +1455,14 @@ def measure_circumference_v0_with_metadata(
         selected = min(candidates, key=lambda c: abs(c["perimeter"] - median_perimeter))
     
     # Round37: Re-compute selected candidate with debug enabled to get full debug info (new method)
+    # Round41: Also compute torso-only analysis for torso keys
     selected_y_value = selected["y_value"]
-    perimeter_new, selected_debug_full = _compute_circumference_at_height(verts, selected_y_value, tolerance, warnings, y_min, y_max, return_debug=True)
+    is_torso_key = standard_key in ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
+    perimeter_new, selected_debug_full = _compute_circumference_at_height(
+        verts, selected_y_value, tolerance, warnings, y_min, y_max, 
+        return_debug=True, 
+        return_torso_components=is_torso_key
+    )
     
     # Round37: Store old perimeter as raw (before path fix)
     perimeter_raw = selected["perimeter"]  # Old method result
@@ -1337,6 +1525,19 @@ def measure_circumference_v0_with_metadata(
         reason_codes.append("OTHER")
     circ_debug["reason"] = reason_codes[0] if len(reason_codes) == 1 else "MIXED"
     
+    # Round41: Extract torso components info if available
+    torso_info = None
+    if is_torso_key and selected_debug_full and "torso_components" in selected_debug_full:
+        torso_components_data = selected_debug_full["torso_components"]
+        if torso_components_data.get("torso_selected"):
+            torso_info = {
+                "torso_perimeter": torso_components_data.get("torso_perimeter"),
+                "full_perimeter": value_m,
+                "n_components": torso_components_data.get("n_components", 0),
+                "torso_stats": torso_components_data.get("torso_stats"),
+                "all_components": torso_components_data.get("all_components", [])
+            }
+    
     # Create metadata with debug info
     debug_info = {
         "body_axis": {
@@ -1352,6 +1553,10 @@ def measure_circumference_v0_with_metadata(
         # Round36: Add circ_debug to metadata for runner to extract
         "circ_debug": circ_debug
     }
+    
+    # Round41: Add torso info to debug_info
+    if torso_info:
+        debug_info["torso_components"] = torso_info
     metadata = create_metadata_v0(
         standard_key=standard_key,
         value_m=value_m,
