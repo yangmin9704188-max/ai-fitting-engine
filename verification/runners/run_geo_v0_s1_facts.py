@@ -1602,6 +1602,39 @@ def main():
     else:
         # Round54: Always emit empty dict to avoid missing key confusion
         facts_summary["alpha_fail_reasons_topk"] = {}
+    
+    # Round55: Too few points diagnostics aggregation
+    too_few_points_diagnostics_list = []
+    for case_id, results in all_results.items():
+        for full_key in TORSO_CIRC_KEYS:
+            if full_key in results:
+                full_result = results[full_key]
+                debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
+                if full_result.metadata and debug_info and "torso_components" in debug_info:
+                    torso_info = debug_info["torso_components"]
+                    # Check if this case had TOO_FEW_POINTS failure
+                    if torso_info.get("alpha_fail_reason") == "ALPHA_FAIL:TOO_FEW_POINTS":
+                        too_few_diag = torso_info.get("too_few_points_diagnostics")
+                        if too_few_diag:
+                            too_few_points_diagnostics_list.append(too_few_diag)
+    
+    # Round55: Aggregate too_few_points_diagnostics_summary
+    if too_few_points_diagnostics_list:
+        too_few_points_summary: Dict[str, Dict[str, float]] = {}
+        for field in ["n_slice_points_raw", "n_slice_points_after_dedupe", "slice_thickness_used", "slice_plane_level"]:
+            values = [d.get(field) for d in too_few_points_diagnostics_list if d.get(field) is not None]
+            if values:
+                too_few_points_summary[field] = {
+                    "min": float(np.min(values)),
+                    "p50": float(np.percentile(values, 50)),
+                    "p95": float(np.percentile(values, 95)),
+                    "max": float(np.max(values)),
+                    "count": len(values)
+                }
+        facts_summary["too_few_points_diagnostics_summary"] = too_few_points_summary
+    else:
+        # Round55: Always emit empty dict to avoid missing key confusion
+        facts_summary["too_few_points_diagnostics_summary"] = {}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:

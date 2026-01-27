@@ -494,6 +494,46 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     return float(perimeter_final)
 
 
+def _compute_tolerance_from_mesh_scale(verts: np.ndarray, base_tolerance: float) -> float:
+    """
+    Round55: Compute tolerance based on mesh scale/edge length.
+    
+    Args:
+        verts: Mesh vertices (N, 3)
+        base_tolerance: Original tolerance value (fallback)
+    
+    Returns:
+        Adjusted tolerance based on mesh scale
+    """
+    if verts.shape[0] < 3:
+        return base_tolerance
+    
+    try:
+        # Compute mesh bounding box
+        bbox_min = np.min(verts, axis=0)
+        bbox_max = np.max(verts, axis=0)
+        bbox_size = bbox_max - bbox_min
+        
+        # Estimate edge length from mesh scale (use median of bbox dimensions)
+        # This gives a rough estimate of mesh resolution
+        median_dimension = np.median(bbox_size[bbox_size > 0])
+        
+        # Use a fraction of median dimension as tolerance (e.g., 0.1% to 1%)
+        # This ensures tolerance scales with mesh size
+        scale_based_tolerance = median_dimension * 0.002  # 0.2% of median dimension
+        
+        # Use the larger of scale-based or base tolerance (but not too large)
+        # Clamp to reasonable range: 1e-5 to 0.01 meters
+        adjusted_tolerance = max(scale_based_tolerance, base_tolerance)
+        adjusted_tolerance = min(adjusted_tolerance, 0.01)  # Max 1cm
+        adjusted_tolerance = max(adjusted_tolerance, 1e-5)  # Min 10 microns
+        
+        return float(adjusted_tolerance)
+    except Exception:
+        # Fallback to base tolerance on any error
+        return base_tolerance
+
+
 def _find_cross_section(
     verts: np.ndarray,
     y_value: float,
@@ -879,7 +919,14 @@ def _compute_circumference_at_height(
     Compute circumference at given height. Returns (perimeter or None, debug_info or None).
     
     Round41: If return_torso_components=True, also analyzes connected components and selects torso-only.
+    Round55: Adjust tolerance based on mesh scale for better slice point coverage.
     """
+    # Round55: Adjust tolerance based on mesh scale (geometry-based mitigation)
+    original_tolerance = tolerance
+    tolerance = _compute_tolerance_from_mesh_scale(verts, tolerance)
+    if tolerance != original_tolerance and warnings is not None:
+        warnings.append(f"SLICE_THICKNESS_ADJUSTED: {original_tolerance:.6f} -> {tolerance:.6f} m")
+    
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
@@ -986,6 +1033,11 @@ def _compute_circumference_at_height(
                             # Round48-A: Initialize method tracking (must be set to one of: alpha_shape, cluster_trim, single_component_fallback)
                             torso_method_used = None
                             
+                            # Round55: Capture diagnostics for TOO_FEW_POINTS (before alpha_shape attempt)
+                            # Store slice diagnostics that will be used if TOO_FEW_POINTS occurs
+                            n_slice_points_raw = vertices_2d.shape[0] if vertices_2d is not None else 0
+                            n_slice_points_after_dedupe = single_comp.shape[0]
+                            
                             # Option A: alpha-shape-like concave boundary
                             # Round50: Deterministic k assignment via hash(case_id) % 3
                             # Round54: Track alpha failure reasons
@@ -1013,10 +1065,20 @@ def _compute_circumference_at_height(
                                         alpha_fail_reason = "ALPHA_FAIL:EMPTY_LOOP"
                                 else:
                                     # Round54: Boundary extraction failed
+                                    # Round55: Record diagnostics for TOO_FEW_POINTS
                                     if alpha_boundary is None:
                                         alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
                                     elif len(alpha_boundary) < 3:
                                         alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
+                                    
+                                    # Round55: Capture diagnostics when TOO_FEW_POINTS occurs
+                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_POINTS" and torso_diagnostics is not None:
+                                        torso_diagnostics["too_few_points_diagnostics"] = {
+                                            "n_slice_points_raw": int(n_slice_points_raw),
+                                            "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                            "slice_thickness_used": float(tolerance),
+                                            "slice_plane_level": float(y_value)
+                                        }
                             except Exception as e:
                                 # Round54: Exception during alpha_shape computation
                                 alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
