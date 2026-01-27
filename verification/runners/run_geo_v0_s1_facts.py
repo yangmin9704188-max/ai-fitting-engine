@@ -1755,34 +1755,37 @@ def main():
         facts_summary["key_failure_reasons_topk"] = key_failure_reasons_topk
     
     # Round52: EXEC_FAIL breakdown aggregation
+    # Round53: Always emit empty sections to avoid "missing key" confusion
+    key_exec_fail_breakdown_topk: Dict[str, Dict[str, int]] = {}
     if key_exec_fail_breakdown:
-        key_exec_fail_breakdown_topk: Dict[str, Dict[str, int]] = {}
         for key in key_exec_fail_breakdown:
             breakdown = key_exec_fail_breakdown[key]
             # Sort by count descending and take top 5
             sorted_breakdown = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
             key_exec_fail_breakdown_topk[key] = dict(sorted_breakdown[:5])
-        facts_summary["key_exec_fail_breakdown_topk"] = key_exec_fail_breakdown_topk
+    facts_summary["key_exec_fail_breakdown_topk"] = key_exec_fail_breakdown_topk
     
     # Round52: Exception type aggregation
+    # Round53: Always emit empty sections to avoid "missing key" confusion
+    key_exception_type_topk: Dict[str, Dict[str, int]] = {}
     if key_exception_type:
-        key_exception_type_topk: Dict[str, Dict[str, int]] = {}
         for key in key_exception_type:
             types = key_exception_type[key]
             # Sort by count descending and take top 5
             sorted_types = sorted(types.items(), key=lambda x: x[1], reverse=True)
             key_exception_type_topk[key] = dict(sorted_types[:5])
-        facts_summary["key_exception_type_topk"] = key_exception_type_topk
+    facts_summary["key_exception_type_topk"] = key_exception_type_topk
     
     # Round52: Exception fingerprint aggregation
+    # Round53: Always emit empty sections to avoid "missing key" confusion
+    key_exception_fingerprint_topk: Dict[str, Dict[str, int]] = {}
     if key_exception_fingerprint:
-        key_exception_fingerprint_topk: Dict[str, Dict[str, int]] = {}
         for key in key_exception_fingerprint:
             fingerprints = key_exception_fingerprint[key]
             # Sort by count descending and take top 5
             sorted_fingerprints = sorted(fingerprints.items(), key=lambda x: x[1], reverse=True)
             key_exception_fingerprint_topk[key] = dict(sorted_fingerprints[:5])
-        facts_summary["key_exception_fingerprint_topk"] = key_exception_fingerprint_topk
+    facts_summary["key_exception_fingerprint_topk"] = key_exception_fingerprint_topk
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}

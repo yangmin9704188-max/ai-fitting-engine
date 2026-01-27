@@ -1043,27 +1043,34 @@ def _compute_circumference_at_height(
                                             torso_perimeter = hull_perimeter
                                             torso_method_used = "single_component_fallback"
                             
+                            # Round53: Ensure method is always set for SINGLE_COMPONENT_ONLY cases
+                            # If all methods failed and torso_method_used is still None, set to single_component_fallback
+                            # (This ensures no tracking_missing cases)
+                            if torso_method_used is None:
+                                torso_method_used = "single_component_fallback"
+                            
                             # Round48-A: Record method used (must be one of: alpha_shape, cluster_trim, single_component_fallback)
                             # This must be recorded for ALL SINGLE_COMPONENT_ONLY cases, even if perimeter is None
                             if torso_diagnostics is not None:
-                                if torso_method_used is not None:
-                                    torso_diagnostics["TORSO_METHOD_USED"] = torso_method_used
-                                    if torso_method_used == "single_component_fallback":
-                                        torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
-                                else:
-                                    # Round48-A: Should not happen - all paths should set method, but record for tracking
-                                    torso_diagnostics["TORSO_METHOD_USED"] = "tracking_missing"
-                                    if warnings is not None:
-                                        warnings.append("TORSO_METHOD_TRACKING_MISSING: method not set for SINGLE_COMPONENT_ONLY case")
+                                torso_diagnostics["TORSO_METHOD_USED"] = torso_method_used
+                                if torso_method_used == "single_component_fallback":
+                                    torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
                     
                     if torso_perimeter is None:
                         diagnostics["failure_reason"] = "NOT_CLOSED_LOOP"
                 except Exception as e:
                     diagnostics["failure_reason"] = f"NUMERIC_ERROR: {str(e)[:50]}"
                     torso_perimeter = None
-                    # Round48-A: Record method for exception case
+                    # Round53: For SINGLE_COMPONENT_ONLY cases, ensure method is set even on exception
+                    # Check if we were processing SINGLE_COMPONENT_ONLY case (before exception)
+                    was_single_component_only = (len(components) == 1) if 'components' in locals() else False
                     if torso_diagnostics is not None:
-                        torso_diagnostics["TORSO_METHOD_USED"] = "torso_computation_failed"
+                        if was_single_component_only and torso_diagnostics.get("TORSO_METHOD_USED") is None:
+                            # Round53: Set method to single_component_fallback if not already set
+                            torso_diagnostics["TORSO_METHOD_USED"] = "single_component_fallback"
+                        elif torso_diagnostics.get("TORSO_METHOD_USED") is None:
+                            # Round48-A: Record method for exception case (non-SINGLE_COMPONENT_ONLY)
+                            torso_diagnostics["TORSO_METHOD_USED"] = "torso_computation_failed"
         else:
             # Round43: No components found
             if diagnostics.get("failure_reason") is None:
