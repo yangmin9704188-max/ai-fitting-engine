@@ -1025,6 +1025,7 @@ def main():
         skip_reasons_count = len(logged_case_ids)
         
         # Round40: has_mesh_path_null 집계
+        # Round42: has_mesh_path_null은 manifest_path_is_null reason과 일치해야 함
         has_mesh_path_null_count = 0
         skip_reasons_by_reason: Dict[str, int] = defaultdict(int)
         
@@ -1036,10 +1037,11 @@ def main():
                     continue
                 try:
                     record = json.loads(line)
-                    if record.get("has_mesh_path") is None:
-                        has_mesh_path_null_count += 1
                     reason = record.get("reason", "unknown")
                     skip_reasons_by_reason[reason] += 1
+                    # Round42: manifest_path_is_null reason인 경우 has_mesh_path_null로 집계
+                    if reason == "manifest_path_is_null":
+                        has_mesh_path_null_count += 1
                 except json.JSONDecodeError:
                     continue
         
