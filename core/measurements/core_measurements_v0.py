@@ -447,16 +447,29 @@ def _find_nearest_valid_plane(
 
 def _find_connected_components_2d(
     vertices_2d: np.ndarray,
-    connectivity_threshold: float = 0.01
-) -> List[np.ndarray]:
+    connectivity_threshold: float = 0.01,
+    return_diagnostics: bool = False  # Round43: Enable diagnostics
+) -> List[np.ndarray] | tuple[List[np.ndarray], Dict[str, Any]]:
     """
     Round41: Find connected components in 2D point cloud.
+    Round43: Add diagnostics for observability.
     Uses distance-based connectivity: points within threshold are connected.
     
     Returns:
-        List of component arrays, each is (N_i, 2) subset of vertices_2d
+        List of component arrays, or (components, diagnostics) if return_diagnostics=True
     """
+    diagnostics = {
+        "n_intersection_points": vertices_2d.shape[0] if vertices_2d.shape[0] > 0 else 0,
+        "n_segments": 0,  # Will be computed
+        "n_components": 0,
+        "component_sizes": [],
+        "failure_reason": None
+    }
+    
     if vertices_2d.shape[0] < 3:
+        diagnostics["failure_reason"] = "TORSO_FAIL_NO_INTERSECTION"
+        if return_diagnostics:
+            return [], diagnostics
         return []
     
     n = vertices_2d.shape[0]
@@ -486,46 +499,97 @@ def _find_connected_components_2d(
         
         if len(component_indices) >= 3:  # Minimum 3 points for a valid component
             components.append(vertices_2d[component_indices])
+            diagnostics["component_sizes"].append(len(component_indices))
     
+    diagnostics["n_components"] = len(components)
+    # Round43: Estimate n_segments (approximate: sum of component sizes, assuming closed loops)
+    diagnostics["n_segments"] = sum(len(comp) for comp in components) if components else 0
+    
+    if len(components) == 0:
+        diagnostics["failure_reason"] = "EXTRACT_EMPTY"
+    elif len(components) == 1:
+        diagnostics["failure_reason"] = "SINGLE_COMPONENT_ONLY"
+    
+    if return_diagnostics:
+        return components, diagnostics
     return components
+
+
+def _order_component_points_for_loop(
+    component: np.ndarray
+) -> Optional[np.ndarray]:
+    """
+    Round43: Order component points to form a closed loop.
+    Uses polar angle sorting around centroid as a deterministic rule.
+    
+    Returns:
+        Ordered component array or None if ordering fails
+    """
+    if component.shape[0] < 3:
+        return None
+    
+    try:
+        # Compute centroid
+        centroid = np.mean(component, axis=0)
+        
+        # Compute polar angles
+        relative = component - centroid
+        angles = np.arctan2(relative[:, 1], relative[:, 0])
+        
+        # Sort by angle
+        sorted_indices = np.argsort(angles)
+        ordered_component = component[sorted_indices]
+        
+        return ordered_component
+    except Exception:
+        return None
 
 
 def _compute_component_stats(
     component: np.ndarray,
-    body_center_2d: np.ndarray
+    body_center_2d: np.ndarray,
+    try_ordering: bool = False  # Round43: Try to order points for closed loop
 ) -> Dict[str, Any]:
     """
     Round41: Compute statistics for a connected component.
+    Round43: Optionally order points for closed loop.
     
     Returns:
         Dict with: area, perimeter, centroid, dist_to_body_center
     """
     stats = {}
     
+    # Round43: Try to order points for closed loop if requested
+    component_to_use = component
+    if try_ordering:
+        ordered = _order_component_points_for_loop(component)
+        if ordered is not None:
+            component_to_use = ordered
+    
     # Centroid
-    centroid = np.mean(component, axis=0)
+    centroid = np.mean(component_to_use, axis=0)
     stats["centroid"] = [float(centroid[0]), float(centroid[1])]
     
     # Distance to body center
     dist_to_body_center = np.linalg.norm(centroid - body_center_2d)
     stats["dist_to_body_center"] = float(dist_to_body_center)
     
-    # Perimeter (using convex hull for stability)
-    perimeter = _compute_perimeter(component)
+    # Perimeter (using convex hull for stability, but try ordered if available)
+    perimeter = _compute_perimeter(component_to_use)
     stats["perimeter"] = float(perimeter) if perimeter is not None else float('nan')
     
     # Area (using convex hull)
     try:
         from scipy.spatial import ConvexHull
-        if len(component) >= 3:
-            hull = ConvexHull(component)
+        if len(component_to_use) >= 3:
+            hull = ConvexHull(component_to_use)
             stats["area"] = float(hull.volume)  # 2D: volume is area
         else:
             stats["area"] = float('nan')
     except ImportError:
         # Fallback: approximate area using bounding box
-        bbox_area = (np.max(component[:, 0]) - np.min(component[:, 0])) * \
-                    (np.max(component[:, 1]) - np.min(component[:, 1]))
+        bbox_area = (np.max(component_to_use[:, 0]) - np.min(component_to_use[:, 0])) * \
+                    (np.max(component_to_use[:, 1]) - np.min(component_to_use[:, 1]))
         stats["area"] = float(bbox_area)
     except Exception:
         stats["area"] = float('nan')
@@ -636,20 +700,95 @@ def _compute_circumference_at_height(
     body_center_2d = np.array([body_center_3d[0], body_center_3d[2]])  # x, z
     
     # Round41: Find connected components if requested
+    # Round43: Add diagnostics for observability
     torso_component = None
     torso_stats = None
     all_components_stats = []
     torso_perimeter = None
+    torso_diagnostics = None
     if return_torso_components:
-        components = _find_connected_components_2d(vertices_2d, connectivity_threshold=0.01)
+        components, diagnostics = _find_connected_components_2d(vertices_2d, connectivity_threshold=0.01, return_diagnostics=True)
+        torso_diagnostics = diagnostics.copy()
+        
         if len(components) > 0:
-            all_components_stats = [_compute_component_stats(comp, body_center_2d) for comp in components]
+            all_components_stats = []
+            for comp in components:
+                try:
+                    # Round43: Try ordering for closed loop
+                    stats = _compute_component_stats(comp, body_center_2d, try_ordering=True)
+                    all_components_stats.append(stats)
+                except Exception as e:
+                    # Round43: Record numeric errors
+                    if "NUMERIC_ERROR" not in diagnostics.get("failure_reason", ""):
+                        diagnostics["failure_reason"] = f"NUMERIC_ERROR: {str(e)[:50]}"
+                    all_components_stats.append({
+                        "area": float('nan'),
+                        "perimeter": float('nan'),
+                        "centroid": [float('nan'), float('nan')],
+                        "dist_to_body_center": float('nan')
+                    })
+            
+            # Round43: Add component stats summary
+            if all_components_stats:
+                areas = [s["area"] for s in all_components_stats if not np.isnan(s["area"])]
+                perimeters = [s["perimeter"] for s in all_components_stats if not np.isnan(s["perimeter"])]
+                
+                if areas:
+                    areas_sorted = sorted(areas, reverse=True)
+                    diagnostics["component_area_stats"] = {
+                        "min": float(np.min(areas)),
+                        "max": float(np.max(areas)),
+                        "median": float(np.median(areas)),
+                        "p50": float(np.percentile(areas, 50)),
+                        "p95": float(np.percentile(areas, 95)),
+                        "top3": areas_sorted[:3] if len(areas_sorted) >= 3 else areas_sorted
+                    }
+                if perimeters:
+                    perimeters_sorted = sorted(perimeters, reverse=True)
+                    diagnostics["component_perimeter_stats"] = {
+                        "min": float(np.min(perimeters)),
+                        "max": float(np.max(perimeters)),
+                        "median": float(np.median(perimeters)),
+                        "p50": float(np.percentile(perimeters, 50)),
+                        "p95": float(np.percentile(perimeters, 95)),
+                        "top3": perimeters_sorted[:3] if len(perimeters_sorted) >= 3 else perimeters_sorted
+                    }
+            
             torso_component, torso_stats, torso_warning = _select_torso_component(components, body_center_2d, warnings)
             if torso_warning:
                 warnings.append(f"TORSO_COMPONENT_SELECTION_FAILED: {torso_warning}")
-            # Round42: Compute torso_perimeter if component selected successfully
+                diagnostics["failure_reason"] = f"SELECTION_FAILED: {torso_warning}"
+            # Round42/43: Compute torso_perimeter if component selected successfully
             if torso_component is not None and torso_stats is not None:
-                torso_perimeter = _compute_perimeter(torso_component)
+                try:
+                    # Round43: Try ordering for closed loop before computing perimeter
+                    ordered_component = _order_component_points_for_loop(torso_component)
+                    if ordered_component is not None:
+                        torso_perimeter = _compute_perimeter(ordered_component)
+                    else:
+                        # Fallback to unordered
+                        torso_perimeter = _compute_perimeter(torso_component)
+                    
+                    # Round44: When loop ordering/perimeter fails, use 2D convex hull perimeter of selected component
+                    if torso_perimeter is None and torso_component.shape[0] >= 3:
+                        hull_pts = _convex_hull_2d_monotone_chain(torso_component)
+                        if hull_pts is not None and len(hull_pts) >= 3:
+                            hull_pts = np.asarray(hull_pts, dtype=np.float64)
+                            d = np.diff(hull_pts, axis=0)
+                            closing = hull_pts[0] - hull_pts[-1]
+                            torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                            if torso_diagnostics is not None:
+                                torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
+                    
+                    if torso_perimeter is None:
+                        diagnostics["failure_reason"] = "NOT_CLOSED_LOOP"
+                except Exception as e:
+                    diagnostics["failure_reason"] = f"NUMERIC_ERROR: {str(e)[:50]}"
+                    torso_perimeter = None
+        else:
+            # Round43: No components found
+            if diagnostics.get("failure_reason") is None:
+                diagnostics["failure_reason"] = "EXTRACT_EMPTY"
     
     # Round36: Get perimeter with debug info if requested
     if return_debug:
@@ -658,7 +797,7 @@ def _compute_circumference_at_height(
             # Merge perimeter debug into cross-section debug
             debug_info.update(perimeter_debug)
         
-        # Round41/42: Add torso component info to debug
+        # Round41/42/43: Add torso component info to debug
         if return_torso_components:
             debug_info["torso_components"] = {
                 "n_components": len(all_components_stats),
@@ -667,12 +806,15 @@ def _compute_circumference_at_height(
                 "torso_stats": torso_stats,
                 "torso_perimeter": float(torso_perimeter) if torso_perimeter is not None else None
             }
+            # Round43: Add diagnostics
+            if torso_diagnostics:
+                debug_info["torso_components"].update(torso_diagnostics)
         
         return perimeter, debug_info
     else:
         perimeter = _compute_perimeter(vertices_2d)
         
-        # Round41/42: Add torso component info to debug_info if requested
+        # Round41/42/43: Add torso component info to debug_info if requested
         if return_torso_components:
             if debug_info is None:
                 debug_info = {}
@@ -682,6 +824,9 @@ def _compute_circumference_at_height(
                 "torso_perimeter": float(torso_perimeter) if torso_perimeter is not None else None,
                 "torso_stats": torso_stats
             }
+            # Round43: Add diagnostics
+            if torso_diagnostics:
+                debug_info["torso_components"].update(torso_diagnostics)
         
         return perimeter, debug_info
 
@@ -1552,6 +1697,8 @@ def measure_circumference_v0_with_metadata(
     circ_debug["reason"] = reason_codes[0] if len(reason_codes) == 1 else "MIXED"
     
     # Round41/42: Extract torso components info if available
+    # Round44: Always attach torso_components to debug_info when present (success or failure),
+    # so runner can aggregate failure_reason and TORSO_FALLBACK_HULL_USED for KPI_DIFF.
     torso_info = None
     if is_torso_key and selected_debug_full and "torso_components" in selected_debug_full:
         torso_components_data = selected_debug_full["torso_components"]
@@ -1583,8 +1730,12 @@ def measure_circumference_v0_with_metadata(
         "circ_debug": circ_debug
     }
     
-    # Round41: Add torso info to debug_info
-    if torso_info:
+    # Round41: Add torso info to debug_info. Round44: Always add full torso_components from
+    # selected_debug_full when present, so runner sees failure_reason / TORSO_FALLBACK_HULL_USED.
+    if is_torso_key and selected_debug_full and "torso_components" in selected_debug_full:
+        tc = selected_debug_full["torso_components"]
+        debug_info["torso_components"] = dict(tc) if isinstance(tc, dict) else {}
+    elif torso_info:
         debug_info["torso_components"] = torso_info
     metadata = create_metadata_v0(
         standard_key=standard_key,
