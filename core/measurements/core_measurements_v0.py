@@ -1129,6 +1129,7 @@ class SliceArtifact:
 # -----------------------------
 def measure_waist_group_with_shared_slice(
     verts: np.ndarray,
+    case_id: Optional[str] = None,  # Round50: For deterministic alpha_k assignment
 ) -> Dict[str, MeasurementResult]:
     """
     Measure WAIST group (CIRC, WIDTH, DEPTH) with shared slice artifact.
@@ -1398,6 +1399,7 @@ def measure_waist_group_with_shared_slice(
 
 def measure_hip_group_with_shared_slice(
     verts: np.ndarray,
+    case_id: Optional[str] = None,  # Round50: For deterministic alpha_k assignment
 ) -> Dict[str, MeasurementResult]:
     """
     Measure HIP group (CIRC, WIDTH, DEPTH) with shared slice artifact.
