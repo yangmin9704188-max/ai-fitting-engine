@@ -18,7 +18,7 @@ Surface "enabled-but-skipped" aggregates into facts_summary.json. Wiring-only, n
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round62_20260128_082547/KPI_DIFF.md`
 
 ## PR Link
-(pending)
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/231
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=50, skipped=150, has_mesh_path_true=100, has_mesh_path_null=100
