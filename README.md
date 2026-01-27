@@ -28,7 +28,8 @@
 
 **6 Layers**: Contract / Geometry / Production / Validation / Confidence / Application  
 **3 Modules**: body / garment / fitting  
-**DoD 체크리스트**: [Evidence-first DoD](docs/architecture/DoD_CHECKLISTS_v1.md)
+**DoD 체크리스트**: [Evidence-first DoD](docs/architecture/DoD_CHECKLISTS_v1.md)  
+**레거시 전환 가이드**: [Legacy Map](docs/LEGACY_MAP.md)
 
 
 
