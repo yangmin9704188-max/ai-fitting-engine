@@ -2,6 +2,10 @@
 
 **Purpose**: Central index for operational automation, documentation, and registry systems.
 
+## Architecture v1 Reference
+
+현재 구조 SSoT는 [docs/architecture/LAYERS_v1.md](../../docs/architecture/LAYERS_v1.md)입니다. Architecture v1은 6 layers (Contract → Geometry → Production → Validation → Confidence → Application) + modules (body / garment / fitting) + artifact-only 통신 원칙을 따릅니다. 본 문서의 "5-Layer Organization Principle"은 레거시 인덱싱/분류 용어이며 v1 레이어 체계(6 layers)와 다릅니다.
+
 > ⚠️ **라운드 기록 규칙 (LOCKED)**
 > - 새 라운드 기록은 [`docs/ops/rounds/roundXX.md`](rounds/roundXX.md) 파일 추가로만 한다
 > - 이 문서의 Round Registry(긴 목록)는 역사 보존용이며 이후 편집 금지
@@ -95,6 +99,8 @@ py verification/runners/run_geo_v0_facts_round1.py \
 - **Purpose**: Artifact index (search/aggregation/status), not document storage
 
 ## 5-Layer Organization Principle
+
+**LEGACY NOTE**: 이 섹션의 "5-Layer"는 레거시 인덱싱/분류 용어이며, 현재 Architecture v1의 6-layer 체계와는 다릅니다.
 
 **5-Layer는 "폴더 분리"가 아니라 "인덱스/레지스트리로 묶기" 원칙을 따릅니다.**
 
