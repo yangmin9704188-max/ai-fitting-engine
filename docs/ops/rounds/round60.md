@@ -19,7 +19,7 @@ Scale coverage from 50 to 100 cases (Tier2 manual backfill) and observe boundary
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round60_20260127_234000/KPI_DIFF.md`
 
 ## PR Link
-[Round60 PR link to be added]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/229
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=50, skipped=150, has_mesh_path_true=100, has_mesh_path_null=100
