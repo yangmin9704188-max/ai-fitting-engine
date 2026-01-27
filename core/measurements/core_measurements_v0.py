@@ -873,6 +873,7 @@ def _compute_circumference_at_height(
     y_max: Optional[float] = None,
     return_debug: bool = False,
     return_torso_components: bool = False,  # Round41: Enable torso-only analysis
+    case_id: Optional[str] = None,  # Round50: For deterministic alpha_k assignment
 ) -> tuple[Optional[float], Optional[Dict[str, Any]]]:
     """
     Compute circumference at given height. Returns (perimeter or None, debug_info or None).
@@ -986,7 +987,11 @@ def _compute_circumference_at_height(
                             torso_method_used = None
                             
                             # Option A: alpha-shape-like concave boundary
-                            alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=5)
+                            # Round50: Deterministic k assignment via hash(case_id) % 3
+                            alpha_k = 5  # Default
+                            if case_id is not None:
+                                alpha_k = [3, 5, 7][hash(case_id) % 3]
+                            alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k)
                             if alpha_boundary is not None and len(alpha_boundary) >= 3:
                                 alpha_perimeter = _compute_perimeter(alpha_boundary)
                                 if alpha_perimeter is not None:
@@ -994,10 +999,11 @@ def _compute_circumference_at_height(
                                     torso_method_used = "alpha_shape"
                                     
                                     # Round49: Compute loop quality metrics for alpha_shape method
+                                    # Round50: Record actual alpha_k used
                                     if torso_diagnostics is not None:
                                         loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
                                         if loop_quality:
-                                            loop_quality["alpha_param_used"] = 5  # k=5
+                                            loop_quality["alpha_param_used"] = alpha_k  # Round50: Use deterministic k
                                             torso_diagnostics["torso_loop_quality"] = loop_quality
                             
                             # Option B: cluster/trim approach (if Option A failed)
@@ -1204,7 +1210,7 @@ def measure_waist_group_with_shared_slice(
     
     for i in range(num_slices):
         y_value = y_start + i * slice_step
-        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings_circ, y_min, y_max)
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings_circ, y_min, y_max, case_id=case_id)
         if debug_info:
             cross_section_debug_list.append(debug_info)
         if perimeter is not None:
@@ -1470,7 +1476,7 @@ def measure_hip_group_with_shared_slice(
     
     for i in range(num_slices):
         y_value = y_start + i * slice_step
-        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings_circ, y_min, y_max)
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings_circ, y_min, y_max, case_id=case_id)
         if debug_info:
             cross_section_debug_list.append(debug_info)
         if perimeter is not None:
@@ -1659,6 +1665,7 @@ def measure_circumference_v0_with_metadata(
     verts: np.ndarray,
     standard_key: CircumferenceKey,
     units_metadata: Optional[Dict[str, Any]] = None,
+    case_id: Optional[str] = None,  # Round50: For deterministic alpha_k assignment
 ) -> MeasurementResult:
     """
     Measure circumference with metadata (schema v0).
@@ -1819,7 +1826,7 @@ def measure_circumference_v0_with_metadata(
     for i in range(num_slices):
         y_value = y_start + i * slice_step
         # Round36: Enable debug for selected candidate
-        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max, return_debug=(i == num_slices // 2))  # Debug middle slice
+        perimeter, debug_info = _compute_circumference_at_height(verts, y_value, tolerance, warnings, y_min, y_max, return_debug=(i == num_slices // 2), case_id=case_id)  # Debug middle slice
         if debug_info:
             cross_section_debug_list.append(debug_info)
         if perimeter is not None:
@@ -1905,7 +1912,8 @@ def measure_circumference_v0_with_metadata(
     perimeter_new, selected_debug_full = _compute_circumference_at_height(
         verts, selected_y_value, tolerance, warnings, y_min, y_max, 
         return_debug=True, 
-        return_torso_components=is_torso_key
+        return_torso_components=is_torso_key,
+        case_id=case_id  # Round50: Pass case_id for deterministic alpha_k
     )
     
     # Round37: Store old perimeter as raw (before path fix)
