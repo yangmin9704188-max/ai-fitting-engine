@@ -42,3 +42,17 @@
 - **Timestamp**: 2026-01-27
 
 ---
+
+### 2026-01-27: Round58 - Coverage expansion from 20 to 50 cases
+
+- **Trigger**: Manual Tier2 backfill to expand manifest coverage from 20 to 50 mesh_path-enabled cases
+- **Scope**: `verification/manifests/s1_manifest_v0_round58.json`, geo_v0_s1 lane
+- **What changed**: 
+  - 30 case_ids: mesh_path null -> set to known-good OBJ files
+  - Selected case_ids: `311610124091`, `21_F_5991`, `21_M_4196`, `511607194699`, `21_M_3322`, `20_M_2956`, `311607283902`, `221608221798`, `21_M_3414`, `20_F_2830`, `21_M_3539`, `21_F_3593`, `311609134042`, `521607176332`, `20_F_2354`, `21_M_3451`, `21_F_4497`, `21_F_7273`, `20_F_1995`, `20_F_2507`, `21_M_3835`, `21_F_6241`, `21_F_5324`, `121610203387`, `21_F_4128`, `20_F_1830`, `21_F_5348`, `20_F_1471`, `20_M_3150`, `21_F_6188`
+  - OBJ assignment: Round-robin distribution across `6th_20M.obj` (10 cases), `6th_30M.obj` (10 cases), `6th_40M.obj` (10 cases)
+- **Rationale**: Coverage scale-up from 20 to 50 cases to observe boundary recovery usage at larger sample size
+- **How selected**: First 30 null cases from Round46 manifest, assigned deterministically via round-robin to diverse known-good OBJ files
+- **Timestamp**: 2026-01-27
+
+---
