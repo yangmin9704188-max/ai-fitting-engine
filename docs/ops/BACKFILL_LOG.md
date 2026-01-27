@@ -56,3 +56,17 @@
 - **Timestamp**: 2026-01-27
 
 ---
+
+### 2026-01-27: Round60 - Coverage expansion from 50 to 100 cases
+
+- **Trigger**: Manual Tier2 backfill to expand manifest coverage from 50 to 100 mesh_path-enabled cases
+- **Scope**: `verification/manifests/s1_manifest_v0_round60.json`, geo_v0_s1 lane
+- **What changed**: 
+  - 50 case_ids: mesh_path null -> set to known-good OBJ files
+  - Selected case_ids: `21_F_6996`, `20_F_0882`, `20_F_0494`, `221608111273`, `211608221812`, `21_M_6330`, `21_M_6682`, `511607184667`, `121607270908`, `511610314830`, `21_M_3503`, `20_F_2186`, `321607265203`, `21_M_4168`, `21_M_5628`, `20_F_1028`, `111609232739`, `20_F_0005`, `121609032290`, `21_M_3426`, `421608075746`, `21_M_3572`, `20_M_2058`, `21_F_4515`, `21_M_5500`, `20_F_0179`, `121607180571`, `211608221803`, `20_F_1489`, `21_M_3342`, `21_F_5412`, `321609065463`, `20_M_3194`, `21_F_5205`, `20_F_1006`, `21_M_3366`, `20_F_2527`, `121608282084`, `21_M_6609`, `21_F_3610`, `21_M_3352`, `21_F_7256`, `21_F_3899`, `121607160406`, `121607180584`, `20_F_2636`, `20_M_1147`, `21_F_5680`, `21_M_4193`, `21_F_6999`
+  - OBJ assignment: Round-robin distribution across `6th_20M.obj` (17 cases), `6th_30M.obj` (17 cases), `6th_40M.obj` (16 cases)
+- **Rationale**: Coverage scale-up from 50 to 100 cases to observe boundary recovery usage rate at larger sample size
+- **How selected**: First 50 null cases from Round58 manifest, assigned deterministically via round-robin to diverse known-good OBJ files (balanced distribution)
+- **Timestamp**: 2026-01-27
+
+---
