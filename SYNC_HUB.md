@@ -26,6 +26,8 @@ Mission: 사진 없이 신체 치수만으로 설명 가능하고 재현 가능�
 
 Core Principle: 5-Layer R\&D 파이프라인(Semantic–Contract–Geometric–Validation–Judgment)의 엄격한 분리 및 지적 정직성(GIGO) 유지
 
+**Architecture v1 고정**: Layer/Module 구조는 [docs/architecture/LAYERS_v1.md](docs/architecture/LAYERS_v1.md)를 SSoT로 합니다.
+
 2. Milestone Achievements (누적 성과)
 
 2. Milestone Achievements (누적 성과)
