@@ -30,7 +30,7 @@ Reduce ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS by adding a deterministic boundary rec
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round57_20260127_230000/KPI_DIFF.md`
 
 ## PR Link
-[Round57 PR link to be added]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/226
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=20, skipped=180, has_mesh_path_true=20, has_mesh_path_null=180
@@ -44,9 +44,9 @@ Reduce ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS by adding a deterministic boundary rec
   - {} (empty - no failures occurred)
   - Improvement: ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS reduced from 3 to 0
 - **Boundary Recovery Tracking**:
-  - boundary_recovery_used_count: {secondary_builder: 3, none: 17}
-  - boundary_recovery_success_count: {secondary_builder: 3}
-  - Explanation: 3 cases used secondary_builder recovery, all succeeded (100% success rate)
+  - boundary_recovery_used_count: {secondary_builder: 2, none: 18}
+  - boundary_recovery_success_count: {secondary_builder: 2}
+  - Explanation: 2 cases used secondary_builder recovery, all succeeded (100% success rate)
   - alpha_relax: 0 (not used - all cases that needed recovery had alpha_k <= 3 already)
 - **Too Few Points Diagnostics Summary** (too_few_points_diagnostics_summary) highlights:
   - {} (empty - no TOO_FEW_POINTS failures occurred after recovery)
