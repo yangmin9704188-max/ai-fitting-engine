@@ -780,7 +780,6 @@ def _compute_circumference_at_height(
                             if torso_diagnostics is not None:
                                 torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
                     
-<<<<<<< HEAD
                     # Round45: If failure_reason is SINGLE_COMPONENT_ONLY and perimeter is still None, compute from single component
                     if torso_perimeter is None and diagnostics.get("failure_reason") == "SINGLE_COMPONENT_ONLY" and len(components) == 1:
                         single_comp = components[0]

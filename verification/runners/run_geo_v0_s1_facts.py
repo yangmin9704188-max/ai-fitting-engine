@@ -1257,7 +1257,6 @@ def main():
                 full_result = results[full_key]
                 debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
                 if full_result.metadata and debug_info and "torso_components" in debug_info:
-<<<<<<< HEAD
                     torso_info = debug_info["torso_components"]
                     # Round44: Aggregate TORSO_FALLBACK_HULL_USED
                     if torso_info.get("TORSO_FALLBACK_HULL_USED"):
@@ -1380,7 +1379,6 @@ def main():
     if torso_fallback_hull_used_count > 0:
         facts_summary["torso_fallback_hull_used_count"] = torso_fallback_hull_used_count
         facts_summary["torso_fallback_hull_used_by_key"] = dict(torso_fallback_hull_used_by_key)
-<<<<<<< HEAD
     # Round45: TORSO_SINGLE_COMPONENT_FALLBACK_USED 집계 (케이스/키별)
     if torso_single_component_fallback_count > 0:
         facts_summary["torso_single_component_fallback_count"] = torso_single_component_fallback_count
