@@ -69,6 +69,134 @@ def _validate_verts(verts: np.ndarray) -> Tuple[bool, List[str]]:
     return True, warnings
 
 
+def _alpha_shape_concave_boundary(pts: np.ndarray, body_center_2d: np.ndarray, k: int = 5) -> Optional[np.ndarray]:
+    """
+    Round47: Compute concave boundary using alpha-shape-like approach (kNN graph boundary).
+    
+    Args:
+        pts: 2D points (N, 2)
+        body_center_2d: Body center for candidate selection
+        k: Number of nearest neighbors for graph construction
+    
+    Returns:
+        Boundary points in order, or None if failed
+    """
+    if pts.shape[0] < 3:
+        return None
+    
+    try:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(pts)
+        
+        # Build kNN graph (k+1 to include self)
+        k_actual = min(k + 1, pts.shape[0])
+        distances, indices = tree.query(pts, k=k_actual)
+        
+        # Find boundary points (points with fewer neighbors or on the edge)
+        # Simple heuristic: points where max distance to neighbor is large relative to median
+        if pts.shape[0] > k_actual:
+            max_dists = distances[:, -1]  # Distance to k-th neighbor
+            median_max_dist = np.median(max_dists)
+            # Boundary candidates: points with large max distance
+            boundary_mask = max_dists > median_max_dist * 1.5
+        else:
+            boundary_mask = np.ones(pts.shape[0], dtype=bool)
+        
+        boundary_pts = pts[boundary_mask]
+        
+        if len(boundary_pts) < 3:
+            return None
+        
+        # Order boundary points by polar angle around centroid
+        centroid = np.mean(boundary_pts, axis=0)
+        relative = boundary_pts - centroid
+        angles = np.arctan2(relative[:, 1], relative[:, 0])
+        sorted_indices = np.argsort(angles)
+        ordered_boundary = boundary_pts[sorted_indices]
+        
+        return ordered_boundary
+    except ImportError:
+        # Fallback: use simple distance-based approach
+        return None
+    except Exception:
+        return None
+
+
+def _cluster_trim_torso(pts: np.ndarray, body_center_2d: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Round47: Cluster/trim approach - keep central cluster and reconstruct loop.
+    
+    Args:
+        pts: 2D points (N, 2)
+        body_center_2d: Body center for cluster selection
+    
+    Returns:
+        Trimmed points in order, or None if failed
+    """
+    if pts.shape[0] < 3:
+        return None
+    
+    try:
+        from sklearn.cluster import DBSCAN
+        # Use DBSCAN with eps derived from median nearest neighbor distance
+        from scipy.spatial.distance import pdist
+        if pts.shape[0] > 1:
+            dists = pdist(pts)
+            eps = np.median(dists) * 2.0  # Adaptive eps
+        else:
+            return None
+        
+        clustering = DBSCAN(eps=eps, min_samples=3).fit(pts)
+        labels = clustering.labels_
+        
+        # Find cluster closest to body center
+        unique_labels = set(labels)
+        if -1 in unique_labels:
+            unique_labels.remove(-1)  # Remove noise
+        
+        if not unique_labels:
+            return None
+        
+        best_cluster = None
+        best_dist = float('inf')
+        for label in unique_labels:
+            cluster_pts = pts[labels == label]
+            cluster_centroid = np.mean(cluster_pts, axis=0)
+            dist = np.linalg.norm(cluster_centroid - body_center_2d)
+            if dist < best_dist:
+                best_dist = dist
+                best_cluster = cluster_pts
+        
+        if best_cluster is None or len(best_cluster) < 3:
+            return None
+        
+        # Order points by polar angle
+        centroid = np.mean(best_cluster, axis=0)
+        relative = best_cluster - centroid
+        angles = np.arctan2(relative[:, 1], relative[:, 0])
+        sorted_indices = np.argsort(angles)
+        ordered_cluster = best_cluster[sorted_indices]
+        
+        return ordered_cluster
+    except ImportError:
+        # Fallback: simple distance-based trimming
+        centroid = np.mean(pts, axis=0)
+        dists_to_center = np.linalg.norm(pts - body_center_2d, axis=1)
+        median_dist = np.median(dists_to_center)
+        # Keep points within 1.5x median distance
+        mask = dists_to_center <= median_dist * 1.5
+        trimmed = pts[mask]
+        if len(trimmed) < 3:
+            return None
+        # Order by polar angle
+        relative = trimmed - centroid
+        angles = np.arctan2(relative[:, 1], relative[:, 0])
+        sorted_indices = np.argsort(angles)
+        return trimmed[sorted_indices]
+    except Exception:
+        return None
+
+
 def _convex_hull_2d_monotone_chain(pts: np.ndarray) -> Optional[np.ndarray]:
     """
     Compute 2D convex hull using Andrew's monotone chain algorithm (numpy-only).
@@ -780,29 +908,53 @@ def _compute_circumference_at_height(
                             if torso_diagnostics is not None:
                                 torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
                     
-                    # Round45: If failure_reason is SINGLE_COMPONENT_ONLY and perimeter is still None, compute from single component
+                    # Round47: If failure_reason is SINGLE_COMPONENT_ONLY, try refinement methods before fallback
                     if torso_perimeter is None and diagnostics.get("failure_reason") == "SINGLE_COMPONENT_ONLY" and len(components) == 1:
                         single_comp = components[0]
                         if single_comp.shape[0] >= 3:
-                            # Try ordering first
-                            ordered_single = _order_component_points_for_loop(single_comp)
-                            if ordered_single is not None:
-                                torso_perimeter = _compute_perimeter(ordered_single)
-                            else:
-                                # Fallback to unordered
-                                torso_perimeter = _compute_perimeter(single_comp)
+                            torso_method_used = None
                             
-                            # If still None, use hull
+                            # Option A: alpha-shape-like concave boundary
+                            alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=5)
+                            if alpha_boundary is not None and len(alpha_boundary) >= 3:
+                                torso_perimeter = _compute_perimeter(alpha_boundary)
+                                if torso_perimeter is not None:
+                                    torso_method_used = "alpha_shape"
+                            
+                            # Option B: cluster/trim approach (if Option A failed)
                             if torso_perimeter is None:
-                                hull_pts = _convex_hull_2d_monotone_chain(single_comp)
-                                if hull_pts is not None and len(hull_pts) >= 3:
-                                    hull_pts = np.asarray(hull_pts, dtype=np.float64)
-                                    d = np.diff(hull_pts, axis=0)
-                                    closing = hull_pts[0] - hull_pts[-1]
-                                    torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                                cluster_trimmed = _cluster_trim_torso(single_comp, body_center_2d)
+                                if cluster_trimmed is not None and len(cluster_trimmed) >= 3:
+                                    torso_perimeter = _compute_perimeter(cluster_trimmed)
+                                    if torso_perimeter is not None:
+                                        torso_method_used = "cluster_trim"
                             
-                            if torso_perimeter is not None:
-                                if torso_diagnostics is not None:
+                            # Round45 fallback: single component fallback (if both refinement methods failed)
+                            if torso_perimeter is None:
+                                # Try ordering first
+                                ordered_single = _order_component_points_for_loop(single_comp)
+                                if ordered_single is not None:
+                                    torso_perimeter = _compute_perimeter(ordered_single)
+                                else:
+                                    # Fallback to unordered
+                                    torso_perimeter = _compute_perimeter(single_comp)
+                                
+                                # If still None, use hull
+                                if torso_perimeter is None:
+                                    hull_pts = _convex_hull_2d_monotone_chain(single_comp)
+                                    if hull_pts is not None and len(hull_pts) >= 3:
+                                        hull_pts = np.asarray(hull_pts, dtype=np.float64)
+                                        d = np.diff(hull_pts, axis=0)
+                                        closing = hull_pts[0] - hull_pts[-1]
+                                        torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                                
+                                if torso_perimeter is not None:
+                                    torso_method_used = "single_component_fallback"
+                            
+                            # Record method used
+                            if torso_perimeter is not None and torso_diagnostics is not None:
+                                torso_diagnostics["TORSO_METHOD_USED"] = torso_method_used
+                                if torso_method_used == "single_component_fallback":
                                     torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
                     
                     if torso_perimeter is None:

@@ -1246,6 +1246,9 @@ def main():
     torso_fallback_hull_used_by_key: Dict[str, int] = defaultdict(int)
     torso_single_component_fallback_count: int = 0
     torso_single_component_fallback_by_key: Dict[str, int] = defaultdict(int)
+    # Round47: TORSO_METHOD_USED 집계 (alpha_shape / cluster_trim / single_component_fallback)
+    torso_method_used_count: Dict[str, int] = defaultdict(int)
+    torso_method_used_by_key: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     # Round45: Debug summary stats (area/perimeter/circularity proxy)
     torso_debug_stats: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: {"area": [], "perimeter": [], "circularity_proxy": []})
     
@@ -1266,6 +1269,11 @@ def main():
                     if torso_info.get("TORSO_SINGLE_COMPONENT_FALLBACK_USED"):
                         torso_single_component_fallback_count += 1
                         torso_single_component_fallback_by_key[full_key] += 1
+                    # Round47: Aggregate TORSO_METHOD_USED
+                    torso_method = torso_info.get("TORSO_METHOD_USED")
+                    if torso_method:
+                        torso_method_used_count[torso_method] += 1
+                        torso_method_used_by_key[full_key][torso_method] += 1
                     # Round45: Collect debug stats (area/perimeter/circularity proxy)
                     if torso_info.get("torso_stats"):
                         torso_stats = torso_info["torso_stats"]
@@ -1383,6 +1391,10 @@ def main():
     if torso_single_component_fallback_count > 0:
         facts_summary["torso_single_component_fallback_count"] = torso_single_component_fallback_count
         facts_summary["torso_single_component_fallback_by_key"] = dict(torso_single_component_fallback_by_key)
+    # Round47: TORSO_METHOD_USED 집계 (케이스/키별)
+    if torso_method_used_count:
+        facts_summary["torso_method_used_count"] = dict(torso_method_used_count)
+        facts_summary["torso_method_used_by_key"] = {k: dict(v) for k, v in torso_method_used_by_key.items()}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:
