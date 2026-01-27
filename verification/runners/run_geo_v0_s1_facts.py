@@ -319,7 +319,7 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                 result = measure_circumference_v0_with_metadata(verts, key)
                 results[key] = result
                 
-                # Round41: Extract torso-only circumference for torso keys
+                # Round41/43: Extract torso-only circumference for torso keys
                 if key in TORSO_CIRC_KEYS:
                     torso_key = key.replace("_CIRC_M", "_CIRC_TORSO_M")
                     torso_perimeter = None
@@ -335,7 +335,11 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                                 torso_warning = "torso_component_selection_failed"
                     
                     # Create torso-only result
+                    # Round43: Copy debug_info including torso_components for diagnostics
                     torso_metadata = result.metadata.copy() if result.metadata else {}
+                    if torso_metadata and "debug_info" in torso_metadata:
+                        # Keep debug_info with torso_components for diagnostics
+                        pass
                     if torso_warning:
                         torso_metadata.setdefault("warnings", []).append(torso_warning)
                     
@@ -1230,6 +1234,111 @@ def main():
     if debug_collection_failed_reasons:
         facts_summary["per_case_debug_failed_reasons"] = debug_collection_failed_reasons[:10]  # Top 10만
         facts_summary["per_case_debug_failed_count"] = len(debug_collection_failed_reasons)
+    
+    # Round43: torso-only 실패 이유 코드 집계
+    TORSO_CIRC_KEYS = ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
+    torso_failure_reasons: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))  # per-key failure reasons
+    torso_failure_reasons_all: Dict[str, int] = defaultdict(int)  # aggregated across all keys
+    torso_diagnostics_summary: Dict[str, Dict[str, Any]] = {}  # per-key diagnostics summary
+    
+    for case_id, results in all_results.items():
+        for full_key in TORSO_CIRC_KEYS:
+            # Round43: Try to get torso_components from full_key's debug_info (where it's actually stored)
+            if full_key in results:
+                full_result = results[full_key]
+                if full_result.metadata and "debug_info" in full_result.metadata:
+                    debug_info = full_result.metadata["debug_info"]
+                    if "torso_components" in debug_info:
+                        torso_info = debug_info["torso_components"]
+                        failure_reason = torso_info.get("failure_reason")
+                        if failure_reason:
+                            # Extract base reason code (before colon)
+                            reason_code = failure_reason.split(":")[0] if ":" in failure_reason else failure_reason
+                            torso_failure_reasons[full_key][reason_code] += 1
+                            torso_failure_reasons_all[reason_code] += 1
+                        
+                        # Round43: Collect diagnostics summary per key
+                        if full_key not in torso_diagnostics_summary:
+                            torso_diagnostics_summary[full_key] = {
+                                "n_intersection_points": [],
+                                "n_segments": [],
+                                "n_components": [],
+                                "component_area_stats": [],
+                                "component_perimeter_stats": []
+                            }
+                        
+                        diag = torso_diagnostics_summary[full_key]
+                        if "n_intersection_points" in torso_info:
+                            diag["n_intersection_points"].append(torso_info["n_intersection_points"])
+                        if "n_segments" in torso_info:
+                            diag["n_segments"].append(torso_info["n_segments"])
+                        if "n_components" in torso_info:
+                            diag["n_components"].append(torso_info["n_components"])
+                        if "component_area_stats" in torso_info:
+                            area_stats = torso_info["component_area_stats"]
+                            if "p50" in area_stats:
+                                diag["component_area_stats"].append(area_stats["p50"])
+                        if "component_perimeter_stats" in torso_info:
+                            perim_stats = torso_info["component_perimeter_stats"]
+                            if "p50" in perim_stats:
+                                diag["component_perimeter_stats"].append(perim_stats["p50"])
+    
+    # Round43: Aggregate diagnostics summary
+    for key in torso_diagnostics_summary:
+        diag = torso_diagnostics_summary[key]
+        if diag["n_intersection_points"]:
+            diag["n_intersection_points_summary"] = {
+                "min": int(np.min(diag["n_intersection_points"])),
+                "max": int(np.max(diag["n_intersection_points"])),
+                "median": float(np.median(diag["n_intersection_points"])),
+                "p50": float(np.percentile(diag["n_intersection_points"], 50)),
+                "p95": float(np.percentile(diag["n_intersection_points"], 95))
+            }
+        if diag["n_segments"]:
+            diag["n_segments_summary"] = {
+                "min": int(np.min(diag["n_segments"])),
+                "max": int(np.max(diag["n_segments"])),
+                "median": float(np.median(diag["n_segments"])),
+                "p50": float(np.percentile(diag["n_segments"], 50)),
+                "p95": float(np.percentile(diag["n_segments"], 95))
+            }
+        if diag["n_components"]:
+            diag["n_components_summary"] = {
+                "min": int(np.min(diag["n_components"])),
+                "max": int(np.max(diag["n_components"])),
+                "median": float(np.median(diag["n_components"])),
+                "p50": float(np.percentile(diag["n_components"], 50)),
+                "p95": float(np.percentile(diag["n_components"], 95))
+            }
+        if diag["component_area_stats"]:
+            diag["component_area_p50_summary"] = {
+                "min": float(np.min(diag["component_area_stats"])),
+                "max": float(np.max(diag["component_area_stats"])),
+                "median": float(np.median(diag["component_area_stats"])),
+                "p50": float(np.percentile(diag["component_area_stats"], 50)),
+                "p95": float(np.percentile(diag["component_area_stats"], 95))
+            }
+        if diag["component_perimeter_stats"]:
+            diag["component_perimeter_p50_summary"] = {
+                "min": float(np.min(diag["component_perimeter_stats"])),
+                "max": float(np.max(diag["component_perimeter_stats"])),
+                "median": float(np.median(diag["component_perimeter_stats"])),
+                "p50": float(np.percentile(diag["component_perimeter_stats"], 50)),
+                "p95": float(np.percentile(diag["component_perimeter_stats"], 95))
+            }
+        # Clean up raw lists
+        for k in ["n_intersection_points", "n_segments", "n_components", "component_area_stats", "component_perimeter_stats"]:
+            if k in diag:
+                del diag[k]
+    
+    # Round43: Add torso failure reasons and diagnostics to facts_summary
+    if torso_failure_reasons:
+        facts_summary["torso_failure_reasons"] = {k: dict(v) for k, v in torso_failure_reasons.items()}
+        # Top-K failure reasons (across all keys)
+        sorted_all_reasons = sorted(torso_failure_reasons_all.items(), key=lambda x: x[1], reverse=True)
+        facts_summary["torso_failure_reasons_topk"] = dict(sorted_all_reasons[:10])  # Top 10
+    if torso_diagnostics_summary:
+        facts_summary["torso_diagnostics_summary"] = torso_diagnostics_summary
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}
