@@ -1,5 +1,7 @@
 # Round Runbook
 
+> **라운드 기록 규칙**: 라운드 기록은 `docs/ops/rounds/roundXX.md`로만 추가합니다.
+
 ## Round 실행 최소 명령
 
 ### curated_v0 facts round 실행

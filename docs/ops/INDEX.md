@@ -24,6 +24,9 @@
 
 ## Core Registries
 
+> **라운드 기록 규칙**: 라운드 기록은 [`docs/ops/rounds/roundXX.md`](rounds/roundXX.md)로만 추가합니다.  
+> Round Registry(이 파일 내 긴 목록)는 역사 보존용이며 이후 편집 금지입니다.
+
 ### Round Registry
 - **Path**: [`docs/verification/round_registry.json`](../verification/round_registry.json)
 - **Purpose**: Tracks all verification rounds, baseline configuration, and round history per lane
