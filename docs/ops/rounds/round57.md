@@ -25,9 +25,9 @@ Reduce ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS by adding a deterministic boundary rec
 
 ## Artifacts
 - **run_dir**: `verification/runs/facts/geo_v0_s1/round57_20260127_230403`
-- **facts_summary**: `verification/runs/facts/geo_v0_s1/round57_20260127_230000/facts_summary.json`
-- **KPI**: `verification/runs/facts/geo_v0_s1/round57_20260127_230000/KPI.md`
-- **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round57_20260127_230000/KPI_DIFF.md`
+- **facts_summary**: `verification/runs/facts/geo_v0_s1/round57_20260127_230403/facts_summary.json`
+- **KPI**: `verification/runs/facts/geo_v0_s1/round57_20260127_230403/KPI.md`
+- **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round57_20260127_230403/KPI_DIFF.md`
 
 ## PR Link
 https://github.com/yangmin9704188-max/ai-fitting-engine/pull/226
