@@ -879,7 +879,14 @@ def _compute_circumference_at_height(
     Compute circumference at given height. Returns (perimeter or None, debug_info or None).
     
     Round41: If return_torso_components=True, also analyzes connected components and selects torso-only.
+    Round55: Adjust tolerance based on mesh scale for better slice point coverage.
     """
+    # Round55: Adjust tolerance based on mesh scale (geometry-based mitigation)
+    original_tolerance = tolerance
+    tolerance = _compute_tolerance_from_mesh_scale(verts, tolerance)
+    if tolerance != original_tolerance and warnings is not None:
+        warnings.append(f"SLICE_THICKNESS_ADJUSTED: {original_tolerance:.6f} -> {tolerance:.6f} m")
+    
     vertices_2d, debug_info = _find_cross_section(verts, y_value, tolerance, warnings, y_min, y_max)
     if vertices_2d is None:
         return None, debug_info
@@ -986,6 +993,11 @@ def _compute_circumference_at_height(
                             # Round48-A: Initialize method tracking (must be set to one of: alpha_shape, cluster_trim, single_component_fallback)
                             torso_method_used = None
                             
+                            # Round55: Capture diagnostics for TOO_FEW_POINTS (before alpha_shape attempt)
+                            # Store slice diagnostics that will be used if TOO_FEW_POINTS occurs
+                            n_slice_points_raw = vertices_2d.shape[0] if vertices_2d is not None else 0
+                            n_slice_points_after_dedupe = single_comp.shape[0]
+                            
                             # Option A: alpha-shape-like concave boundary
                             # Round50: Deterministic k assignment via hash(case_id) % 3
                             # Round54: Track alpha failure reasons
@@ -1013,10 +1025,20 @@ def _compute_circumference_at_height(
                                         alpha_fail_reason = "ALPHA_FAIL:EMPTY_LOOP"
                                 else:
                                     # Round54: Boundary extraction failed
+                                    # Round55: Record diagnostics for TOO_FEW_POINTS
                                     if alpha_boundary is None:
                                         alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
                                     elif len(alpha_boundary) < 3:
                                         alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
+                                    
+                                    # Round55: Capture diagnostics when TOO_FEW_POINTS occurs
+                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_POINTS" and torso_diagnostics is not None:
+                                        torso_diagnostics["too_few_points_diagnostics"] = {
+                                            "n_slice_points_raw": int(n_slice_points_raw),
+                                            "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                            "slice_thickness_used": float(tolerance),
+                                            "slice_plane_level": float(y_value)
+                                        }
                             except Exception as e:
                                 # Round54: Exception during alpha_shape computation
                                 alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
