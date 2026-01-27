@@ -1,6 +1,6 @@
 {
   "schema_version": "round_registry@1",
-  "updated_at": "2026-01-27T04:36:32.543581",
+  "updated_at": "2026-01-28T08:29:20.018077",
   "lanes": {
     "curated_v0": {
       "baseline": {
@@ -119,11 +119,81 @@
           "source_npz": "artifacts/visual/verts_proxy.npz",
           "source_path_abs": null,
           "notes": ""
+        },
+        {
+          "round_id": "round58_20260127_231000",
+          "round_num": 58,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round58_20260127_231000",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round58_20260127_231000/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round58_20260127_231000_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round58_20260127_231000/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round58_20260127_231000/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T23:17:18.868669",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round59_20260127_232000",
+          "round_num": 59,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round59_20260127_232000",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round59_20260127_232000/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round59_20260127_232000_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round59_20260127_232000/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round59_20260127_232000/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T23:35:00.537925",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round60_20260127_234000",
+          "round_num": 60,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round60_20260127_234000",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round60_20260127_234000/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round60_20260127_234000_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round60_20260127_234000/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round60_20260127_234000/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-27T23:47:13.381434",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round61_20260127_235000",
+          "round_num": 61,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round61_20260127_235000",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round61_20260127_235000/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round61_20260127_235000_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round61_20260127_235000/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round61_20260127_235000/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-28T00:09:11.886702",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round62_20260128_082547",
+          "round_num": 62,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round62_20260128_082547",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round62_20260128_082547/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round62_20260128_082547_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round62_20260128_082547/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round62_20260128_082547/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-28T08:29:20.018077",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
         }
       ],
       "latest": {
-        "round_id": "round39_20260127_043613",
-        "run_dir": "verification/runs/facts/geo_v0_s1/round39_20260127_043613"
+        "round_id": "round62_20260128_082547",
+        "run_dir": "verification/runs/facts/geo_v0_s1/round62_20260128_082547"
       }
     }
   }
