@@ -1098,6 +1098,11 @@ def main():
         skip_reasons_by_reason: Dict[str, int] = defaultdict(int)
         
         # Re-read skip_reasons.jsonl for detailed analysis
+        # Round62: enabled-but-skipped aggregation (has_mesh_path==true AND reason != "success")
+        enabled_skip_reasons: Dict[str, int] = defaultdict(int)
+        enabled_skip_stages: Dict[str, int] = defaultdict(int)
+        enabled_skip_samples: Dict[str, List[str]] = defaultdict(list)  # reason -> first 3 case_ids
+
         with open(skip_reasons_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
@@ -1110,8 +1115,33 @@ def main():
                     # Round42: manifest_path_is_null reason인 경우 has_mesh_path_null로 집계
                     if reason == "manifest_path_is_null":
                         has_mesh_path_null_count += 1
+
+                    # Round62: enabled-but-skipped aggregation
+                    # Filter: has_mesh_path==true AND reason != "success"
+                    has_mesh_path = record.get("has_mesh_path")
+                    if has_mesh_path is True and reason != "success":
+                        enabled_skip_reasons[reason] += 1
+                        stage = record.get("stage", "unknown")
+                        enabled_skip_stages[stage] += 1
+                        # Sample: keep first 3 case_ids per reason
+                        case_id = record.get("case_id", "unknown")
+                        if len(enabled_skip_samples[reason]) < 3:
+                            enabled_skip_samples[reason].append(case_id)
                 except json.JSONDecodeError:
                     continue
+
+        # Round62: Build top-K dicts (sort by count descending)
+        enabled_skip_reasons_topk: Dict[str, int] = {}
+        if enabled_skip_reasons:
+            sorted_reasons = sorted(enabled_skip_reasons.items(), key=lambda x: x[1], reverse=True)
+            enabled_skip_reasons_topk = dict(sorted_reasons[:10])
+
+        enabled_skip_stage_topk: Dict[str, int] = {}
+        if enabled_skip_stages:
+            sorted_stages = sorted(enabled_skip_stages.items(), key=lambda x: x[1], reverse=True)
+            enabled_skip_stage_topk = dict(sorted_stages[:10])
+
+        enabled_skip_reason_sample: Dict[str, List[str]] = dict(enabled_skip_samples)
         
         # Check has_mesh_path_true count (expected: 5 for proxy cases)
         expected_has_mesh_path_true = 5
@@ -1317,10 +1347,18 @@ def main():
         facts_summary["has_mesh_path_true"] = has_mesh_path_true_count
         facts_summary["has_mesh_path_null"] = has_mesh_path_null_count
         facts_summary["skip_reasons"] = dict(skip_reasons_by_reason)
+        # Round62: enabled-but-skipped aggregation (always emit, even if empty)
+        facts_summary["enabled_skip_reasons_topk"] = enabled_skip_reasons_topk
+        facts_summary["enabled_skip_stage_topk"] = enabled_skip_stage_topk
+        facts_summary["enabled_skip_reason_sample"] = enabled_skip_reason_sample
     else:
         facts_summary["has_mesh_path_true"] = 0
         facts_summary["has_mesh_path_null"] = 0
         facts_summary["skip_reasons"] = {}
+        # Round62: enabled-but-skipped aggregation (always emit empty)
+        facts_summary["enabled_skip_reasons_topk"] = {}
+        facts_summary["enabled_skip_stage_topk"] = {}
+        facts_summary["enabled_skip_reason_sample"] = {}
     
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
