@@ -1391,10 +1391,19 @@ def main():
     if torso_single_component_fallback_count > 0:
         facts_summary["torso_single_component_fallback_count"] = torso_single_component_fallback_count
         facts_summary["torso_single_component_fallback_by_key"] = dict(torso_single_component_fallback_by_key)
-    # Round47: TORSO_METHOD_USED 집계 (케이스/키별)
+    # Round48-A: TORSO_METHOD_USED 집계 (케이스/키별)
+    # Round48-A: Ensure all processed cases have method tracking (sum must equal processed_cases)
     if torso_method_used_count:
         facts_summary["torso_method_used_count"] = dict(torso_method_used_count)
         facts_summary["torso_method_used_by_key"] = {k: dict(v) for k, v in torso_method_used_by_key.items()}
+        # Round48-A: Verify sum equals processed_cases
+        total_method_count = sum(torso_method_used_count.values())
+        if total_method_count != len(all_results):
+            # Round48-A: Record missing tracking count
+            missing_count = len(all_results) - total_method_count
+            facts_summary["torso_method_tracking_missing_count"] = missing_count
+            if warnings is not None:
+                warnings.append(f"TORSO_METHOD_TRACKING_MISSING: {missing_count} cases missing method label")
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:

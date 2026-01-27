@@ -887,6 +887,8 @@ def _compute_circumference_at_height(
                 warnings.append(f"TORSO_COMPONENT_SELECTION_FAILED: {torso_warning}")
                 diagnostics["failure_reason"] = f"SELECTION_FAILED: {torso_warning}"
             # Round42/43: Compute torso_perimeter if component selected successfully
+            # Round48-A: Initialize method tracking (only for SINGLE_COMPONENT_ONLY cases per requirements)
+            torso_method_used = None
             if torso_component is not None and torso_stats is not None:
                 try:
                     # Round43: Try ordering for closed loop before computing perimeter
@@ -908,25 +910,29 @@ def _compute_circumference_at_height(
                             if torso_diagnostics is not None:
                                 torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
                     
-                    # Round47: If failure_reason is SINGLE_COMPONENT_ONLY, try refinement methods before fallback
-                    if torso_perimeter is None and diagnostics.get("failure_reason") == "SINGLE_COMPONENT_ONLY" and len(components) == 1:
+                    # Round47/48-A: If failure_reason is SINGLE_COMPONENT_ONLY, try refinement methods before fallback
+                    # Round48-A: Ensure method tracking is recorded for ALL SINGLE_COMPONENT_ONLY cases
+                    if diagnostics.get("failure_reason") == "SINGLE_COMPONENT_ONLY" and len(components) == 1:
                         single_comp = components[0]
                         if single_comp.shape[0] >= 3:
+                            # Round48-A: Initialize method tracking (must be set to one of: alpha_shape, cluster_trim, single_component_fallback)
                             torso_method_used = None
                             
                             # Option A: alpha-shape-like concave boundary
                             alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=5)
                             if alpha_boundary is not None and len(alpha_boundary) >= 3:
-                                torso_perimeter = _compute_perimeter(alpha_boundary)
-                                if torso_perimeter is not None:
+                                alpha_perimeter = _compute_perimeter(alpha_boundary)
+                                if alpha_perimeter is not None:
+                                    torso_perimeter = alpha_perimeter
                                     torso_method_used = "alpha_shape"
                             
                             # Option B: cluster/trim approach (if Option A failed)
                             if torso_perimeter is None:
                                 cluster_trimmed = _cluster_trim_torso(single_comp, body_center_2d)
                                 if cluster_trimmed is not None and len(cluster_trimmed) >= 3:
-                                    torso_perimeter = _compute_perimeter(cluster_trimmed)
-                                    if torso_perimeter is not None:
+                                    cluster_perimeter = _compute_perimeter(cluster_trimmed)
+                                    if cluster_perimeter is not None:
+                                        torso_perimeter = cluster_perimeter
                                         torso_method_used = "cluster_trim"
                             
                             # Round45 fallback: single component fallback (if both refinement methods failed)
@@ -934,10 +940,16 @@ def _compute_circumference_at_height(
                                 # Try ordering first
                                 ordered_single = _order_component_points_for_loop(single_comp)
                                 if ordered_single is not None:
-                                    torso_perimeter = _compute_perimeter(ordered_single)
+                                    ordered_perimeter = _compute_perimeter(ordered_single)
+                                    if ordered_perimeter is not None:
+                                        torso_perimeter = ordered_perimeter
+                                        torso_method_used = "single_component_fallback"
                                 else:
                                     # Fallback to unordered
-                                    torso_perimeter = _compute_perimeter(single_comp)
+                                    unordered_perimeter = _compute_perimeter(single_comp)
+                                    if unordered_perimeter is not None:
+                                        torso_perimeter = unordered_perimeter
+                                        torso_method_used = "single_component_fallback"
                                 
                                 # If still None, use hull
                                 if torso_perimeter is None:
@@ -946,22 +958,32 @@ def _compute_circumference_at_height(
                                         hull_pts = np.asarray(hull_pts, dtype=np.float64)
                                         d = np.diff(hull_pts, axis=0)
                                         closing = hull_pts[0] - hull_pts[-1]
-                                        torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
-                                
-                                if torso_perimeter is not None:
-                                    torso_method_used = "single_component_fallback"
+                                        hull_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                                        if hull_perimeter is not None:
+                                            torso_perimeter = hull_perimeter
+                                            torso_method_used = "single_component_fallback"
                             
-                            # Record method used
-                            if torso_perimeter is not None and torso_diagnostics is not None:
-                                torso_diagnostics["TORSO_METHOD_USED"] = torso_method_used
-                                if torso_method_used == "single_component_fallback":
-                                    torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
+                            # Round48-A: Record method used (must be one of: alpha_shape, cluster_trim, single_component_fallback)
+                            # This must be recorded for ALL SINGLE_COMPONENT_ONLY cases, even if perimeter is None
+                            if torso_diagnostics is not None:
+                                if torso_method_used is not None:
+                                    torso_diagnostics["TORSO_METHOD_USED"] = torso_method_used
+                                    if torso_method_used == "single_component_fallback":
+                                        torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
+                                else:
+                                    # Round48-A: Should not happen - all paths should set method, but record for tracking
+                                    torso_diagnostics["TORSO_METHOD_USED"] = "tracking_missing"
+                                    if warnings is not None:
+                                        warnings.append("TORSO_METHOD_TRACKING_MISSING: method not set for SINGLE_COMPONENT_ONLY case")
                     
                     if torso_perimeter is None:
                         diagnostics["failure_reason"] = "NOT_CLOSED_LOOP"
                 except Exception as e:
                     diagnostics["failure_reason"] = f"NUMERIC_ERROR: {str(e)[:50]}"
                     torso_perimeter = None
+                    # Round48-A: Record method for exception case
+                    if torso_diagnostics is not None:
+                        torso_diagnostics["TORSO_METHOD_USED"] = "torso_computation_failed"
         else:
             # Round43: No components found
             if diagnostics.get("failure_reason") is None:
