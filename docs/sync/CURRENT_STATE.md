@@ -4,6 +4,8 @@
 
 **Architecture v1 반영**: Layer/Module 구조가 v1로 고정되었습니다. 자세한 내용은 [docs/architecture/LAYERS_v1.md](../../architecture/LAYERS_v1.md) 및 [DoD Checklists](../../architecture/DoD_CHECKLISTS_v1.md)를 참조하세요.
 
+**Sealed Anchors**: As of 2026-01-27, `opsplane-v1` and `arch-v1` anchors are set (merge commits `a80aec0`, `9166fe4`). See [SYNC_HUB.md](../../SYNC_HUB.md#10-sealed-anchors-v1) for details.
+
 snapshot:
 id:
 status: candidate
