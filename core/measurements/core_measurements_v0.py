@@ -769,6 +769,17 @@ def _compute_circumference_at_height(
                         # Fallback to unordered
                         torso_perimeter = _compute_perimeter(torso_component)
                     
+                    # Round44: When loop ordering/perimeter fails, use 2D convex hull perimeter of selected component
+                    if torso_perimeter is None and torso_component.shape[0] >= 3:
+                        hull_pts = _convex_hull_2d_monotone_chain(torso_component)
+                        if hull_pts is not None and len(hull_pts) >= 3:
+                            hull_pts = np.asarray(hull_pts, dtype=np.float64)
+                            d = np.diff(hull_pts, axis=0)
+                            closing = hull_pts[0] - hull_pts[-1]
+                            torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                            if torso_diagnostics is not None:
+                                torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
+                    
                     if torso_perimeter is None:
                         diagnostics["failure_reason"] = "NOT_CLOSED_LOOP"
                 except Exception as e:
@@ -1686,6 +1697,8 @@ def measure_circumference_v0_with_metadata(
     circ_debug["reason"] = reason_codes[0] if len(reason_codes) == 1 else "MIXED"
     
     # Round41/42: Extract torso components info if available
+    # Round44: Always attach torso_components to debug_info when present (success or failure),
+    # so runner can aggregate failure_reason and TORSO_FALLBACK_HULL_USED for KPI_DIFF.
     torso_info = None
     if is_torso_key and selected_debug_full and "torso_components" in selected_debug_full:
         torso_components_data = selected_debug_full["torso_components"]
@@ -1717,8 +1730,12 @@ def measure_circumference_v0_with_metadata(
         "circ_debug": circ_debug
     }
     
-    # Round41: Add torso info to debug_info
-    if torso_info:
+    # Round41: Add torso info to debug_info. Round44: Always add full torso_components from
+    # selected_debug_full when present, so runner sees failure_reason / TORSO_FALLBACK_HULL_USED.
+    if is_torso_key and selected_debug_full and "torso_components" in selected_debug_full:
+        tc = selected_debug_full["torso_components"]
+        debug_info["torso_components"] = dict(tc) if isinstance(tc, dict) else {}
+    elif torso_info:
         debug_info["torso_components"] = torso_info
     metadata = create_metadata_v0(
         standard_key=standard_key,

@@ -325,14 +325,14 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
                     torso_perimeter = None
                     torso_warning = None
                     
-                    if result.metadata and "debug_info" in result.metadata:
-                        debug_info = result.metadata["debug_info"]
-                        if "torso_components" in debug_info:
-                            torso_info = debug_info["torso_components"]
-                            if torso_info.get("torso_selected") and torso_info.get("torso_perimeter") is not None:
-                                torso_perimeter = torso_info["torso_perimeter"]
-                            else:
-                                torso_warning = "torso_component_selection_failed"
+                    # Round44: metadata_v0 uses "debug"; accept "debug_info" or "debug"
+                    debug_info = (result.metadata or {}).get("debug_info") or (result.metadata or {}).get("debug") or {}
+                    if result.metadata and debug_info and "torso_components" in debug_info:
+                        torso_info = debug_info["torso_components"]
+                        if torso_info.get("torso_selected") and torso_info.get("torso_perimeter") is not None:
+                            torso_perimeter = torso_info["torso_perimeter"]
+                        else:
+                            torso_warning = "torso_component_selection_failed"
                     
                     # Create torso-only result
                     # Round43: Copy debug_info including torso_components for diagnostics
@@ -1236,20 +1236,27 @@ def main():
         facts_summary["per_case_debug_failed_count"] = len(debug_collection_failed_reasons)
     
     # Round43: torso-only 실패 이유 코드 집계
+    # Round44: TORSO_FALLBACK_HULL_USED 집계 (케이스/키별)
     TORSO_CIRC_KEYS = ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
     torso_failure_reasons: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))  # per-key failure reasons
     torso_failure_reasons_all: Dict[str, int] = defaultdict(int)  # aggregated across all keys
     torso_diagnostics_summary: Dict[str, Dict[str, Any]] = {}  # per-key diagnostics summary
+    torso_fallback_hull_used_count: int = 0
+    torso_fallback_hull_used_by_key: Dict[str, int] = defaultdict(int)
     
     for case_id, results in all_results.items():
         for full_key in TORSO_CIRC_KEYS:
             # Round43: Try to get torso_components from full_key's debug_info (where it's actually stored)
+            # Round44: metadata_v0 uses key "debug"; prefer "debug_info" then "debug" for compatibility
             if full_key in results:
                 full_result = results[full_key]
-                if full_result.metadata and "debug_info" in full_result.metadata:
-                    debug_info = full_result.metadata["debug_info"]
-                    if "torso_components" in debug_info:
+                debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
+                if full_result.metadata and debug_info and "torso_components" in debug_info:
                         torso_info = debug_info["torso_components"]
+                        # Round44: Aggregate TORSO_FALLBACK_HULL_USED
+                        if torso_info.get("TORSO_FALLBACK_HULL_USED"):
+                            torso_fallback_hull_used_count += 1
+                            torso_fallback_hull_used_by_key[full_key] += 1
                         failure_reason = torso_info.get("failure_reason")
                         if failure_reason:
                             # Extract base reason code (before colon)
@@ -1337,8 +1344,18 @@ def main():
         # Top-K failure reasons (across all keys)
         sorted_all_reasons = sorted(torso_failure_reasons_all.items(), key=lambda x: x[1], reverse=True)
         facts_summary["torso_failure_reasons_topk"] = dict(sorted_all_reasons[:10])  # Top 10
+        # Round44: KPI_DIFF alias — postprocess get_failure_reasons reads summary[?]["warnings_top5"] = [{"reason","n"}]
+        if "summary" not in facts_summary:
+            facts_summary["summary"] = {}
+        facts_summary["summary"]["failure_reasons"] = {
+            "warnings_top5": [{"reason": r, "n": c} for r, c in sorted_all_reasons[:5]]
+        }
     if torso_diagnostics_summary:
         facts_summary["torso_diagnostics_summary"] = torso_diagnostics_summary
+    # Round44: TORSO_FALLBACK_HULL_USED 집계 (케이스/키별)
+    if torso_fallback_hull_used_count > 0:
+        facts_summary["torso_fallback_hull_used_count"] = torso_fallback_hull_used_count
+        facts_summary["torso_fallback_hull_used_by_key"] = dict(torso_fallback_hull_used_by_key)
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}
