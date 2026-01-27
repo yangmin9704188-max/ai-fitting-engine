@@ -30,7 +30,7 @@ Reduce ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS by adding a deterministic boundary rec
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round57_20260127_230000/KPI_DIFF.md`
 
 ## PR Link
-[Round57 PR link to be added]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/226
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=20, skipped=180, has_mesh_path_true=20, has_mesh_path_null=180
