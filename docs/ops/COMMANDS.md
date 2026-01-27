@@ -167,6 +167,14 @@ make judgment FROM_RUN=<run_dir> DRY_RUN=1 SLUG=smoke
 make commands-update
 ```
 
+### check-import-boundaries
+**목적**: Import 경계 검사 (Cross-Module 참조 위반 검사)
+
+**기본 사용법**:
+```bash
+py tools/ops/check_import_boundaries.py
+```
+
 ## Data Conversion
 
 ### convert-scan-xlsx-to-csv

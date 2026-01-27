@@ -80,3 +80,7 @@
   - facts KPI Header를 통한 분석 비용 절감
   - 조용한 오답(추측/자동대체/정책 드리프트) 방지
   - 라운드 후처리 자동화를 통한 운영 일관성 확보
+
+## 11) Ops Plane (참고)
+- Guardrails: [`docs/ops/GUARDRAILS.md`](docs/ops/GUARDRAILS.md) - Import 경계 검사 및 구조 오염 방지
+- Backfill Policy: [`docs/ops/BACKFILL_POLICY.md`](docs/ops/BACKFILL_POLICY.md) - Tier 0/1/2 백필 정책
