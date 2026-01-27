@@ -952,6 +952,8 @@ def _compute_circumference_at_height(
     if return_torso_components:
         components, diagnostics = _find_connected_components_2d(vertices_2d, connectivity_threshold=0.01, return_diagnostics=True)
         torso_diagnostics = diagnostics.copy()
+        # Round56: Get n_slice_points_after_dedupe from diagnostics if available
+        n_slice_points_after_dedupe = diagnostics.get("n_points_after_dedupe", vertices_2d.shape[0] if vertices_2d is not None else 0)
         
         if len(components) > 0:
             all_components_stats = []
@@ -1033,55 +1035,92 @@ def _compute_circumference_at_height(
                             # Round48-A: Initialize method tracking (must be set to one of: alpha_shape, cluster_trim, single_component_fallback)
                             torso_method_used = None
                             
-                            # Round55: Capture diagnostics for TOO_FEW_POINTS (before alpha_shape attempt)
+                            # Round56: Capture diagnostics for TOO_FEW_POINTS (before alpha_shape attempt)
                             # Store slice diagnostics that will be used if TOO_FEW_POINTS occurs
                             n_slice_points_raw = vertices_2d.shape[0] if vertices_2d is not None else 0
-                            n_slice_points_after_dedupe = single_comp.shape[0]
+                            # Round56: Get n_slice_points_after_dedupe from diagnostics (set above)
+                            n_component_points = single_comp.shape[0]
                             
-                            # Option A: alpha-shape-like concave boundary
-                            # Round50: Deterministic k assignment via hash(case_id) % 3
-                            # Round54: Track alpha failure reasons
-                            alpha_k = 5  # Default
-                            if case_id is not None:
-                                alpha_k = [3, 5, 7][hash(case_id) % 3]
-                            alpha_fail_reason = None
-                            try:
-                                alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k)
-                                if alpha_boundary is not None and len(alpha_boundary) >= 3:
-                                    alpha_perimeter = _compute_perimeter(alpha_boundary)
-                                    if alpha_perimeter is not None:
-                                        torso_perimeter = alpha_perimeter
-                                        torso_method_used = "alpha_shape"
-                                        
-                                        # Round49: Compute loop quality metrics for alpha_shape method
-                                        # Round50: Record actual alpha_k used
-                                        if torso_diagnostics is not None:
-                                            loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
-                                            if loop_quality:
-                                                loop_quality["alpha_param_used"] = alpha_k  # Round50: Use deterministic k
-                                                torso_diagnostics["torso_loop_quality"] = loop_quality
+                            # Round56: Check for TOO_FEW_SLICE_POINTS (before component extraction)
+                            if n_slice_points_raw < 3:
+                                alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_SLICE_POINTS"
+                                if torso_diagnostics is not None:
+                                    torso_diagnostics["too_few_points_diagnostics"] = {
+                                        "n_slice_points_raw": int(n_slice_points_raw),
+                                        "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                        "n_component_points": int(n_component_points),
+                                        "n_boundary_points": 0,
+                                        "n_loops_found": 0,
+                                        "slice_thickness_used": float(tolerance),
+                                        "slice_plane_level": float(y_value)
+                                    }
+                            # Round56: Check for TOO_FEW_COMPONENT_POINTS (component has too few points)
+                            elif n_component_points < 3:
+                                alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_COMPONENT_POINTS"
+                                if torso_diagnostics is not None:
+                                    torso_diagnostics["too_few_points_diagnostics"] = {
+                                        "n_slice_points_raw": int(n_slice_points_raw),
+                                        "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                        "n_component_points": int(n_component_points),
+                                        "n_boundary_points": 0,
+                                        "n_loops_found": 0,
+                                        "slice_thickness_used": float(tolerance),
+                                        "slice_plane_level": float(y_value)
+                                    }
+                            else:
+                                # Option A: alpha-shape-like concave boundary
+                                # Round50: Deterministic k assignment via hash(case_id) % 3
+                                # Round54: Track alpha failure reasons
+                                # Round56: Refine TOO_FEW_POINTS into stage-specific codes
+                                alpha_k = 5  # Default
+                                if case_id is not None:
+                                    alpha_k = [3, 5, 7][hash(case_id) % 3]
+                                alpha_fail_reason = None
+                                n_boundary_points = 0
+                                n_loops_found = 0
+                                alpha_perimeter = None
+                                try:
+                                    alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k)
+                                    if alpha_boundary is not None:
+                                        n_boundary_points = len(alpha_boundary)
+                                        if n_boundary_points >= 3:
+                                            alpha_perimeter = _compute_perimeter(alpha_boundary)
+                                            if alpha_perimeter is not None:
+                                                torso_perimeter = alpha_perimeter
+                                                torso_method_used = "alpha_shape"
+                                                n_loops_found = 1
+                                                
+                                                # Round49: Compute loop quality metrics for alpha_shape method
+                                                # Round50: Record actual alpha_k used
+                                                if torso_diagnostics is not None:
+                                                    loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
+                                                    if loop_quality:
+                                                        loop_quality["alpha_param_used"] = alpha_k  # Round50: Use deterministic k
+                                                        torso_diagnostics["torso_loop_quality"] = loop_quality
+                                            else:
+                                                # Round54: Perimeter computation failed (not TOO_FEW_POINTS)
+                                                alpha_fail_reason = "ALPHA_FAIL:EMPTY_LOOP"
+                                        else:
+                                            # Round56: Boundary extraction produced too few points
+                                            alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS"
                                     else:
-                                        # Round54: Perimeter computation failed
-                                        alpha_fail_reason = "ALPHA_FAIL:EMPTY_LOOP"
-                                else:
-                                    # Round54: Boundary extraction failed
-                                    # Round55: Record diagnostics for TOO_FEW_POINTS
-                                    if alpha_boundary is None:
-                                        alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
-                                    elif len(alpha_boundary) < 3:
-                                        alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
+                                        # Round56: Boundary extraction returned None
+                                        alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS"
                                     
-                                    # Round55: Capture diagnostics when TOO_FEW_POINTS occurs
-                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_POINTS" and torso_diagnostics is not None:
+                                    # Round56: Capture diagnostics when TOO_FEW_BOUNDARY_POINTS occurs
+                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS" and torso_diagnostics is not None:
                                         torso_diagnostics["too_few_points_diagnostics"] = {
                                             "n_slice_points_raw": int(n_slice_points_raw),
                                             "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                            "n_component_points": int(n_component_points),
+                                            "n_boundary_points": int(n_boundary_points),
+                                            "n_loops_found": int(n_loops_found),
                                             "slice_thickness_used": float(tolerance),
                                             "slice_plane_level": float(y_value)
                                         }
-                            except Exception as e:
-                                # Round54: Exception during alpha_shape computation
-                                alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
+                                except Exception as e:
+                                    # Round54: Exception during alpha_shape computation
+                                    alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
                             
                             # Round54: Record alpha failure reason if alpha_shape failed
                             # Store alpha_fail_reason even if cluster_trim might succeed later

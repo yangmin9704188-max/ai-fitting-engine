@@ -1603,7 +1603,8 @@ def main():
         # Round54: Always emit empty dict to avoid missing key confusion
         facts_summary["alpha_fail_reasons_topk"] = {}
     
-    # Round55: Too few points diagnostics aggregation
+    # Round55/56: Too few points diagnostics aggregation
+    # Round56: Updated to handle stage-specific failure codes
     too_few_points_diagnostics_list = []
     for case_id, results in all_results.items():
         for full_key in TORSO_CIRC_KEYS:
@@ -1612,16 +1613,19 @@ def main():
                 debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
                 if full_result.metadata and debug_info and "torso_components" in debug_info:
                     torso_info = debug_info["torso_components"]
-                    # Check if this case had TOO_FEW_POINTS failure
-                    if torso_info.get("alpha_fail_reason") == "ALPHA_FAIL:TOO_FEW_POINTS":
+                    # Round56: Check if this case had any TOO_FEW_* failure
+                    alpha_fail_reason = torso_info.get("alpha_fail_reason")
+                    if alpha_fail_reason and alpha_fail_reason.startswith("ALPHA_FAIL:TOO_FEW_"):
                         too_few_diag = torso_info.get("too_few_points_diagnostics")
                         if too_few_diag:
                             too_few_points_diagnostics_list.append(too_few_diag)
     
-    # Round55: Aggregate too_few_points_diagnostics_summary
+    # Round55/56: Aggregate too_few_points_diagnostics_summary
+    # Round56: Expanded fields: n_component_points, n_boundary_points, n_loops_found
     if too_few_points_diagnostics_list:
         too_few_points_summary: Dict[str, Dict[str, float]] = {}
-        for field in ["n_slice_points_raw", "n_slice_points_after_dedupe", "slice_thickness_used", "slice_plane_level"]:
+        for field in ["n_slice_points_raw", "n_slice_points_after_dedupe", "n_component_points", 
+                      "n_boundary_points", "n_loops_found", "slice_thickness_used", "slice_plane_level"]:
             values = [d.get(field) for d in too_few_points_diagnostics_list if d.get(field) is not None]
             if values:
                 too_few_points_summary[field] = {
@@ -1633,7 +1637,7 @@ def main():
                 }
         facts_summary["too_few_points_diagnostics_summary"] = too_few_points_summary
     else:
-        # Round55: Always emit empty dict to avoid missing key confusion
+        # Round55/56: Always emit empty dict to avoid missing key confusion
         facts_summary["too_few_points_diagnostics_summary"] = {}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
