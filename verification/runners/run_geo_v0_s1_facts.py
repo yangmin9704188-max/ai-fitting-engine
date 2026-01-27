@@ -929,6 +929,17 @@ def main():
     print(f"[S1 MANIFEST] meta_unit: {manifest.get('meta_unit')}")
     print(f"[S1 MANIFEST] schema_version: {manifest.get('schema_version')}")
     
+    # Round61: Runner selection/cap observability
+    # Count enabled cases (mesh_path not null)
+    enabled_cases = [c for c in cases if c.get("mesh_path")]
+    requested_enabled_cases = len(enabled_cases)
+    
+    # Round61: Track which cases are selected for processing
+    # (Currently, all cases in manifest are processed, but we track which ones actually get processed)
+    selected_case_ids: List[str] = []
+    effective_processed_cap: Optional[int] = None  # Will be set if we find a cap
+    selection_rule: str = "process all cases in manifest order"  # Default rule
+    
     # Process cases
     all_results: Dict[str, Dict[str, MeasurementResult]] = {}
     skipped_entries: List[Dict[str, Any]] = []
@@ -944,6 +955,9 @@ def main():
         case_id = case["case_id"]
         if (i + 1) % 50 == 0:
             print(f"[PROCESS] Processed {i + 1}/{len(cases)} cases...")
+        
+        # Round61: Track selected case_id (before processing)
+        selected_case_ids.append(case_id)
         
         result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file)
         if result_data is not None:
@@ -1267,6 +1281,18 @@ def main():
             s["value_stats"] = {}
     
     # Round34: Save facts summary with KPI fields and NPZ paths
+    # Round61: Prepare runner selection summary
+    runner_selection_summary: Dict[str, Any] = {
+        "requested_enabled_cases": requested_enabled_cases,
+        "effective_processed_cap": effective_processed_cap,
+        "selection_rule": selection_rule,
+        "selected_case_id_sample": {
+            "first3": selected_case_ids[:3] if len(selected_case_ids) >= 3 else selected_case_ids,
+            "last3": selected_case_ids[-3:] if len(selected_case_ids) >= 3 else []
+        },
+        "total_selected": len(selected_case_ids)
+    }
+    
     facts_summary = {
         "schema_version": "facts_summary_v1",
         "git_sha": get_git_sha(),
@@ -1274,6 +1300,7 @@ def main():
         "total_cases": len(cases),
         "processed_cases": len(all_results),
         "skipped_cases": len(skipped_entries),
+        "runner_selection_summary": runner_selection_summary,
         "summary": dict(summary),
         # Round34: KPI 필드 (summarize_facts_kpi.py가 기대하는 형태)
         "n_samples": len(cases),  # total_cases와 동일
