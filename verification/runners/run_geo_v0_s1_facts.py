@@ -316,7 +316,7 @@ def measure_all_keys(verts: np.ndarray, case_id: str) -> Dict[str, MeasurementRe
     for key in CIRCUMFERENCE_KEYS:
         if key not in results:
             try:
-                result = measure_circumference_v0_with_metadata(verts, key)
+                result = measure_circumference_v0_with_metadata(verts, key, case_id=case_id)
                 results[key] = result
                 
                 # Round41/43: Extract torso-only circumference for torso keys
@@ -1259,6 +1259,14 @@ def main():
         "alpha_param_used": [],
         "loop_validity": []
     })
+    # Round50: Alpha k counts and quality by k
+    alpha_k_counts: Dict[int, int] = defaultdict(int)
+    torso_loop_quality_by_k: Dict[str, Dict[int, Dict[str, List[Any]]]] = defaultdict(lambda: defaultdict(lambda: {
+        "torso_loop_area_m2": [],
+        "torso_loop_perimeter_m": [],
+        "torso_loop_shape_ratio": [],
+        "loop_validity": []
+    }))
     
     for case_id, results in all_results.items():
         for full_key in TORSO_CIRC_KEYS:
@@ -1298,7 +1306,19 @@ def main():
                         if shape_ratio is not None and not np.isnan(shape_ratio) and shape_ratio > 0:
                             torso_loop_quality[full_key]["torso_loop_shape_ratio"].append(float(shape_ratio))
                         if alpha_param is not None:
-                            torso_loop_quality[full_key]["alpha_param_used"].append(int(alpha_param))
+                            alpha_k = int(alpha_param)
+                            torso_loop_quality[full_key]["alpha_param_used"].append(alpha_k)
+                            # Round50: Aggregate by k
+                            alpha_k_counts[alpha_k] += 1
+                            # Round50: Collect metrics by k
+                            if area_m2 is not None and not np.isnan(area_m2) and area_m2 > 0:
+                                torso_loop_quality_by_k[full_key][alpha_k]["torso_loop_area_m2"].append(float(area_m2))
+                            if perimeter_m is not None and not np.isnan(perimeter_m) and perimeter_m > 0:
+                                torso_loop_quality_by_k[full_key][alpha_k]["torso_loop_perimeter_m"].append(float(perimeter_m))
+                            if shape_ratio is not None and not np.isnan(shape_ratio) and shape_ratio > 0:
+                                torso_loop_quality_by_k[full_key][alpha_k]["torso_loop_shape_ratio"].append(float(shape_ratio))
+                            if validity:
+                                torso_loop_quality_by_k[full_key][alpha_k]["loop_validity"].append(str(validity))
                         if validity:
                             torso_loop_quality[full_key]["loop_validity"].append(str(validity))
                     # Round45: Collect debug stats (area/perimeter/circularity proxy)
@@ -1528,6 +1548,66 @@ def main():
     
     if torso_loop_quality_summary:
         facts_summary["torso_loop_quality_summary"] = torso_loop_quality_summary
+    
+    # Round50: Alpha k counts
+    if alpha_k_counts:
+        facts_summary["alpha_k_counts"] = dict(alpha_k_counts)
+    
+    # Round50: Loop quality summary by k
+    torso_loop_quality_summary_by_k: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    for key in torso_loop_quality_by_k:
+        key_by_k: Dict[int, Dict[str, Any]] = {}
+        for k in sorted(torso_loop_quality_by_k[key].keys()):
+            quality = torso_loop_quality_by_k[key][k]
+            k_summary: Dict[str, Any] = {}
+            
+            # Area summary
+            if quality["torso_loop_area_m2"]:
+                areas = sorted(quality["torso_loop_area_m2"])
+                k_summary["torso_loop_area_m2"] = {
+                    "min": float(np.min(areas)),
+                    "max": float(np.max(areas)),
+                    "median": float(np.median(areas)),
+                    "p50": float(np.percentile(areas, 50)),
+                    "p95": float(np.percentile(areas, 95))
+                }
+            
+            # Perimeter summary
+            if quality["torso_loop_perimeter_m"]:
+                perimeters = sorted(quality["torso_loop_perimeter_m"])
+                k_summary["torso_loop_perimeter_m"] = {
+                    "min": float(np.min(perimeters)),
+                    "max": float(np.max(perimeters)),
+                    "median": float(np.median(perimeters)),
+                    "p50": float(np.percentile(perimeters, 50)),
+                    "p95": float(np.percentile(perimeters, 95))
+                }
+            
+            # Shape ratio summary
+            if quality["torso_loop_shape_ratio"]:
+                ratios = sorted(quality["torso_loop_shape_ratio"])
+                k_summary["torso_loop_shape_ratio"] = {
+                    "min": float(np.min(ratios)),
+                    "max": float(np.max(ratios)),
+                    "median": float(np.median(ratios)),
+                    "p50": float(np.percentile(ratios, 50)),
+                    "p95": float(np.percentile(ratios, 95))
+                }
+            
+            # Validity counts
+            if quality["loop_validity"]:
+                from collections import Counter
+                validity_counts = Counter(quality["loop_validity"])
+                k_summary["loop_validity_counts"] = dict(validity_counts)
+            
+            if k_summary:
+                key_by_k[k] = k_summary
+        
+        if key_by_k:
+            torso_loop_quality_summary_by_k[key] = key_by_k
+    
+    if torso_loop_quality_summary_by_k:
+        facts_summary["torso_loop_quality_summary_by_k"] = torso_loop_quality_summary_by_k
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}
