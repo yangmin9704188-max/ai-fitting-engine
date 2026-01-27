@@ -22,29 +22,13 @@
 
 
 
-\### 🏗️ 5-Layer R\&D Pipeline (Architecture v1.2)#
+\### 🏗️ Architecture v1 (6 Layers + 3 Modules)#
 
-본 프로젝트는 데이터 흐름과 로직을 5개의 계층으로 격리하여 운영합니다.
+본 프로젝트는 데이터 흐름과 로직을 6개의 계층과 3개의 모듈로 격리하여 운영합니다. 자세한 구조 정의는 [Architecture v1 문서](docs/architecture/LAYERS_v1.md)를 참조하세요.
 
-
-
-L1: Geometry: SizeKorea 표준 기반 측정 로직 (core/measurements/)
-
-
-
-L2: Production: 1.2만 명 대량 데이터 생성 및 경량화 (verification/runners/)
-
-
-
-L3: Validation: 이상치 탐지 및 사실 기반 KPI 기록 (verification/runs/)
-
-
-
-L4: Intelligence: 데이터 간 상관관계 및 체형 가중치 분석
-
-
-
-L5: Application: 튜닝된 SMPL-X 기반 최종 바디 모델 서비스화
+**6 Layers**: Contract / Geometry / Production / Validation / Confidence / Application  
+**3 Modules**: body / garment / fitting  
+**DoD 체크리스트**: [Evidence-first DoD](docs/architecture/DoD_CHECKLISTS_v1.md)
 
 
 

@@ -2,6 +2,8 @@
 
 **Guard ref**: [.github/workflows/guard-sync-state.yml](../../.github/workflows/guard-sync-state.yml) - Official definition of guard-sync-state CI rule.
 
+**Architecture v1 반영**: Layer/Module 구조가 v1로 고정되었습니다. 자세한 내용은 [docs/architecture/LAYERS_v1.md](../../architecture/LAYERS_v1.md) 및 [DoD Checklists](../../architecture/DoD_CHECKLISTS_v1.md)를 참조하세요.
+
 snapshot:
 id:
 status: candidate
