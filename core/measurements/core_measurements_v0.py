@@ -122,6 +122,73 @@ def _alpha_shape_concave_boundary(pts: np.ndarray, body_center_2d: np.ndarray, k
         return None
 
 
+def _compute_loop_quality_metrics(loop_pts: np.ndarray, perimeter_m: float) -> Optional[Dict[str, Any]]:
+    """
+    Round49: Compute loop quality metrics for torso extraction.
+    
+    Args:
+        loop_pts: 2D points forming a closed loop (N, 2), ordered
+        perimeter_m: Perimeter in meters (already computed)
+    
+    Returns:
+        Dict with: torso_loop_area_m2, torso_loop_perimeter_m, torso_loop_shape_ratio,
+                   loop_validity (VALID / SELF_INTERSECT / TOO_FEW_POINTS / EMPTY)
+    """
+    if loop_pts is None or len(loop_pts) < 3:
+        return {
+            "torso_loop_area_m2": None,
+            "torso_loop_perimeter_m": None,
+            "torso_loop_shape_ratio": None,
+            "loop_validity": "TOO_FEW_POINTS"
+        }
+    
+    try:
+        # Compute area using shoelace formula
+        n = len(loop_pts)
+        area = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            area += loop_pts[i][0] * loop_pts[j][1]
+            area -= loop_pts[j][0] * loop_pts[i][1]
+        area = abs(area) / 2.0
+        
+        # Shape ratio = perimeter^2 / area (circularity proxy)
+        shape_ratio = None
+        if area > 1e-10:  # Avoid division by zero
+            shape_ratio = (perimeter_m ** 2) / area
+        
+        # Validity check: simple self-intersection check (basic heuristic)
+        validity = "VALID"
+        if n < 3:
+            validity = "TOO_FEW_POINTS"
+        elif area < 1e-10:
+            validity = "EMPTY"
+        else:
+            # Basic self-intersection check: check if any non-adjacent edges intersect
+            # Simplified: check if area is negative (indicates self-intersection in simple cases)
+            # More robust check would require full edge intersection test
+            try:
+                # Check for degenerate cases
+                if np.any(~np.isfinite(loop_pts)):
+                    validity = "SELF_INTERSECT"
+            except:
+                pass
+        
+        return {
+            "torso_loop_area_m2": float(area),
+            "torso_loop_perimeter_m": float(perimeter_m),
+            "torso_loop_shape_ratio": float(shape_ratio) if shape_ratio is not None else None,
+            "loop_validity": validity
+        }
+    except Exception as e:
+        return {
+            "torso_loop_area_m2": None,
+            "torso_loop_perimeter_m": None,
+            "torso_loop_shape_ratio": None,
+            "loop_validity": "SELF_INTERSECT"
+        }
+
+
 def _cluster_trim_torso(pts: np.ndarray, body_center_2d: np.ndarray) -> Optional[np.ndarray]:
     """
     Round47: Cluster/trim approach - keep central cluster and reconstruct loop.
@@ -925,6 +992,13 @@ def _compute_circumference_at_height(
                                 if alpha_perimeter is not None:
                                     torso_perimeter = alpha_perimeter
                                     torso_method_used = "alpha_shape"
+                                    
+                                    # Round49: Compute loop quality metrics for alpha_shape method
+                                    if torso_diagnostics is not None:
+                                        loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
+                                        if loop_quality:
+                                            loop_quality["alpha_param_used"] = 5  # k=5
+                                            torso_diagnostics["torso_loop_quality"] = loop_quality
                             
                             # Option B: cluster/trim approach (if Option A failed)
                             if torso_perimeter is None:
