@@ -20,7 +20,7 @@ Explain (facts-only) why processed=50 when manifest has 100 enabled cases, by ad
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round61_20260127_235000/KPI_DIFF.md`
 
 ## PR Link
-[Round61 PR link to be added]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/230
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=50, skipped=150, has_mesh_path_true=100, has_mesh_path_null=100
