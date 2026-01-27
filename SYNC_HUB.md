@@ -24,7 +24,9 @@ Project: AI Fitting Engine
 
 Mission: 사진 없이 신체 치수만으로 설명 가능하고 재현 가능한 3D 체형($\\beta$) 생성 엔진 구축
 
-Core Principle: 5-Layer R\&D 파이프라인(Semantic–Contract–Geometric–Validation–Judgment)의 엄격한 분리 및 지적 정직성(GIGO) 유지
+Core Principle: 6-Layer R\&D 파이프라인(Contract → Geometry → Production → Validation → Confidence → Application)의 엄격한 분리 및 지적 정직성(GIGO) 유지. Modules: body / garment / fitting. 레이어 간 코드 호출 금지(artifact-only) 원칙은 [docs/architecture/LAYERS_v1.md](docs/architecture/LAYERS_v1.md)를 SSoT로 참조합니다.
+
+**Note**: "5-Layer"는 레거시 용어이며, 현재 원칙은 v1 6-layer 구조입니다.
 
 **Architecture v1 고정**: Layer/Module 구조는 [docs/architecture/LAYERS_v1.md](docs/architecture/LAYERS_v1.md)를 SSoT로 합니다.
 
