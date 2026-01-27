@@ -780,6 +780,31 @@ def _compute_circumference_at_height(
                             if torso_diagnostics is not None:
                                 torso_diagnostics["TORSO_FALLBACK_HULL_USED"] = True
                     
+                    # Round45: If failure_reason is SINGLE_COMPONENT_ONLY and perimeter is still None, compute from single component
+                    if torso_perimeter is None and diagnostics.get("failure_reason") == "SINGLE_COMPONENT_ONLY" and len(components) == 1:
+                        single_comp = components[0]
+                        if single_comp.shape[0] >= 3:
+                            # Try ordering first
+                            ordered_single = _order_component_points_for_loop(single_comp)
+                            if ordered_single is not None:
+                                torso_perimeter = _compute_perimeter(ordered_single)
+                            else:
+                                # Fallback to unordered
+                                torso_perimeter = _compute_perimeter(single_comp)
+                            
+                            # If still None, use hull
+                            if torso_perimeter is None:
+                                hull_pts = _convex_hull_2d_monotone_chain(single_comp)
+                                if hull_pts is not None and len(hull_pts) >= 3:
+                                    hull_pts = np.asarray(hull_pts, dtype=np.float64)
+                                    d = np.diff(hull_pts, axis=0)
+                                    closing = hull_pts[0] - hull_pts[-1]
+                                    torso_perimeter = float(np.sqrt((d ** 2).sum(axis=1)).sum() + np.sqrt((closing ** 2).sum()))
+                            
+                            if torso_perimeter is not None:
+                                if torso_diagnostics is not None:
+                                    torso_diagnostics["TORSO_SINGLE_COMPONENT_FALLBACK_USED"] = True
+                    
                     if torso_perimeter is None:
                         diagnostics["failure_reason"] = "NOT_CLOSED_LOOP"
                 except Exception as e:

@@ -1237,12 +1237,17 @@ def main():
     
     # Round43: torso-only 실패 이유 코드 집계
     # Round44: TORSO_FALLBACK_HULL_USED 집계 (케이스/키별)
+    # Round45: TORSO_SINGLE_COMPONENT_FALLBACK_USED 집계 (케이스/키별)
     TORSO_CIRC_KEYS = ["NECK_CIRC_M", "BUST_CIRC_M", "UNDERBUST_CIRC_M", "WAIST_CIRC_M", "HIP_CIRC_M"]
     torso_failure_reasons: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))  # per-key failure reasons
     torso_failure_reasons_all: Dict[str, int] = defaultdict(int)  # aggregated across all keys
     torso_diagnostics_summary: Dict[str, Dict[str, Any]] = {}  # per-key diagnostics summary
     torso_fallback_hull_used_count: int = 0
     torso_fallback_hull_used_by_key: Dict[str, int] = defaultdict(int)
+    torso_single_component_fallback_count: int = 0
+    torso_single_component_fallback_by_key: Dict[str, int] = defaultdict(int)
+    # Round45: Debug summary stats (area/perimeter/circularity proxy)
+    torso_debug_stats: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: {"area": [], "perimeter": [], "circularity_proxy": []})
     
     for case_id, results in all_results.items():
         for full_key in TORSO_CIRC_KEYS:
@@ -1252,17 +1257,35 @@ def main():
                 full_result = results[full_key]
                 debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
                 if full_result.metadata and debug_info and "torso_components" in debug_info:
-                        torso_info = debug_info["torso_components"]
-                        # Round44: Aggregate TORSO_FALLBACK_HULL_USED
-                        if torso_info.get("TORSO_FALLBACK_HULL_USED"):
-                            torso_fallback_hull_used_count += 1
-                            torso_fallback_hull_used_by_key[full_key] += 1
-                        failure_reason = torso_info.get("failure_reason")
-                        if failure_reason:
-                            # Extract base reason code (before colon)
-                            reason_code = failure_reason.split(":")[0] if ":" in failure_reason else failure_reason
-                            torso_failure_reasons[full_key][reason_code] += 1
-                            torso_failure_reasons_all[reason_code] += 1
+                    torso_info = debug_info["torso_components"]
+                    # Round44: Aggregate TORSO_FALLBACK_HULL_USED
+                    if torso_info.get("TORSO_FALLBACK_HULL_USED"):
+                        torso_fallback_hull_used_count += 1
+                        torso_fallback_hull_used_by_key[full_key] += 1
+                    # Round45: Aggregate TORSO_SINGLE_COMPONENT_FALLBACK_USED
+                    if torso_info.get("TORSO_SINGLE_COMPONENT_FALLBACK_USED"):
+                        torso_single_component_fallback_count += 1
+                        torso_single_component_fallback_by_key[full_key] += 1
+                    # Round45: Collect debug stats (area/perimeter/circularity proxy)
+                    if torso_info.get("torso_stats"):
+                        torso_stats = torso_info["torso_stats"]
+                        if torso_stats and isinstance(torso_stats, dict):
+                            area = torso_stats.get("area")
+                            perimeter = torso_stats.get("perimeter")
+                            if area is not None and not np.isnan(area) and area > 0:
+                                torso_debug_stats[full_key]["area"].append(float(area))
+                            if perimeter is not None and not np.isnan(perimeter) and perimeter > 0:
+                                torso_debug_stats[full_key]["perimeter"].append(float(perimeter))
+                            # Circularity proxy = perimeter^2 / area
+                            if area is not None and perimeter is not None and not np.isnan(area) and not np.isnan(perimeter) and area > 0:
+                                circularity_proxy = (perimeter ** 2) / area
+                                torso_debug_stats[full_key]["circularity_proxy"].append(float(circularity_proxy))
+                    failure_reason = torso_info.get("failure_reason")
+                    if failure_reason:
+                        # Extract base reason code (before colon)
+                        reason_code = failure_reason.split(":")[0] if ":" in failure_reason else failure_reason
+                        torso_failure_reasons[full_key][reason_code] += 1
+                        torso_failure_reasons_all[reason_code] += 1
                         
                         # Round43: Collect diagnostics summary per key
                         if full_key not in torso_diagnostics_summary:
@@ -1356,6 +1379,46 @@ def main():
     if torso_fallback_hull_used_count > 0:
         facts_summary["torso_fallback_hull_used_count"] = torso_fallback_hull_used_count
         facts_summary["torso_fallback_hull_used_by_key"] = dict(torso_fallback_hull_used_by_key)
+    # Round45: TORSO_SINGLE_COMPONENT_FALLBACK_USED 집계 (케이스/키별)
+    if torso_single_component_fallback_count > 0:
+        facts_summary["torso_single_component_fallback_count"] = torso_single_component_fallback_count
+        facts_summary["torso_single_component_fallback_by_key"] = dict(torso_single_component_fallback_by_key)
+    # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
+    torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
+    for key in torso_debug_stats:
+        stats = torso_debug_stats[key]
+        key_summary: Dict[str, Any] = {}
+        if stats["area"]:
+            areas = stats["area"]
+            key_summary["area"] = {
+                "min": float(np.min(areas)),
+                "max": float(np.max(areas)),
+                "median": float(np.median(areas)),
+                "p50": float(np.percentile(areas, 50)),
+                "p95": float(np.percentile(areas, 95))
+            }
+        if stats["perimeter"]:
+            perimeters = stats["perimeter"]
+            key_summary["perimeter"] = {
+                "min": float(np.min(perimeters)),
+                "max": float(np.max(perimeters)),
+                "median": float(np.median(perimeters)),
+                "p50": float(np.percentile(perimeters, 50)),
+                "p95": float(np.percentile(perimeters, 95))
+            }
+        if stats["circularity_proxy"]:
+            circularities = stats["circularity_proxy"]
+            key_summary["circularity_proxy"] = {
+                "min": float(np.min(circularities)),
+                "max": float(np.max(circularities)),
+                "median": float(np.median(circularities)),
+                "p50": float(np.percentile(circularities, 50)),
+                "p95": float(np.percentile(circularities, 95))
+            }
+        if key_summary:
+            torso_debug_stats_summary[key] = key_summary
+    if torso_debug_stats_summary:
+        facts_summary["torso_debug_stats_summary"] = torso_debug_stats_summary
     
     # Round41: full vs torso-only delta 통계
     torso_delta_stats: Dict[str, Dict[str, Any]] = {}
