@@ -22,7 +22,7 @@ Add cohort-level observability comparing loop quality metrics between cases that
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round59_20260127_232000/KPI_DIFF.md`
 
 ## PR Link
-[Round59 PR link to be added]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/228
 
 ## Notes
 - **Run Statistics**: total_cases=200, processed=50, skipped=150, has_mesh_path_true=50, has_mesh_path_null=150
