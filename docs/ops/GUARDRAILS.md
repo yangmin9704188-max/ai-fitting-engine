@@ -52,3 +52,15 @@ Import 경계 검사는 `tools/ops/check_import_boundaries.py` 스크립트로 �
 ## 참고
 
 - 레이어 오염(geometry가 validation을 import 등)은 이 PR에서 강제 검사까지는 하지 않고, Guardrails 문서에 정책만 먼저 고정 (추후 확장 여지)
+
+## Allowed doc touch points (minimal surface)
+
+구조/규칙 설명을 고쳐야 할 때는 아래 문서만 우선 수정합니다:
+
+- `docs/architecture/LAYERS_v1.md`
+- `docs/ops/OPS_PLANE.md`
+- `docs/ops/GUARDRAILS.md`
+- `docs/ops/rounds/README.md`
+- (필요 시) `docs/architecture/DoD_CHECKLISTS_v1.md` ← 단, Evidence 경로 정합성 수정에 한정
+
+`docs/ops/INDEX.md`는 링크/가이드 목적이며, Round Registry 대량 편집은 금지됩니다. 새 라운드 기록은 `docs/ops/rounds/roundXX.md` 파일 추가로만 합니다.

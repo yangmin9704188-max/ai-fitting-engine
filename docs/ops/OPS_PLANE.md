@@ -34,3 +34,10 @@ Ops Plane의 SoT는 다음 Git 경로로 관리됩니다:
 - [Guardrails](GUARDRAILS.md): Import 경계 검사 및 구조 오염 방지 규칙
 - [Backfill Policy](BACKFILL_POLICY.md): Tier 0/1/2 백필 정책
 - [Backfill Log](BACKFILL_LOG.md): Tier2 백필 실행 기록
+- [Rounds README](rounds/README.md): 라운드 기록 규칙 및 템플릿
+
+## 봉인 상태
+
+- **Ops Plane sealed at tag opsplane-v1** (merge commit a80aec0)
+- **Architecture v1 sealed at tag arch-v1** (merge commit 9166fe4)
+- 이후 구조 변경은 v2 문서 "추가"로만 진행하며, 기존 v1 문서 수정은 금지됩니다.

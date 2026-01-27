@@ -54,6 +54,8 @@
 
 - **레이어 간 코드 호출/직접 import 금지**: 레이어 간 통신은 "Artifact Interface(파일/스키마)"로만 이루어집니다.
 - **Artifact-only 통신**: 각 레이어는 하위 레이어의 코드를 import하지 않고, 산출물(artifact)만 읽습니다.
+- **geometry_manifest.json이 L2→L3 기본 인터페이스**: L2 Geometry 레이어에서 L3 Production 레이어로의 통신은 `geometry_manifest.json`(스키마: [geometry_manifest.schema.json](../../specs/common/geometry_manifest.schema.json))을 통해서만 이루어집니다.
+- **레이어 간 직접 호출 금지**: 레이어 간 코드 호출이나 직접 import는 구조 오염으로 간주되며 merge가 차단됩니다.
 
 ## Cross-Module 참조 규칙
 

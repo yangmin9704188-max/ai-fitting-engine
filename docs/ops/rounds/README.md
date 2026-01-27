@@ -1,5 +1,7 @@
 # Round Notes
 
+**중요**: 새 라운드 기록은 `docs/ops/rounds/roundXX.md` 파일 추가로만 합니다(append-only). `docs/ops/INDEX.md`는 편집 최소화(링크/가이드 목적)이며, Round Registry 대량 편집은 금지됩니다. 충돌 발생 시 main 우선 + round 링크 1줄 추가만으로 해결합니다.
+
 라운드 기록은 `docs/ops/rounds/roundXX.md` 파일로만 추가합니다.
 
 ## 규칙
