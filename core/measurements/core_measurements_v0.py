@@ -494,6 +494,46 @@ def _compute_perimeter(vertices_2d: np.ndarray, return_debug: bool = False) -> O
     return float(perimeter_final)
 
 
+def _compute_tolerance_from_mesh_scale(verts: np.ndarray, base_tolerance: float) -> float:
+    """
+    Round55: Compute tolerance based on mesh scale/edge length.
+    
+    Args:
+        verts: Mesh vertices (N, 3)
+        base_tolerance: Original tolerance value (fallback)
+    
+    Returns:
+        Adjusted tolerance based on mesh scale
+    """
+    if verts.shape[0] < 3:
+        return base_tolerance
+    
+    try:
+        # Compute mesh bounding box
+        bbox_min = np.min(verts, axis=0)
+        bbox_max = np.max(verts, axis=0)
+        bbox_size = bbox_max - bbox_min
+        
+        # Estimate edge length from mesh scale (use median of bbox dimensions)
+        # This gives a rough estimate of mesh resolution
+        median_dimension = np.median(bbox_size[bbox_size > 0])
+        
+        # Use a fraction of median dimension as tolerance (e.g., 0.1% to 1%)
+        # This ensures tolerance scales with mesh size
+        scale_based_tolerance = median_dimension * 0.002  # 0.2% of median dimension
+        
+        # Use the larger of scale-based or base tolerance (but not too large)
+        # Clamp to reasonable range: 1e-5 to 0.01 meters
+        adjusted_tolerance = max(scale_based_tolerance, base_tolerance)
+        adjusted_tolerance = min(adjusted_tolerance, 0.01)  # Max 1cm
+        adjusted_tolerance = max(adjusted_tolerance, 1e-5)  # Min 10 microns
+        
+        return float(adjusted_tolerance)
+    except Exception:
+        # Fallback to base tolerance on any error
+        return base_tolerance
+
+
 def _find_cross_section(
     verts: np.ndarray,
     y_value: float,
