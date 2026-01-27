@@ -2,6 +2,11 @@
 
 **Purpose**: Central index for operational automation, documentation, and registry systems.
 
+> ⚠️ **라운드 기록 규칙 (LOCKED)**
+> - 새 라운드 기록은 [`docs/ops/rounds/roundXX.md`](rounds/roundXX.md) 파일 추가로만 한다
+> - 이 문서의 Round Registry(긴 목록)는 역사 보존용이며 이후 편집 금지
+> - 라운드 관련 문서: [`docs/ops/rounds/README.md`](rounds/README.md)
+
 ## Baseline Configuration
 
 ### curated_v0 Lane (Fixed)

@@ -5,7 +5,7 @@
 ## L1 Contract DoD
 
 - [ ] Standard Keys 정의 문서 존재 (Evidence: `docs/contract/standard_keys.md`)
-- [ ] Contract JSON 파일 존재 (Evidence: `contract/*.json`)
+- [ ] Contract JSON 파일 존재 (Evidence: TBD — will be created in module adoption PR)
 - [ ] 단위/스케일 계약 문서화 (Evidence: `docs/contract/measurement_coverage_v0.csv`)
 
 ## L2 Geometry DoD
