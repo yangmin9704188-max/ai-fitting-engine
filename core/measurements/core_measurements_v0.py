@@ -988,23 +988,47 @@ def _compute_circumference_at_height(
                             
                             # Option A: alpha-shape-like concave boundary
                             # Round50: Deterministic k assignment via hash(case_id) % 3
+                            # Round54: Track alpha failure reasons
                             alpha_k = 5  # Default
                             if case_id is not None:
                                 alpha_k = [3, 5, 7][hash(case_id) % 3]
-                            alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k)
-                            if alpha_boundary is not None and len(alpha_boundary) >= 3:
-                                alpha_perimeter = _compute_perimeter(alpha_boundary)
-                                if alpha_perimeter is not None:
-                                    torso_perimeter = alpha_perimeter
-                                    torso_method_used = "alpha_shape"
-                                    
-                                    # Round49: Compute loop quality metrics for alpha_shape method
-                                    # Round50: Record actual alpha_k used
-                                    if torso_diagnostics is not None:
-                                        loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
-                                        if loop_quality:
-                                            loop_quality["alpha_param_used"] = alpha_k  # Round50: Use deterministic k
-                                            torso_diagnostics["torso_loop_quality"] = loop_quality
+                            alpha_fail_reason = None
+                            try:
+                                alpha_boundary = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k)
+                                if alpha_boundary is not None and len(alpha_boundary) >= 3:
+                                    alpha_perimeter = _compute_perimeter(alpha_boundary)
+                                    if alpha_perimeter is not None:
+                                        torso_perimeter = alpha_perimeter
+                                        torso_method_used = "alpha_shape"
+                                        
+                                        # Round49: Compute loop quality metrics for alpha_shape method
+                                        # Round50: Record actual alpha_k used
+                                        if torso_diagnostics is not None:
+                                            loop_quality = _compute_loop_quality_metrics(alpha_boundary, alpha_perimeter)
+                                            if loop_quality:
+                                                loop_quality["alpha_param_used"] = alpha_k  # Round50: Use deterministic k
+                                                torso_diagnostics["torso_loop_quality"] = loop_quality
+                                    else:
+                                        # Round54: Perimeter computation failed
+                                        alpha_fail_reason = "ALPHA_FAIL:EMPTY_LOOP"
+                                else:
+                                    # Round54: Boundary extraction failed
+                                    if alpha_boundary is None:
+                                        alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
+                                    elif len(alpha_boundary) < 3:
+                                        alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_POINTS"
+                            except Exception as e:
+                                # Round54: Exception during alpha_shape computation
+                                alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
+                            
+                            # Round54: Record alpha failure reason if alpha_shape failed
+                            # Store alpha_fail_reason even if cluster_trim might succeed later
+                            # (We want to track why alpha_shape failed, regardless of subsequent fallbacks)
+                            if alpha_fail_reason is not None:
+                                if torso_diagnostics is not None:
+                                    torso_diagnostics["alpha_fail_reason"] = alpha_fail_reason
+                                if warnings is not None:
+                                    warnings.append(alpha_fail_reason)
                             
                             # Option B: cluster/trim approach (if Option A failed)
                             if torso_perimeter is None:

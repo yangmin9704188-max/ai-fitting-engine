@@ -1352,6 +1352,8 @@ def main():
     # Round47: TORSO_METHOD_USED 집계 (alpha_shape / cluster_trim / single_component_fallback)
     torso_method_used_count: Dict[str, int] = defaultdict(int)
     torso_method_used_by_key: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # Round54: Alpha failure reasons aggregation
+    alpha_fail_reasons: Dict[str, int] = defaultdict(int)
     # Round45: Debug summary stats (area/perimeter/circularity proxy)
     torso_debug_stats: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: {"area": [], "perimeter": [], "circularity_proxy": []})
     # Round49: Loop quality metrics collection
@@ -1394,6 +1396,12 @@ def main():
                     if torso_method:
                         torso_method_used_count[torso_method] += 1
                         torso_method_used_by_key[full_key][torso_method] += 1
+                    
+                    # Round54: Aggregate alpha failure reasons (only when single_component_fallback is used)
+                    if torso_method == "single_component_fallback":
+                        alpha_fail_reason = torso_info.get("alpha_fail_reason")
+                        if alpha_fail_reason:
+                            alpha_fail_reasons[alpha_fail_reason] += 1
                     
                     # Round51: Ensure alpha_k is recorded for all processed cases (exactly one per case)
                     # Record alpha_k only once per case (use first torso key encountered)
@@ -1585,6 +1593,15 @@ def main():
             facts_summary["torso_method_tracking_missing_count"] = missing_count
             if warnings is not None:
                 warnings.append(f"TORSO_METHOD_TRACKING_MISSING: {missing_count} cases missing method label")
+    
+    # Round54: Alpha failure reasons aggregation
+    if alpha_fail_reasons:
+        # Sort by count descending and take top 5
+        sorted_alpha_fail = sorted(alpha_fail_reasons.items(), key=lambda x: x[1], reverse=True)
+        facts_summary["alpha_fail_reasons_topk"] = dict(sorted_alpha_fail[:5])
+    else:
+        # Round54: Always emit empty dict to avoid missing key confusion
+        facts_summary["alpha_fail_reasons_topk"] = {}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:
