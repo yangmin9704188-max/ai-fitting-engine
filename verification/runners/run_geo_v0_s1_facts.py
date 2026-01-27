@@ -1364,6 +1364,21 @@ def main():
         "alpha_param_used": [],
         "loop_validity": []
     })
+    # Round59: Recovery cohort loop quality metrics collection
+    recovery_cohort_loop_quality: Dict[str, Dict[str, Dict[str, List[Any]]]] = defaultdict(lambda: {
+        "recovery_used": {
+            "torso_loop_area_m2": [],
+            "torso_loop_perimeter_m": [],
+            "torso_loop_shape_ratio": [],
+            "loop_validity": []
+        },
+        "none": {
+            "torso_loop_area_m2": [],
+            "torso_loop_perimeter_m": [],
+            "torso_loop_shape_ratio": [],
+            "loop_validity": []
+        }
+    })
     # Round50: Alpha k counts and quality by k
     alpha_k_counts: Dict[int, int] = defaultdict(int)
     alpha_k_recorded_per_case: Dict[str, bool] = {}  # Round51: Track if alpha_k already recorded for this case
@@ -1435,6 +1450,20 @@ def main():
                         shape_ratio = loop_quality.get("torso_loop_shape_ratio")
                         alpha_param = loop_quality.get("alpha_param_used")
                         validity = loop_quality.get("loop_validity")
+                        
+                        # Round59: Determine recovery cohort
+                        recovery_method = torso_info.get("boundary_recovery_method")
+                        cohort = "recovery_used" if recovery_method == "secondary_builder" else "none"
+                        
+                        # Round59: Collect loop quality metrics by cohort
+                        if area_m2 is not None and not np.isnan(area_m2) and area_m2 > 0:
+                            recovery_cohort_loop_quality[full_key][cohort]["torso_loop_area_m2"].append(float(area_m2))
+                        if perimeter_m is not None and not np.isnan(perimeter_m) and perimeter_m > 0:
+                            recovery_cohort_loop_quality[full_key][cohort]["torso_loop_perimeter_m"].append(float(perimeter_m))
+                        if shape_ratio is not None and not np.isnan(shape_ratio) and shape_ratio > 0:
+                            recovery_cohort_loop_quality[full_key][cohort]["torso_loop_shape_ratio"].append(float(shape_ratio))
+                        if validity:
+                            recovery_cohort_loop_quality[full_key][cohort]["loop_validity"].append(validity)
                         
                         if area_m2 is not None and not np.isnan(area_m2) and area_m2 > 0:
                             torso_loop_quality[full_key]["torso_loop_area_m2"].append(float(area_m2))
@@ -1678,6 +1707,62 @@ def main():
         facts_summary["boundary_recovery_success_count"] = dict(boundary_recovery_success_count)
     else:
         facts_summary["boundary_recovery_success_count"] = {}
+    
+    # Round59: Recovery cohort loop quality summary
+    boundary_recovery_cohort_summary: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for key in recovery_cohort_loop_quality:
+        key_cohorts = recovery_cohort_loop_quality[key]
+        key_summary: Dict[str, Dict[str, Any]] = {}
+        
+        for cohort in ["recovery_used", "none"]:
+            cohort_data = key_cohorts[cohort]
+            cohort_summary: Dict[str, Any] = {}
+            
+            # Area summary
+            if cohort_data["torso_loop_area_m2"]:
+                areas = sorted(cohort_data["torso_loop_area_m2"])
+                cohort_summary["torso_loop_area_m2"] = {
+                    "p50": float(np.percentile(areas, 50)),
+                    "p95": float(np.percentile(areas, 95)),
+                    "count": len(areas)
+                }
+            
+            # Perimeter summary
+            if cohort_data["torso_loop_perimeter_m"]:
+                perimeters = sorted(cohort_data["torso_loop_perimeter_m"])
+                cohort_summary["torso_loop_perimeter_m"] = {
+                    "p50": float(np.percentile(perimeters, 50)),
+                    "p95": float(np.percentile(perimeters, 95)),
+                    "count": len(perimeters)
+                }
+            
+            # Shape ratio summary
+            if cohort_data["torso_loop_shape_ratio"]:
+                shape_ratios = sorted(cohort_data["torso_loop_shape_ratio"])
+                cohort_summary["torso_loop_shape_ratio"] = {
+                    "p50": float(np.percentile(shape_ratios, 50)),
+                    "p95": float(np.percentile(shape_ratios, 95)),
+                    "count": len(shape_ratios)
+                }
+            
+            # Loop validity counts
+            if cohort_data["loop_validity"]:
+                from collections import Counter
+                validity_counts = Counter(cohort_data["loop_validity"])
+                cohort_summary["loop_validity_counts"] = dict(validity_counts)
+                cohort_summary["count"] = len(cohort_data["loop_validity"])
+            
+            if cohort_summary:
+                key_summary[cohort] = cohort_summary
+        
+        if key_summary:
+            boundary_recovery_cohort_summary[key] = key_summary
+    
+    if boundary_recovery_cohort_summary:
+        facts_summary["boundary_recovery_cohort_summary"] = boundary_recovery_cohort_summary
+    else:
+        # Round59: Always emit empty dict to avoid missing key confusion
+        facts_summary["boundary_recovery_cohort_summary"] = {}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:
