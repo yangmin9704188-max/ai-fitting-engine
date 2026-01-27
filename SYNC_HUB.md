@@ -217,3 +217,10 @@ Commit (main HEAD): 9b7ef4a9539e051d43b8e95ed8e1bd6d35845fa0
 | :--- | :--- | :--- | :--- | :--- |
 | **Round 20** | `curated_v0` | `curated-v0-realdata-v0.1` | ✅ Finalized | KPI, KPI_DIFF, LINEAGE, Registries (Visual: Skip) |
 
+10. Sealed Anchors (v1)
+
+- Ops Plane is sealed at tag `opsplane-v1` (merge commit `a80aec0`).
+- Architecture v1 is sealed at tag `arch-v1` (merge commit `9166fe4`).
+- Structural changes require v2 docs addition only (do not edit v1).
+- Round notes are added only via `docs/ops/rounds/roundXX.md` (append-only).
+
