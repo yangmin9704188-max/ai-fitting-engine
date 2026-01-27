@@ -1605,7 +1605,10 @@ def main():
     
     # Round55/56: Too few points diagnostics aggregation
     # Round56: Updated to handle stage-specific failure codes
+    # Round57: Track boundary recovery usage and success
     too_few_points_diagnostics_list = []
+    boundary_recovery_used_count: Dict[str, int] = defaultdict(int)
+    boundary_recovery_success_count: Dict[str, int] = defaultdict(int)
     for case_id, results in all_results.items():
         for full_key in TORSO_CIRC_KEYS:
             if full_key in results:
@@ -1619,13 +1622,21 @@ def main():
                         too_few_diag = torso_info.get("too_few_points_diagnostics")
                         if too_few_diag:
                             too_few_points_diagnostics_list.append(too_few_diag)
+                    
+                    # Round57: Track boundary recovery
+                    recovery_method = torso_info.get("boundary_recovery_method")
+                    if recovery_method:
+                        boundary_recovery_used_count[recovery_method] += 1
+                        if torso_info.get("boundary_recovery_success"):
+                            boundary_recovery_success_count[recovery_method] += 1
     
     # Round55/56: Aggregate too_few_points_diagnostics_summary
     # Round56: Expanded fields: n_component_points, n_boundary_points, n_loops_found
+    # Round57: Include post-recovery n_boundary_points if recovery was attempted
     if too_few_points_diagnostics_list:
         too_few_points_summary: Dict[str, Dict[str, float]] = {}
         for field in ["n_slice_points_raw", "n_slice_points_after_dedupe", "n_component_points", 
-                      "n_boundary_points", "n_loops_found", "slice_thickness_used", "slice_plane_level"]:
+                      "n_boundary_points", "n_loops_found", "slice_thickness_used", "slice_plane_level", "alpha_k_eff_used"]:
             values = [d.get(field) for d in too_few_points_diagnostics_list if d.get(field) is not None]
             if values:
                 too_few_points_summary[field] = {
@@ -1639,6 +1650,34 @@ def main():
     else:
         # Round55/56: Always emit empty dict to avoid missing key confusion
         facts_summary["too_few_points_diagnostics_summary"] = {}
+    
+    # Round57: Boundary recovery tracking
+    # Count cases that didn't use recovery (per case, not per key)
+    recovery_used_cases = set()
+    for case_id, results in all_results.items():
+        for full_key in TORSO_CIRC_KEYS:
+            if full_key in results:
+                full_result = results[full_key]
+                debug_info = (full_result.metadata or {}).get("debug_info") or (full_result.metadata or {}).get("debug") or {}
+                if full_result.metadata and debug_info and "torso_components" in debug_info:
+                    torso_info = debug_info["torso_components"]
+                    if torso_info.get("boundary_recovery_method"):
+                        recovery_used_cases.add(case_id)
+                        break  # Count each case only once
+    
+    total_processed_cases = len(all_results)
+    recovery_used_total = len(recovery_used_cases)
+    boundary_recovery_used_count["none"] = max(0, total_processed_cases - recovery_used_total)
+    
+    if boundary_recovery_used_count:
+        facts_summary["boundary_recovery_used_count"] = dict(boundary_recovery_used_count)
+    else:
+        facts_summary["boundary_recovery_used_count"] = {}
+    
+    if boundary_recovery_success_count:
+        facts_summary["boundary_recovery_success_count"] = dict(boundary_recovery_success_count)
+    else:
+        facts_summary["boundary_recovery_success_count"] = {}
     # Round45: Debug summary stats (area/perimeter/circularity proxy) per key
     torso_debug_stats_summary: Dict[str, Dict[str, Any]] = {}
     for key in torso_debug_stats:

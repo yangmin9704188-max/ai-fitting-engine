@@ -122,6 +122,60 @@ def _alpha_shape_concave_boundary(pts: np.ndarray, body_center_2d: np.ndarray, k
         return None
 
 
+def _secondary_boundary_builder(pts: np.ndarray, body_center_2d: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Round57: Secondary boundary builder using simple deterministic method (kNN graph outer boundary).
+    
+    Args:
+        pts: 2D points (N, 2)
+        body_center_2d: Body center for reference
+    
+    Returns:
+        Boundary points in order, or None if failed
+    """
+    if pts.shape[0] < 3:
+        return None
+    
+    try:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(pts)
+        
+        # Use a smaller k for more aggressive boundary detection
+        k_small = min(3, pts.shape[0] - 1)
+        if k_small < 1:
+            return None
+        
+        k_actual = min(k_small + 1, pts.shape[0])
+        distances, indices = tree.query(pts, k=k_actual)
+        
+        # Find outer boundary points: points with largest distances to neighbors
+        if pts.shape[0] > k_actual:
+            max_dists = distances[:, -1]  # Distance to k-th neighbor
+            # Use a more aggressive threshold for boundary detection
+            threshold = np.percentile(max_dists, 75)  # Top 25% of points by max distance
+            boundary_mask = max_dists >= threshold
+        else:
+            boundary_mask = np.ones(pts.shape[0], dtype=bool)
+        
+        boundary_pts = pts[boundary_mask]
+        
+        if len(boundary_pts) < 3:
+            return None
+        
+        # Order boundary points by polar angle around centroid
+        centroid = np.mean(boundary_pts, axis=0)
+        relative = boundary_pts - centroid
+        angles = np.arctan2(relative[:, 1], relative[:, 0])
+        sorted_indices = np.argsort(angles)
+        ordered_boundary = boundary_pts[sorted_indices]
+        
+        return ordered_boundary
+    except ImportError:
+        return None
+    except Exception:
+        return None
+
+
 def _compute_loop_quality_metrics(loop_pts: np.ndarray, perimeter_m: float) -> Optional[Dict[str, Any]]:
     """
     Round49: Compute loop quality metrics for torso extraction.
@@ -1107,17 +1161,89 @@ def _compute_circumference_at_height(
                                         # Round56: Boundary extraction returned None
                                         alpha_fail_reason = "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS"
                                     
-                                    # Round56: Capture diagnostics when TOO_FEW_BOUNDARY_POINTS occurs
-                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS" and torso_diagnostics is not None:
-                                        torso_diagnostics["too_few_points_diagnostics"] = {
-                                            "n_slice_points_raw": int(n_slice_points_raw),
-                                            "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
-                                            "n_component_points": int(n_component_points),
-                                            "n_boundary_points": int(n_boundary_points),
-                                            "n_loops_found": int(n_loops_found),
-                                            "slice_thickness_used": float(tolerance),
-                                            "slice_plane_level": float(y_value)
-                                        }
+                                    # Round57: Boundary recovery path when TOO_FEW_BOUNDARY_POINTS occurs
+                                    boundary_recovery_method = None
+                                    boundary_recovery_success = False
+                                    if alpha_fail_reason == "ALPHA_FAIL:TOO_FEW_BOUNDARY_POINTS":
+                                        # Round56: Capture initial diagnostics
+                                        if torso_diagnostics is not None:
+                                            torso_diagnostics["too_few_points_diagnostics"] = {
+                                                "n_slice_points_raw": int(n_slice_points_raw),
+                                                "n_slice_points_after_dedupe": int(n_slice_points_after_dedupe),
+                                                "n_component_points": int(n_component_points),
+                                                "n_boundary_points": int(n_boundary_points),
+                                                "n_loops_found": int(n_loops_found),
+                                                "slice_thickness_used": float(tolerance),
+                                                "slice_plane_level": float(y_value)
+                                            }
+                                        
+                                        # Round57: Option A: alpha_relax (deterministic)
+                                        # Use alpha_k_eff = min(alpha_k, 3) and retry
+                                        alpha_k_eff = min(alpha_k, 3)
+                                        if alpha_k_eff < alpha_k:
+                                            boundary_recovery_method = "alpha_relax"
+                                            try:
+                                                alpha_boundary_recovered = _alpha_shape_concave_boundary(single_comp, body_center_2d, k=alpha_k_eff)
+                                                if alpha_boundary_recovered is not None and len(alpha_boundary_recovered) >= 3:
+                                                    alpha_perimeter_recovered = _compute_perimeter(alpha_boundary_recovered)
+                                                    if alpha_perimeter_recovered is not None:
+                                                        torso_perimeter = alpha_perimeter_recovered
+                                                        torso_method_used = "alpha_shape"
+                                                        boundary_recovery_success = True
+                                                        n_boundary_points = len(alpha_boundary_recovered)
+                                                        n_loops_found = 1
+                                                        
+                                                        # Round49: Compute loop quality metrics
+                                                        if torso_diagnostics is not None:
+                                                            loop_quality = _compute_loop_quality_metrics(alpha_boundary_recovered, alpha_perimeter_recovered)
+                                                            if loop_quality:
+                                                                loop_quality["alpha_param_used"] = alpha_k_eff  # Round57: Record recovered k
+                                                                torso_diagnostics["torso_loop_quality"] = loop_quality
+                                                        alpha_fail_reason = None  # Recovery succeeded
+                                            except Exception:
+                                                pass  # Continue to Option B
+                                        
+                                        # Round57: Option B: secondary boundary builder (if Option A failed)
+                                        if not boundary_recovery_success:
+                                            if boundary_recovery_method is None:
+                                                boundary_recovery_method = "secondary_builder"
+                                            else:
+                                                boundary_recovery_method = "secondary_builder"  # Override if alpha_relax failed
+                                            
+                                            try:
+                                                # Simple deterministic boundary builder: kNN graph outer boundary
+                                                secondary_boundary = _secondary_boundary_builder(single_comp, body_center_2d)
+                                                if secondary_boundary is not None and len(secondary_boundary) >= 3:
+                                                    secondary_perimeter = _compute_perimeter(secondary_boundary)
+                                                    if secondary_perimeter is not None:
+                                                        torso_perimeter = secondary_perimeter
+                                                        torso_method_used = "alpha_shape"  # Still use alpha_shape method label
+                                                        boundary_recovery_success = True
+                                                        n_boundary_points = len(secondary_boundary)
+                                                        n_loops_found = 1
+                                                        
+                                                        # Round49: Compute loop quality metrics
+                                                        if torso_diagnostics is not None:
+                                                            loop_quality = _compute_loop_quality_metrics(secondary_boundary, secondary_perimeter)
+                                                            if loop_quality:
+                                                                loop_quality["alpha_param_used"] = alpha_k  # Keep original k for tracking
+                                                                torso_diagnostics["torso_loop_quality"] = loop_quality
+                                                        alpha_fail_reason = None  # Recovery succeeded
+                                            except Exception:
+                                                pass  # Keep original failure reason
+                                        
+                                        # Round57: Record recovery attempt and result
+                                        if torso_diagnostics is not None:
+                                            if boundary_recovery_method:
+                                                torso_diagnostics["boundary_recovery_method"] = boundary_recovery_method
+                                                torso_diagnostics["boundary_recovery_success"] = boundary_recovery_success
+                                                if boundary_recovery_success:
+                                                    # Update diagnostics with post-recovery values
+                                                    if "too_few_points_diagnostics" in torso_diagnostics:
+                                                        torso_diagnostics["too_few_points_diagnostics"]["n_boundary_points"] = int(n_boundary_points)
+                                                        torso_diagnostics["too_few_points_diagnostics"]["n_loops_found"] = int(n_loops_found)
+                                                        if boundary_recovery_method == "alpha_relax":
+                                                            torso_diagnostics["too_few_points_diagnostics"]["alpha_k_eff_used"] = int(alpha_k_eff)
                                 except Exception as e:
                                     # Round54: Exception during alpha_shape computation
                                     alpha_fail_reason = "ALPHA_FAIL:EXCEPTION"
