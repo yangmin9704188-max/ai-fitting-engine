@@ -1,0 +1,174 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Fitting Manifest Schema",
+    "description": "Facts-only manifest for fitting operations. NaN is allowed. Dropping data to improve metrics is prohibited. Use warnings/reasons/coverage only.",
+    "type": "object",
+    "required": [
+        "schema_version",
+        "inputs",
+        "outputs",
+        "provenance"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "schema_version": {
+            "type": "string",
+            "const": "fitting_manifest.v0"
+        },
+        "inputs": {
+            "type": "object",
+            "required": [
+                "units",
+                "body_source",
+                "garment_source"
+            ],
+            "additionalProperties": false,
+            "properties": {
+                "units": {
+                    "type": "string",
+                    "enum": [
+                        "m"
+                    ],
+                    "description": "Unit of measurement (meters)"
+                },
+                "body_source": {
+                    "type": "object",
+                    "description": "Exactly one body source must be provided",
+                    "oneOf": [
+                        {
+                            "required": [
+                                "geometry_manifest_path"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "geometry_manifest_path": {
+                                    "type": "string",
+                                    "description": "Path to geometry manifest"
+                                }
+                            }
+                        },
+                        {
+                            "required": [
+                                "body_measurements_path"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "body_measurements_path": {
+                                    "type": "string",
+                                    "description": "Path to body measurements file"
+                                }
+                            }
+                        },
+                        {
+                            "required": [
+                                "body_mesh_path"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "body_mesh_path": {
+                                    "type": "string",
+                                    "description": "Path to body mesh file"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "garment_source": {
+                    "type": "object",
+                    "description": "Exactly one garment source must be provided",
+                    "oneOf": [
+                        {
+                            "required": [
+                                "garment_template_path"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "garment_template_path": {
+                                    "type": "string",
+                                    "description": "Path to garment template"
+                                }
+                            }
+                        },
+                        {
+                            "required": [
+                                "garment_measurements_path"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "garment_measurements_path": {
+                                    "type": "string",
+                                    "description": "Path to garment measurements file"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "outputs": {
+            "type": "object",
+            "required": [
+                "out_dir"
+            ],
+            "additionalProperties": false,
+            "properties": {
+                "out_dir": {
+                    "type": "string",
+                    "description": "Output directory path"
+                },
+                "expected_files": {
+                    "type": "object",
+                    "description": "Expected output files with default names",
+                    "properties": {
+                        "fitting_summary": {
+                            "type": "string",
+                            "default": "fitting_summary.json"
+                        },
+                        "facts_summary": {
+                            "type": "string",
+                            "default": "facts_summary.json"
+                        }
+                    }
+                },
+                "visual_proxy": {
+                    "type": "object",
+                    "description": "Visual proxy output configuration",
+                    "properties": {
+                        "paths": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "provenance": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "code_fingerprint"
+            ],
+            "additionalProperties": false,
+            "properties": {
+                "schema_version": {
+                    "type": "string",
+                    "const": "fitting_manifest.v0",
+                    "description": "Schema version for provenance tracking"
+                },
+                "code_fingerprint": {
+                    "type": "string",
+                    "description": "Fingerprint of the code that generated this manifest"
+                },
+                "input_fingerprints": {
+                    "type": "object",
+                    "description": "Fingerprints of input files",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    }
+}
