@@ -25,7 +25,7 @@ Create deduplicated manifest to resolve duplicate case_id issue identified in Ro
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round70_20260128_213445/KPI_DIFF.md`
 
 ## PR Link
-(To be added after PR creation)
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/243
 
 ## Findings (Facts-Only)
 
