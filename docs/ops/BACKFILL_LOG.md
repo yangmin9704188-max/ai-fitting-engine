@@ -70,3 +70,21 @@
 - **Timestamp**: 2026-01-27
 
 ---
+
+### 2026-01-28: Round63-A - Manifest mesh_path normalization (fix file_not_found=50)
+
+- **Trigger**: Manual Tier2 backfill to fix enabled-but-skipped file_not_found=50 from Round62
+- **Scope**: `verification/manifests/s1_manifest_v0_round63.json`, geo_v0_s1 lane
+- **What changed**:
+  - 50 case_ids: mesh_path basename-only -> normalized to canonical full path
+  - Canonical base directory: `verification\datasets\golden\s1_mesh_v0\meshes` (deterministically extracted from manifest)
+  - Normalization rule: For each basename-only mesh_path, prefix with canonical_base_dir
+  - All 50 normalized paths verified to exist on disk
+- **Before/After examples**:
+  - case_id `21_F_6996`: `6th_20M.obj` -> `verification\datasets\golden\s1_mesh_v0\meshes\6th_20M.obj`
+  - case_id `20_F_0882`: `6th_30M.obj` -> `verification\datasets\golden\s1_mesh_v0\meshes\6th_30M.obj`
+  - case_id `20_F_0494`: `6th_40M.obj` -> `verification\datasets\golden\s1_mesh_v0\meshes\6th_40M.obj`
+- **Rationale**: Round60 expansion used basename-only paths, causing file_not_found at precheck. Round63 normalizes these to match the canonical directory structure already used by the first 50 enabled cases.
+- **Timestamp**: 2026-01-28
+
+---
