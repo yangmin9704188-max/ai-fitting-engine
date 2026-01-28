@@ -43,7 +43,7 @@ Restore 200 unique case manifest while maintaining case_id uniqueness (no duplic
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round71_20260128_231158/KPI_DIFF.md`
 
 ## PR Link
-(To be added after PR creation)
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/245
 
 ## Findings (Facts-Only)
 
