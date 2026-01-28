@@ -537,9 +537,38 @@ def log_skip_reason(
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
+def log_exec_failure(
+    exec_failures_file: Path,
+    case_id: str,
+    stage: str,
+    exception_type: str,
+    exception_1line: str,
+    has_mesh_path: bool,
+    mesh_path: Optional[str],
+    mesh_path_resolved: Optional[str] = None,
+    failed_keys: Optional[List[str]] = None
+) -> None:
+    """Round65: Log exec-fail to JSONL (cases that reach measurement but fail to be counted as processed)."""
+    record = {
+        "case_id": case_id,
+        "stage": stage,
+        "exception_type": exception_type,
+        "exception_1line": exception_1line,
+        "has_mesh_path": has_mesh_path,
+        "mesh_path": mesh_path,
+    }
+    if mesh_path_resolved:
+        record["mesh_path_resolved"] = mesh_path_resolved
+    if failed_keys:
+        record["failed_keys"] = failed_keys
+
+    with open(exec_failures_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
     """Resolve mesh path (absolute or relative to cwd).
-    
+
     Returns:
         (resolved_path, exists)
     """
@@ -548,7 +577,7 @@ def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
     else:
         # Relative path: resolve from current working directory
         resolved = (Path.cwd() / mesh_path).resolve()
-    
+
     return resolved, resolved.exists()
 
 
@@ -556,14 +585,16 @@ def process_case(
     case: Dict[str, Any],
     out_dir: Path,
     skipped_entries: List[Dict[str, Any]],
-    skip_reasons_file: Path
+    skip_reasons_file: Path,
+    exec_failures_file: Path
 ) -> Optional[Dict[str, MeasurementResult]]:
     """Process a single case from S1 manifest.
-    
+
     Returns:
         Measurement results if processed, None if skipped
-    
+
     Invariant: Each case_id must log exactly 1 record to skip_reasons.jsonl
+    Round65: exec-fail cases also log to exec_failures.jsonl
     """
     case_id = case["case_id"]
     mesh_path = case.get("mesh_path")
@@ -822,6 +853,18 @@ def process_case(
                 exception_type=type(e).__name__
             )
             logged = True
+            # Round65: Log to exec_failures.jsonl (reached measure but failed to be processed)
+            log_exec_failure(
+                exec_failures_file=exec_failures_file,
+                case_id=case_id,
+                stage="measure",
+                exception_type=type(e).__name__,
+                exception_1line=exception_1line,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                mesh_path_resolved=mesh_path_resolved,
+                failed_keys=None  # Can expand in future if needed
+            )
             skipped_entries.append({
                 "Type": "measure_exception",
                 "case_id": case_id,
@@ -920,7 +963,13 @@ def main():
     if skip_reasons_file.exists():
         skip_reasons_file.unlink()  # Clear previous run
     print(f"[SKIP REASONS] Logging to: {skip_reasons_file}")
-    
+
+    # Round65: Create exec_failures.jsonl file (SSoT for exec-fail cases)
+    exec_failures_file = artifacts_dir / "exec_failures.jsonl"
+    if exec_failures_file.exists():
+        exec_failures_file.unlink()  # Clear previous run
+    print(f"[EXEC FAILURES] Logging to: {exec_failures_file}")
+
     # Load S1 manifest
     print(f"[S1 MANIFEST] Loading: {args.manifest}")
     manifest = load_s1_manifest(args.manifest)
@@ -958,8 +1007,8 @@ def main():
         
         # Round61: Track selected case_id (before processing)
         selected_case_ids.append(case_id)
-        
-        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file)
+
+        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file)
         if result_data is not None:
             # Round33: Handle new return format with verts
             if isinstance(result_data, dict) and "results" in result_data:
@@ -1142,7 +1191,48 @@ def main():
             enabled_skip_stage_topk = dict(sorted_stages[:10])
 
         enabled_skip_reason_sample: Dict[str, List[str]] = dict(enabled_skip_samples)
-        
+
+        # Round65: Exec-fail aggregation (cases that reached measure but didn't get processed)
+        exec_fail_count = 0
+        exec_fail_stages: Dict[str, int] = defaultdict(int)
+        exec_fail_exception_types: Dict[str, int] = defaultdict(int)
+        exec_fail_samples: Dict[str, List[str]] = defaultdict(list)  # exception_type -> first 3 case_ids
+
+        if exec_failures_file.exists():
+            with open(exec_failures_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        exec_fail_count += 1
+                        stage = record.get("stage", "unknown")
+                        exec_fail_stages[stage] += 1
+                        exception_type = record.get("exception_type", "unknown")
+                        exec_fail_exception_types[exception_type] += 1
+                        # Sample: keep first 3 case_ids per exception_type
+                        case_id = record.get("case_id", "unknown")
+                        if len(exec_fail_samples[exception_type]) < 3:
+                            exec_fail_samples[exception_type].append(case_id)
+                    except json.JSONDecodeError:
+                        continue
+
+        # Build top-K dicts (sort by count descending)
+        exec_fail_stage_topk: Dict[str, int] = {}
+        if exec_fail_stages:
+            sorted_stages = sorted(exec_fail_stages.items(), key=lambda x: x[1], reverse=True)
+            exec_fail_stage_topk = dict(sorted_stages[:10])
+
+        exec_fail_exception_type_topk: Dict[str, int] = {}
+        if exec_fail_exception_types:
+            sorted_types = sorted(exec_fail_exception_types.items(), key=lambda x: x[1], reverse=True)
+            exec_fail_exception_type_topk = dict(sorted_types[:10])
+
+        exec_fail_case_ids_sample: Dict[str, List[str]] = dict(exec_fail_samples)
+
+        print(f"[EXEC FAILURES] Logged {exec_fail_count} exec-fail records to {exec_failures_file}")
+
         # Check has_mesh_path_true count (expected: 5 for proxy cases)
         expected_has_mesh_path_true = 5
         if has_mesh_path_true_count != expected_has_mesh_path_true:
@@ -1351,6 +1441,11 @@ def main():
         facts_summary["enabled_skip_reasons_topk"] = enabled_skip_reasons_topk
         facts_summary["enabled_skip_stage_topk"] = enabled_skip_stage_topk
         facts_summary["enabled_skip_reason_sample"] = enabled_skip_reason_sample
+        # Round65: exec-fail aggregation (always emit, even if empty)
+        facts_summary["exec_fail_count"] = exec_fail_count
+        facts_summary["exec_fail_stage_topk"] = exec_fail_stage_topk
+        facts_summary["exec_fail_exception_type_topk"] = exec_fail_exception_type_topk
+        facts_summary["exec_fail_case_ids_sample"] = exec_fail_case_ids_sample
     else:
         facts_summary["has_mesh_path_true"] = 0
         facts_summary["has_mesh_path_null"] = 0
@@ -1359,6 +1454,11 @@ def main():
         facts_summary["enabled_skip_reasons_topk"] = {}
         facts_summary["enabled_skip_stage_topk"] = {}
         facts_summary["enabled_skip_reason_sample"] = {}
+        # Round65: exec-fail aggregation (always emit empty)
+        facts_summary["exec_fail_count"] = 0
+        facts_summary["exec_fail_stage_topk"] = {}
+        facts_summary["exec_fail_exception_type_topk"] = {}
+        facts_summary["exec_fail_case_ids_sample"] = {}
     
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
