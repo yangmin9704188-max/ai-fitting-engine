@@ -507,9 +507,13 @@ def log_skip_reason(
     exception_type: Optional[str] = None,
     loader_name: Optional[str] = None,
     loaded_verts: Optional[int] = None,
-    loaded_faces: Optional[int] = None
+    loaded_faces: Optional[int] = None,
+    tracking_set: Optional[set] = None
 ) -> None:
-    """Log skip reason to JSONL file (SSoT for per-case skip reasons)."""
+    """Log skip reason to JSONL file (SSoT for per-case skip reasons).
+
+    Round68: Added tracking_set parameter to track which case_ids have been logged.
+    """
     record = {
         "case_id": case_id,
         "has_mesh_path": has_mesh_path,
@@ -532,9 +536,13 @@ def log_skip_reason(
         record["loaded_verts"] = loaded_verts
     if loaded_faces is not None:
         record["loaded_faces"] = loaded_faces
-    
+
     with open(skip_reasons_file, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+    # Round68: Track that this case_id has been logged
+    if tracking_set is not None:
+        tracking_set.add(case_id)
 
 
 def log_exec_failure(
@@ -631,6 +639,25 @@ def log_success_not_processed(
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
+def log_record_missing_skip_reason(
+    record_missing_file: Path,
+    case_id: str,
+    has_mesh_path: bool,
+    mesh_path: Optional[str],
+    note_1line: str
+) -> None:
+    """Round68: Log cases that entered loop but didn't call log_skip_reason."""
+    record = {
+        "case_id": case_id,
+        "has_mesh_path": has_mesh_path,
+        "mesh_path": mesh_path,
+        "note_1line": note_1line,
+    }
+
+    with open(record_missing_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
     """Resolve mesh path (absolute or relative to cwd).
 
@@ -652,7 +679,8 @@ def process_case(
     skipped_entries: List[Dict[str, Any]],
     skip_reasons_file: Path,
     exec_failures_file: Path,
-    processed_sink_file: Path
+    processed_sink_file: Path,
+    log_skip_reason_tracking: Optional[set] = None
 ) -> Optional[Dict[str, MeasurementResult]]:
     """Process a single case from S1 manifest.
 
@@ -684,7 +712,8 @@ def process_case(
                 mesh_path=None,
                 attempted_load=False,
                 stage="precheck",
-                reason=skip_reason
+                reason=skip_reason,
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             skipped_entries.append({
@@ -724,7 +753,8 @@ def process_case(
                     reason=skip_reason,
                     exception_1line=f"File not found: {path_to_use}",
                     mesh_path_resolved=mesh_path_resolved,
-                    mesh_exists=mesh_exists
+                    mesh_exists=mesh_exists,
+                    tracking_set=log_skip_reason_tracking
                 )
                 logged = True
                 skipped_entries.append({
@@ -804,7 +834,7 @@ def process_case(
             skip_reason = "load_failed"
             if load_error and ("exception" in load_error.lower() or "failed" in load_error.lower()):
                 skip_reason = "load_failed"
-            
+
             log_skip_reason(
                 skip_reasons_file=skip_reasons_file,
                 case_id=case_id,
@@ -819,6 +849,7 @@ def process_case(
                 exception_type=exception_type,
                 loader_name=loader_name,
                 loaded_verts=loaded_verts,
+                tracking_set=log_skip_reason_tracking,
                 loaded_faces=loaded_faces
             )
             logged = True
@@ -843,7 +874,8 @@ def process_case(
                 reason=skip_reason,
                 exception_1line=f"Invalid shape: {verts.shape}, expected (V, 3)",
                 mesh_path_resolved=mesh_path_resolved,
-                mesh_exists=mesh_exists
+                mesh_exists=mesh_exists,
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             skipped_entries.append({
@@ -873,7 +905,8 @@ def process_case(
                 loader_name=loader_name,
                 loaded_verts=loaded_verts,
                 loaded_faces=loaded_faces,
-                exception_1line=exception_1line_for_log
+                exception_1line=exception_1line_for_log,
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             # Round33: Return results with verts and scale_warning for NPZ generation
@@ -892,7 +925,8 @@ def process_case(
                 exception_1line=exception_1line,
                 mesh_path_resolved=mesh_path_resolved,
                 mesh_exists=mesh_exists,
-                exception_type="KeyboardInterrupt"
+                exception_type="KeyboardInterrupt",
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             skipped_entries.append({
@@ -916,7 +950,8 @@ def process_case(
                 exception_1line=exception_1line,
                 mesh_path_resolved=mesh_path_resolved,
                 mesh_exists=mesh_exists,
-                exception_type=type(e).__name__
+                exception_type=type(e).__name__,
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             # Round65: Log to exec_failures.jsonl (reached measure but failed to be processed)
@@ -951,7 +986,8 @@ def process_case(
                 stage="unexpected_exception",
                 reason="exception",
                 exception_1line=exception_1line,
-                exception_type="KeyboardInterrupt"
+                exception_type="KeyboardInterrupt",
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             skipped_entries.append({
@@ -973,7 +1009,8 @@ def process_case(
                 stage="unexpected_exception",
                 reason="exception",
                 exception_1line=exception_1line,
-                exception_type=type(e).__name__
+                exception_type=type(e).__name__,
+                tracking_set=log_skip_reason_tracking
             )
             logged = True
             skipped_entries.append({
@@ -993,7 +1030,8 @@ def process_case(
                 mesh_path=mesh_path,
                 attempted_load=False,
                 stage="invariant_fill",
-                reason="missing_log_record"
+                reason="missing_log_record",
+                tracking_set=log_skip_reason_tracking
             )
 
 
@@ -1048,6 +1086,12 @@ def main():
         success_not_processed_file.unlink()  # Clear previous run
     print(f"[SUCCESS NOT PROCESSED] Logging to: {success_not_processed_file}")
 
+    # Round68: Create record_missing_skip_reason.jsonl file (SSoT for missing skip_reason records)
+    record_missing_file = artifacts_dir / "record_missing_skip_reason.jsonl"
+    if record_missing_file.exists():
+        record_missing_file.unlink()  # Clear previous run
+    print(f"[RECORD MISSING] Logging to: {record_missing_file}")
+
     # Load S1 manifest
     print(f"[S1 MANIFEST] Loading: {args.manifest}")
     manifest = load_s1_manifest(args.manifest)
@@ -1078,6 +1122,9 @@ def main():
     scale_warnings_detailed: List[Dict[str, Any]] = []  # Round40: 상세 정보 리스트
     # Round67: Track what each case returned for success-not-processed detection
     case_return_tracking: Dict[str, Dict[str, Any]] = {}
+    # Round68: Track which case_ids enter loop and which get logged
+    entered_loop_case_ids: set = set()
+    log_skip_reason_called_case_ids: set = set()
 
     print(f"[PROCESS] Processing {len(cases)} cases...")
     for i, case in enumerate(cases):
@@ -1088,7 +1135,10 @@ def main():
         # Round61: Track selected case_id (before processing)
         selected_case_ids.append(case_id)
 
-        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file, processed_sink_file)
+        # Round68: Track that this case_id entered the loop
+        entered_loop_case_ids.add(case_id)
+
+        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file, processed_sink_file, log_skip_reason_called_case_ids)
 
         # Round67: Track what was returned for this case
         tracking_info = {
@@ -1130,6 +1180,40 @@ def main():
         case_return_tracking[case_id] = tracking_info
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
+
+    # Round68: Missing skip_reason record detection
+    record_expected_total = len(entered_loop_case_ids)
+    record_actual_total = len(log_skip_reason_called_case_ids)
+    record_missing_case_ids = sorted(entered_loop_case_ids - log_skip_reason_called_case_ids)
+    record_missing_count = len(record_missing_case_ids)
+
+    # Check for duplicate records
+    from collections import Counter
+    duplicate_count = 0
+    if len(log_skip_reason_called_case_ids) < record_actual_total:
+        # This shouldn't happen with a set, but track it for completeness
+        duplicate_count = record_actual_total - len(log_skip_reason_called_case_ids)
+
+    print(f"[RECORD MISSING] Expected records: {record_expected_total}, Actual: {record_actual_total}, Missing: {record_missing_count}")
+
+    if record_missing_count > 0:
+        print(f"[RECORD MISSING] Detected {record_missing_count} cases without skip_reason records")
+        for case_id in record_missing_case_ids:
+            # Get case info
+            case_info = next((c for c in cases if c["case_id"] == case_id), None)
+            mesh_path = case_info.get("mesh_path") if case_info else None
+            has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
+
+            # Log to record_missing_skip_reason.jsonl
+            log_record_missing_skip_reason(
+                record_missing_file=record_missing_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                note_1line="log_skip_reason not called for this case_id"
+            )
+    else:
+        print(f"[RECORD MISSING] All {record_expected_total} cases have skip_reason records")
 
     # Round67: Success-not-processed detection
     # Find cases logged as "success" in skip_reasons.jsonl but NOT in all_results
@@ -1348,7 +1432,8 @@ def main():
                         mesh_path=mesh_path,
                         attempted_load=False,
                         stage="invariant_fill",
-                        reason="missing_log_record"
+                        reason="missing_log_record",
+                        tracking_set=log_skip_reason_called_case_ids
                     )
                     logged_case_ids.add(case_id)
                     if has_mesh_path:
@@ -1748,6 +1833,12 @@ def main():
         facts_summary["success_not_processed_count"] = success_not_processed_count_agg
         facts_summary["success_not_processed_reason_topk"] = success_not_processed_reason_topk
         facts_summary["success_not_processed_case_ids_sample"] = success_not_processed_case_ids_sample
+        # Round68: record missing skip_reason aggregation (always emit, even if empty)
+        facts_summary["record_expected_total"] = record_expected_total
+        facts_summary["record_actual_total"] = record_actual_total
+        facts_summary["record_missing_count"] = record_missing_count
+        facts_summary["record_missing_case_ids_sample"] = record_missing_case_ids[:3] if record_missing_case_ids else []
+        facts_summary["record_duplicate_count"] = duplicate_count
     else:
         facts_summary["has_mesh_path_true"] = 0
         facts_summary["has_mesh_path_null"] = 0
@@ -1770,6 +1861,12 @@ def main():
         facts_summary["success_not_processed_count"] = 0
         facts_summary["success_not_processed_reason_topk"] = {}
         facts_summary["success_not_processed_case_ids_sample"] = {}
+        # Round68: record missing skip_reason aggregation (always emit empty)
+        facts_summary["record_expected_total"] = 0
+        facts_summary["record_actual_total"] = 0
+        facts_summary["record_missing_count"] = 0
+        facts_summary["record_missing_case_ids_sample"] = []
+        facts_summary["record_duplicate_count"] = 0
 
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
