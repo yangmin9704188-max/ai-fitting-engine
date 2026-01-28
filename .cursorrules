@@ -1,95 +1,172 @@
 # Cursor Rules - AI Fitting Engine
+# Canon Lock Version: 2026-01-29
 
-## 0) Prime Directive (최상위 원칙)
-- 사용자가 지시한 **이번 작업의 범위(Scope)** 안에서만 행동한다.
-- 범위를 벗어나는 변경(리팩터링/구조 개편/정책 변경)은 **사전 승인 없이 금지**다.
-- 특히 **Semantic 재해석/자동 대체(표준키 의미 변경)** 는 절대 금지다.
+## 1. Golden Sources (SSoT)
 
-## 1) Repository Structure (Stable Areas)
-- `engine/`: Future center for product logic (incremental migration planned)
-- `core/`: Reusable pure logic (measurements, filters, utilities) - DO NOT MOVE YET
-- `pipelines/`: Execution pipelines - DO NOT MOVE YET
-- `verification/`: Verification runners and tools - DO NOT MOVE YET
-- `tests/`: Test suites - DO NOT MOVE YET
+All cross-module interfaces and policies are canonical in these files. Do not duplicate rules elsewhere.
 
-## 2) Mandatory Pre-Read (작업 시작 전 필수 확인)
-작업 시작 전 아래 문서를 먼저 읽고 준수한다.
-1) `docs/ops/cursor_prompt_header.md`
-   - "Cursor does / Human does / Output contract / Forbidden actions"를 절대 준수
-2) 라운드 목표(있을 때)
-   - 우선: `verification/runs/**/ROUND_CHARTER.md`
-   - 없으면: `docs/verification/round_charter_template.md`를 기준으로
-     사용자에게 “현재 라운드 헌장 파일 경로”를 **1회만** 요청
-3) facts 기반 리포트 작성 시 KPI Header 사용
-   - `py tools/summarize_facts_kpi.py <facts_summary.json>` 결과를 리포트 상단에 포함
+| Document | Path | Purpose |
+|----------|------|---------|
+| Interface Ledger | `contracts/interface_ledger_v0.md` | Cross-module artifact interface (Path/Name/Version/NaN/Warnings) |
+| Port Checklist | `contracts/port_readiness_checklist_v0.md` | fitting_lab → main port procedure |
+| Port Template | `contracts/port_event_note_template_v0.md` | Port event recording |
+| GUARDRAILS | `docs/ops/GUARDRAILS.md` | Import boundary rules |
 
-## 3) Facts KPI Header Rule (범위 제한)
-- **facts_summary.json이 생성되는 facts-only runner 리포트에 한정**하여 KPI Header를 포함한다.
-- facts_summary.json이 없거나 스키마가 다르면:
-  - 크래시/중단 금지
-  - 가능한 값은 출력하고, 나머지는 N/A로 표기
-  - 사유를 리포트/코멘트에 짧게 기록
+**Rule**: When uncertain, READ the SSoT file first. Do not infer or guess.
 
-## 4) PR / Merge Rule (기본값)
-- 사용자가 “PR 생성 + merge까지”를 요구한 경우:
-  - 브랜치 생성 → 커밋/푸시 → PR 생성 → CI 확인(가능 시) → merge까지 완료한다.
-- PR 설명에는 반드시 아래를 포함한다:
-  - 변경 파일 목록
-  - 재현/스모크 실행 커맨드(있다면)
-  - 위험/범위/금지사항 준수 여부 요약(1~3줄)
+---
 
-## 5) Strict Safety Rules (항상 적용)
-1) **NO DELETIONS**: `git rm` 금지 (예외가 필요하면 반드시 사용자 승인)
-2) **NO LARGE-SCALE FILE MOVES**: `core/`, `pipelines/`, `verification/`, `tests/` 폴더 이동 금지
-3) **NO UNREQUESTED REFACTORING**: 대규모 리팩터링 금지 (요청받지 않은 함수/파일 정리 금지)
-4) **NO SEMANTIC POLICY DRIFT**: 표준키 정의/정책 문서의 의미를 바꾸는 수정 금지
-5) **NO “SMART GUESSING”**: 자동 유사매칭/자동 대체/추측 기반 수정 금지
+## 2. Absolute Prohibitions
 
-## 6) Prohibited Modifications (기본 금지 구역)
-- 사용자 지시 없이 다음 영역은 수정 금지:
-  - `data/`, `models/`, `artifacts/`, `experiments/` (산출물/원천 데이터 영역)
-  - `verification/runs/` 등 실행 산출물 폴더(특별 지시 없으면 커밋 금지)
-  - legacy 문서의 대규모 재작성(요청 없으면 금지)
+### 2.1 Structural Changes (main repo)
+- ❌ `git rm` — file deletion forbidden without explicit user approval
+- ❌ `git mv` — folder/file moves forbidden (especially `core/`, `pipelines/`, `verification/`, `tests/`)
+- ❌ Large-scale refactoring without explicit request
 
-## 7) Conditional Scope Lock (문서/운영/DB 최소화 PR일 때만)
-사용자가 이번 PR 목적을 아래처럼 명시한 경우에만 적용한다:
-- "structure declaration", "operational rules", "DB minimization", "docs-only"
+### 2.2 Semantic Drift
+- ❌ Modifying `contracts/interface_ledger_v0.md` directly (agents output to `artifacts/interface_ledger_rows.jsonl` only)
+- ❌ Changing standard key definitions or policy meanings
+- ❌ "Smart guessing" — automatic similar-matching, auto-substitution, guess-based modifications
 
-이 경우 추가로:
-- **NO CODE LOGIC CHANGES**: 기존 코드 로직 변경 금지(버그 픽스 포함)
-- 변경은 문서/DB/설정(예: `.cursorrules`) 위주로만 수행
+### 2.3 Facts-Only Violation
+- ❌ PASS/FAIL judgments in validation output
+- ❌ Threshold-based decisions
+- ❌ Data clamping to improve metrics
+- ❌ Dropping NaN values to inflate coverage
 
-## 8) Allowed Modification Scope (ONLY IF the user explicitly says so)
-사용자가 “이번 PR에서 허용”이라고 명시한 경우에만 아래 파일들은 자유 수정 가능:
-- `README.md`
-- `SYNC_HUB.md`
-- `DB_GUIDE.md`
-- `.cursorrules`
-- `db/schema.sql`
-- `tools/db_upsert.py`
-- `engine/README.md`
+### 2.4 Legacy Document Rewrite
+- ❌ Content rewriting of legacy docs (stamp-only editing allowed)
+- ❌ Applying LEGACY stamps to `contracts/**`, `modules/**`, `specs/**` (active code paths)
 
-## 9) Round Postprocessing Rule (필수)
-- 라운드 실행(out_dir 생성) 후 반드시 `py tools/postprocess_round.py --run_dir <out_dir>`를 실행해 KPI/DIFF/CHARTER를 마감한다.
-- 이 규칙은 프로젝트 헌법으로, 모든 라운드 실행에 적용된다.
+---
 
-## 10) Purpose (Template)
-- 이 규칙의 목적은:
-  - 프로젝트 구조 안정성 유지
-  - 라운드 기반 실행(ROUND_CHARTER) 일관성 확보
-  - facts KPI Header를 통한 분석 비용 절감
-  - 조용한 오답(추측/자동대체/정책 드리프트) 방지
-  - 라운드 후처리 자동화를 통한 운영 일관성 확보
+## 3. Canonical Policies
 
-## 11) Ops Plane (참고)
-- Guardrails: [`docs/ops/GUARDRAILS.md`](docs/ops/GUARDRAILS.md) - Import 경계 검사 및 구조 오염 방지
-- Backfill Policy: [`docs/ops/BACKFILL_POLICY.md`](docs/ops/BACKFILL_POLICY.md) - Tier 0/1/2 백필 정책
+### 3.1 Name=B (Filename Convention)
+| Module | Input | Output |
+|--------|-------|--------|
+| body | manifest, mesh | `facts_summary.json` |
+| fitting | body's `facts_summary.json` | `fitting_facts_summary.json` |
 
-## 12) Multi-Agent Roles (Agent Contract)
-- **Cursor**: Mainline work, PR/merge authority (CI green only)
-- **Claude Code (claude.ai/code)**: Large scans/refactors, PR/merge authority (CI green only), keep PRs small
-- **Anti-gravity**: NO PR, NO merge; isolated fitting sandbox work only; MUST NOT edit SSoT/ops docs
-- **SSoT Touch Lock (during parallel/refactor)**:
-  - SSoT docs (SYNC_HUB.md, docs/sync/CURRENT_STATE.md, docs/ops/INDEX.md, docs/ops/OPS_PLANE.md, docs/architecture/LAYERS_v1.md, docs/architecture/DoD_CHECKLISTS_v1.md) can ONLY be changed in dedicated docs-only PRs
-  - Exception: docs-only PR explicitly labeled as such
-- **Round Notes (parallel mode)**: New files only: `docs/ops/rounds/roundXX_<module>_<agent>.md`; never edit shared roundXX.md in parallel mode
+**Rule**: fitting module MUST output `fitting_facts_summary.json`, NOT `facts_summary.json`.
+
+### 3.2 Version=C (4 Keys Always)
+All cross-module artifacts MUST have these 4 keys in provenance:
+```
+snapshot_version, semantic_version, geometry_impl_version, dataset_version
+```
+- Unknown value: `"UNSPECIFIED"`
+- Warning code: `VERSION_KEY_UNSPECIFIED`
+
+### 3.3 Path=C (REL Base)
+- Canonical REL base: `manifest_dir` (directory containing manifest)
+- Legacy `run_dir` allowed only with explicit `"path_base": "run_dir"` in provenance
+
+### 3.4 NaN/Inf Serialization
+- NaN → `null` (no warning)
+- Inf → `null` + warning `INF_SERIALIZED_AS_NULL`
+- -Inf → `null` + warning `NEG_INF_SERIALIZED_AS_NULL`
+
+### 3.5 Warnings Format (cross-module)
+```json
+{
+  "warnings": {
+    "<CODE>": {
+      "count": 5,
+      "sample_messages": ["msg1", "msg2", ...],
+      "truncated": true
+    }
+  }
+}
+```
+
+### 3.6 Round Policy
+- Lane format: `<module>/<lane_id>` (e.g., `body/geo_v0_s1`)
+- Milestone format: `M<NN>_<tag>` (e.g., `M01_baseline`)
+- Round ID: `<lane_slug>__<milestone_id>__r<NN>`
+- New round docs: `docs/ops/rounds/<lane_slug>/<milestone_id>/round_<NN>.md`
+
+### 3.7 Legacy Stamp Format
+For superseded documents (header line 1):
+```
+> ⚠️ STATUS: LEGACY NAMING
+> New rounds use folder-split format: docs/ops/rounds/<lane_slug>/<milestone_id>/round_<NN>.md
+> This file preserved for history.
+---
+```
+
+---
+
+## 4. Change Process
+
+### 4.1 Branch → PR → Merge Flow
+1. Create feature branch from `main`
+2. Make changes (minimal scope)
+3. `git status` / `git diff --stat` before commit
+4. Commit with descriptive message
+5. Push and create PR
+6. Wait for CI green
+7. Merge (squash or fast-forward)
+
+### 4.2 PR Description Requirements
+- Changed file list
+- Reproduction/smoke command (if applicable)
+- Scope compliance summary (1-3 lines)
+
+### 4.3 Round Postprocessing (mandatory)
+After any round execution:
+```bash
+python tools/postprocess_round.py --current_run_dir <out_dir>
+```
+
+---
+
+## 5. Evidence-First (DoD Priority)
+
+Definition of Done (priority order):
+1. **File path exists** — output files are created at expected locations
+2. **Schema valid** — JSON matches expected schema
+3. **Provenance complete** — 4 version keys present
+4. **Warnings recorded** — any anomalies captured in warnings object
+
+---
+
+## 6. Multi-Agent Roles
+
+| Agent | PR/Merge | Scope |
+|-------|----------|-------|
+| Cursor | ✅ (CI green) | Mainline work |
+| Claude Code | ✅ (CI green) | Large scans, keep PRs small |
+| Anti-gravity | ❌ | Isolated fitting_lab sandbox only; MUST NOT edit SSoT/ops docs |
+
+### SSoT Touch Lock (parallel mode)
+During parallel work, these files require dedicated docs-only PR:
+- `SYNC_HUB.md`, `docs/sync/CURRENT_STATE.md`
+- `docs/ops/INDEX.md`, `docs/architecture/LAYERS_v1.md`
+- `contracts/interface_ledger_v0.md`
+
+---
+
+## 7. When Uncertain
+
+1. **READ the SSoT file** (`contracts/interface_ledger_v0.md`)
+2. **Verify file paths exist** before referencing
+3. **Ask the user** rather than inferring
+4. **Do NOT auto-substitute** similar-looking values
+5. **Do NOT extend scope** beyond the current task
+
+**Golden Rule**: If a policy isn't in the SSoT, it doesn't exist. Do not invent rules.
+
+---
+
+## 8. Quick Reference
+
+```
+SSoT:           contracts/interface_ledger_v0.md
+Port SSoT:      contracts/port_readiness_checklist_v0.md
+Fitting output: fitting_facts_summary.json (NOT facts_summary.json)
+Version keys:   snapshot_version, semantic_version, geometry_impl_version, dataset_version
+Unknown value:  "UNSPECIFIED"
+NaN/Inf:        serialize as null
+REL base:       manifest_dir
+```
