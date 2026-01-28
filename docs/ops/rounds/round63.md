@@ -19,7 +19,7 @@ Fix enabled-but-skipped file_not_found=50 from Round62 by normalizing manifest m
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round63_20260128_084855/KPI_DIFF.md`
 
 ## PR Link
-[To be updated after merge]
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/232
 
 ## Notes
 - **Run Statistics**:
