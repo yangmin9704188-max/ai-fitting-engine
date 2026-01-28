@@ -566,6 +566,37 @@ def log_exec_failure(
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
+def log_processed_sink(
+    processed_sink_file: Path,
+    case_id: str,
+    has_mesh_path: bool,
+    mesh_path: Optional[str],
+    resolved_path: Optional[str],
+    sink_reason_code: str,
+    keys_present: Optional[List[str]] = None,
+    results_len: Optional[int] = None,
+    exception_1line: Optional[str] = None
+) -> None:
+    """Round66: Log processed-sink to JSONL (cases logged as success but not counted as processed)."""
+    record = {
+        "case_id": case_id,
+        "has_mesh_path": has_mesh_path,
+        "mesh_path": mesh_path,
+        "sink_reason_code": sink_reason_code,
+    }
+    if resolved_path:
+        record["resolved_path"] = resolved_path
+    if keys_present is not None:
+        record["keys_present"] = keys_present
+    if results_len is not None:
+        record["results_len"] = results_len
+    if exception_1line:
+        record["exception_1line"] = exception_1line
+
+    with open(processed_sink_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
     """Resolve mesh path (absolute or relative to cwd).
 
@@ -586,7 +617,8 @@ def process_case(
     out_dir: Path,
     skipped_entries: List[Dict[str, Any]],
     skip_reasons_file: Path,
-    exec_failures_file: Path
+    exec_failures_file: Path,
+    processed_sink_file: Path
 ) -> Optional[Dict[str, MeasurementResult]]:
     """Process a single case from S1 manifest.
 
@@ -970,6 +1002,12 @@ def main():
         exec_failures_file.unlink()  # Clear previous run
     print(f"[EXEC FAILURES] Logging to: {exec_failures_file}")
 
+    # Round66: Create processed_sink.jsonl file (SSoT for processed-sink cases)
+    processed_sink_file = artifacts_dir / "processed_sink.jsonl"
+    if processed_sink_file.exists():
+        processed_sink_file.unlink()  # Clear previous run
+    print(f"[PROCESSED SINK] Logging to: {processed_sink_file}")
+
     # Load S1 manifest
     print(f"[S1 MANIFEST] Loading: {args.manifest}")
     manifest = load_s1_manifest(args.manifest)
@@ -1008,7 +1046,7 @@ def main():
         # Round61: Track selected case_id (before processing)
         selected_case_ids.append(case_id)
 
-        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file)
+        result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file, processed_sink_file)
         if result_data is not None:
             # Round33: Handle new return format with verts
             if isinstance(result_data, dict) and "results" in result_data:
@@ -1034,7 +1072,48 @@ def main():
                 all_results[case_id] = result_data
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
-    
+
+    # Round66: Sink detection - identify cases logged as success but not counted as processed
+    # Sink cases: cases in all_results but NOT in processed_case_ids (missing verts)
+    all_results_case_ids = set(all_results.keys())
+    processed_case_ids_set = set(processed_case_ids)
+    sink_case_ids = all_results_case_ids - processed_case_ids_set
+
+    if sink_case_ids:
+        print(f"[PROCESSED SINK] Detected {len(sink_case_ids)} sink cases (in all_results but not in processed_case_ids)")
+        for sink_id in sorted(sink_case_ids):
+            # Find original case to get mesh_path
+            case_info = next((c for c in cases if c["case_id"] == sink_id), None)
+            mesh_path = case_info.get("mesh_path") if case_info else None
+            has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
+
+            # Resolve mesh path if available
+            resolved_path = None
+            if mesh_path:
+                resolved_obj, _ = resolve_mesh_path(mesh_path)
+                resolved_path = str(resolved_obj)
+
+            # Get keys present in results
+            keys_present = None
+            results_len = None
+            if sink_id in all_results:
+                results = all_results[sink_id]
+                if isinstance(results, dict):
+                    keys_present = list(results.keys())
+                    results_len = len(results)
+
+            # Log to processed_sink.jsonl
+            log_processed_sink(
+                processed_sink_file=processed_sink_file,
+                case_id=sink_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                resolved_path=resolved_path,
+                sink_reason_code="MISSING_VERTS",
+                keys_present=keys_present,
+                results_len=results_len
+            )
+
     # Round34: Generate verts NPZ for proxy cases (if any processed)
     npz_path = None
     npz_path_abs = None
@@ -1217,6 +1296,9 @@ def main():
                             exec_fail_samples[exception_type].append(case_id)
                     except json.JSONDecodeError:
                         continue
+        else:
+            # Round66: Ensure file exists even if empty (wiring requirement)
+            exec_failures_file.touch()
 
         # Build top-K dicts (sort by count descending)
         exec_fail_stage_topk: Dict[str, int] = {}
@@ -1232,6 +1314,42 @@ def main():
         exec_fail_case_ids_sample: Dict[str, List[str]] = dict(exec_fail_samples)
 
         print(f"[EXEC FAILURES] Logged {exec_fail_count} exec-fail records to {exec_failures_file}")
+
+        # Round66: Processed-sink aggregation (cases in all_results but not in processed_case_ids)
+        processed_sink_count = 0
+        processed_sink_reasons: Dict[str, int] = defaultdict(int)
+        processed_sink_samples: Dict[str, List[str]] = defaultdict(list)  # reason -> first 3 case_ids
+
+        if processed_sink_file.exists():
+            with open(processed_sink_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        processed_sink_count += 1
+                        reason = record.get("sink_reason_code", "unknown")
+                        processed_sink_reasons[reason] += 1
+                        # Sample: keep first 3 case_ids per reason
+                        case_id = record.get("case_id", "unknown")
+                        if len(processed_sink_samples[reason]) < 3:
+                            processed_sink_samples[reason].append(case_id)
+                    except json.JSONDecodeError:
+                        continue
+        else:
+            # Round66: Ensure file exists even if empty (wiring requirement)
+            processed_sink_file.touch()
+
+        # Build top-K dicts (sort by count descending)
+        processed_sink_reason_topk: Dict[str, int] = {}
+        if processed_sink_reasons:
+            sorted_reasons = sorted(processed_sink_reasons.items(), key=lambda x: x[1], reverse=True)
+            processed_sink_reason_topk = dict(sorted_reasons[:10])
+
+        processed_sink_case_ids_sample: Dict[str, List[str]] = dict(processed_sink_samples)
+
+        print(f"[PROCESSED SINK] Logged {processed_sink_count} processed-sink records to {processed_sink_file}")
 
         # Check has_mesh_path_true count (expected: 5 for proxy cases)
         expected_has_mesh_path_true = 5
@@ -1446,6 +1564,10 @@ def main():
         facts_summary["exec_fail_stage_topk"] = exec_fail_stage_topk
         facts_summary["exec_fail_exception_type_topk"] = exec_fail_exception_type_topk
         facts_summary["exec_fail_case_ids_sample"] = exec_fail_case_ids_sample
+        # Round66: processed-sink aggregation (always emit, even if empty)
+        facts_summary["processed_sink_count"] = processed_sink_count
+        facts_summary["processed_sink_reason_topk"] = processed_sink_reason_topk
+        facts_summary["processed_sink_case_ids_sample"] = processed_sink_case_ids_sample
     else:
         facts_summary["has_mesh_path_true"] = 0
         facts_summary["has_mesh_path_null"] = 0
@@ -1459,7 +1581,11 @@ def main():
         facts_summary["exec_fail_stage_topk"] = {}
         facts_summary["exec_fail_exception_type_topk"] = {}
         facts_summary["exec_fail_case_ids_sample"] = {}
-    
+        # Round66: processed-sink aggregation (always emit empty)
+        facts_summary["processed_sink_count"] = 0
+        facts_summary["processed_sink_reason_topk"] = {}
+        facts_summary["processed_sink_case_ids_sample"] = {}
+
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
     if npz_path:
