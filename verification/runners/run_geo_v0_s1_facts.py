@@ -1131,6 +1131,36 @@ def main():
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
 
+    # Round68: Missing skip_reason record detection
+    record_expected_total = len(entered_loop_case_ids)
+    record_actual_total = len(log_skip_reason_called_case_ids)
+    record_missing_case_ids = sorted(entered_loop_case_ids - log_skip_reason_called_case_ids)
+    record_missing_count = len(record_missing_case_ids)
+
+    # Check for duplicate records (shouldn't happen with a set, but track for completeness)
+    duplicate_count = 0
+
+    print(f"[RECORD MISSING] Expected records: {record_expected_total}, Actual: {record_actual_total}, Missing: {record_missing_count}")
+
+    if record_missing_count > 0:
+        print(f"[RECORD MISSING] Detected {record_missing_count} cases without skip_reason records")
+        for case_id in record_missing_case_ids:
+            # Get case info
+            case_info = next((c for c in cases if c["case_id"] == case_id), None)
+            mesh_path = case_info.get("mesh_path") if case_info else None
+            has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
+
+            # Log to record_missing_skip_reason.jsonl
+            log_record_missing_skip_reason(
+                record_missing_file=record_missing_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                note_1line="log_skip_reason not called for this case_id"
+            )
+    else:
+        print(f"[RECORD MISSING] All {record_expected_total} cases have skip_reason records")
+
     # Round67: Success-not-processed detection
     # Find cases logged as "success" in skip_reasons.jsonl but NOT in all_results
     success_case_ids: List[str] = []
