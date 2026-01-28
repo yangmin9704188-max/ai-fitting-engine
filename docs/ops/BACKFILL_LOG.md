@@ -88,3 +88,19 @@
 - **Timestamp**: 2026-01-28
 
 ---
+
+### 2026-01-28: Round64 - Coverage expansion from 100 to 200 cases
+
+- **Trigger**: Manual Tier2 backfill to expand manifest coverage from 100 to 200 mesh_path-enabled cases
+- **Scope**: `verification/manifests/s1_manifest_v0_round64.json`, geo_v0_s1 lane
+- **What changed**:
+  - 100 case_ids: mesh_path null -> set to known-good OBJ files
+  - Selected case_ids (first 100 null cases in manifest order): `21_F_6997`, `21_F_4327`, `421608115948`, `20_F_3012`, `20_M_2981`, `20_M_2098`, `411608104383`, `21_M_6417`, `21_F_4338`, `21_M_7216`, `20_M_3230`, `21_M_3433`, `21_M_6303`, `20_M_2059`, `20_F_1726`, `20_F_2658`, `321607255190`, `20_M_3113`, `20_F_0144`, `21_F_7082`, `321607315377`, `121609022258`, `20_M_3239`, `21_M_6949`, `20_F_1024`, `21_M_5056`, `511611014866`, `21_F_5034`, `311607253758`, `20_M_2937`, `111609242868`, `20_F_2522`, `20_M_2561`, `21_M_5290`, `20_M_1449`, `20_F_2462`, `20_M_1571`, `20_F_1684`, `20_F_1514`, `511607184661`, `20_M_3129`, `121609022235`, `20_F_1680`, `20_F_3160`, `20_F_2615`, `21_M_3452`, `20_M_2598`, `111607170471`, `20_F_0632`, `521607186177`, `21_F_5195`, `20_M_3261`, `21_F_5191`, `20_F_0861`, `20_M_3098`, `111610083146`, `221608201684`, `511610314841`, `221608201705`, `21_M_3457`, `20_M_2606`, `21_F_4049`, `20_F_2013`, `20_F_0429`, `20_F_2458`, `20_M_0593`, `521610316341`, `20_F_2037`, `311611144177`, `111610083184`, `211608111299`, `21_F_5035`, `321611145587`, `421608115907`, `21_F_3646`, `21_M_7122`, `20_F_2157`, `21_M_3399`, `20_M_0966`, `121608282098`, `20_M_3077`, `21_F_3652`, `521611016394`, `20_M_3106`, `511607194704`, `20_F_2611`, `111610143260`, `20_M_0761`, `21_M_5784`, `21_F_5776`, `211608191608`, `221608181579`, `20_F_1969`, `21_M_6297`, `20_F_2011`, `21_F_6842`, `20_F_2033`, `111609232711`, `111609032323`, `21_F_6465`
+  - OBJ assignment: Round-robin distribution across `6th_20M.obj` (34 cases), `6th_30M.obj` (33 cases), `6th_40M.obj` (33 cases)
+- **Rationale**: Coverage scale-up from 100 to 200 cases to observe full sample size behavior for geo_v0_s1 pipeline
+- **How selected**: First 100 null cases from Round63 manifest, assigned deterministically via round-robin to diverse known-good OBJ files (balanced distribution)
+- **Before/After example**:
+  - case_id `21_F_6997`: null -> `verification/datasets/golden/s1_mesh_v0/meshes/6th_20M.obj`
+- **Timestamp**: 2026-01-28
+
+---
