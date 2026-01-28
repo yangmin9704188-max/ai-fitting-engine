@@ -597,6 +597,40 @@ def log_processed_sink(
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
+def log_success_not_processed(
+    success_not_processed_file: Path,
+    case_id: str,
+    has_mesh_path: bool,
+    mesh_path: Optional[str],
+    mesh_path_resolved: Optional[str],
+    returned_type: str,
+    returned_keys: List[str],
+    has_results_key: bool,
+    results_len: Optional[int],
+    sink_reason_code: str,
+    note_1line: Optional[str] = None
+) -> None:
+    """Round67: Log success-but-not-processed to JSONL (cases logged as success but not in all_results)."""
+    record = {
+        "case_id": case_id,
+        "has_mesh_path": has_mesh_path,
+        "mesh_path": mesh_path,
+        "returned_type": returned_type,
+        "returned_keys": returned_keys,
+        "has_results_key": has_results_key,
+        "sink_reason_code": sink_reason_code,
+    }
+    if mesh_path_resolved:
+        record["mesh_path_resolved"] = mesh_path_resolved
+    if results_len is not None:
+        record["results_len"] = results_len
+    if note_1line:
+        record["note_1line"] = note_1line
+
+    with open(success_not_processed_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def resolve_mesh_path(mesh_path: str) -> tuple[Path, bool]:
     """Resolve mesh path (absolute or relative to cwd).
 
@@ -1008,6 +1042,12 @@ def main():
         processed_sink_file.unlink()  # Clear previous run
     print(f"[PROCESSED SINK] Logging to: {processed_sink_file}")
 
+    # Round67: Create success_not_processed.jsonl file (SSoT for success-but-not-processed cases)
+    success_not_processed_file = artifacts_dir / "success_not_processed.jsonl"
+    if success_not_processed_file.exists():
+        success_not_processed_file.unlink()  # Clear previous run
+    print(f"[SUCCESS NOT PROCESSED] Logging to: {success_not_processed_file}")
+
     # Load S1 manifest
     print(f"[S1 MANIFEST] Loading: {args.manifest}")
     manifest = load_s1_manifest(args.manifest)
@@ -1036,21 +1076,35 @@ def main():
     # Round40: scale_warnings를 상세 정보 리스트로 변경
     scale_warnings: List[str] = []  # Backward compatibility: 문자열 리스트 유지
     scale_warnings_detailed: List[Dict[str, Any]] = []  # Round40: 상세 정보 리스트
-    
+    # Round67: Track what each case returned for success-not-processed detection
+    case_return_tracking: Dict[str, Dict[str, Any]] = {}
+
     print(f"[PROCESS] Processing {len(cases)} cases...")
     for i, case in enumerate(cases):
         case_id = case["case_id"]
         if (i + 1) % 50 == 0:
             print(f"[PROCESS] Processed {i + 1}/{len(cases)} cases...")
-        
+
         # Round61: Track selected case_id (before processing)
         selected_case_ids.append(case_id)
 
         result_data = process_case(case, out_dir, skipped_entries, skip_reasons_file, exec_failures_file, processed_sink_file)
+
+        # Round67: Track what was returned for this case
+        tracking_info = {
+            "returned_type": type(result_data).__name__ if result_data is not None else "NoneType",
+            "returned_keys": list(result_data.keys()) if isinstance(result_data, dict) else [],
+            "has_results_key": isinstance(result_data, dict) and "results" in result_data,
+            "added_to_all_results": False,
+            "results_len": None
+        }
+
         if result_data is not None:
             # Round33: Handle new return format with verts
             if isinstance(result_data, dict) and "results" in result_data:
                 all_results[case_id] = result_data["results"]
+                tracking_info["added_to_all_results"] = True
+                tracking_info["results_len"] = len(result_data["results"]) if isinstance(result_data["results"], dict) else None
                 if "verts" in result_data:
                     processed_verts.append(result_data["verts"])
                     processed_case_ids.append(case_id)
@@ -1070,8 +1124,93 @@ def main():
             else:
                 # Backward compatibility: old format (just results dict)
                 all_results[case_id] = result_data
+                tracking_info["added_to_all_results"] = True
+
+        # Round67: Store tracking info for this case
+        case_return_tracking[case_id] = tracking_info
     
     print(f"[PROCESS] Completed: {len(all_results)} processed, {len(skipped_entries)} skipped")
+
+    # Round67: Success-not-processed detection
+    # Find cases logged as "success" in skip_reasons.jsonl but NOT in all_results
+    success_case_ids: List[str] = []
+    success_case_records: Dict[str, Dict[str, Any]] = {}
+
+    if skip_reasons_file.exists():
+        with open(skip_reasons_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    case_id = record.get("case_id")
+                    reason = record.get("reason")
+                    if reason == "success" and case_id:
+                        success_case_ids.append(case_id)
+                        success_case_records[case_id] = record
+                except json.JSONDecodeError:
+                    continue
+
+    success_logged_count = len(success_case_ids)
+    all_results_case_ids = set(all_results.keys())
+    success_not_processed_case_ids = [cid for cid in success_case_ids if cid not in all_results_case_ids]
+    success_not_processed_count = len(success_not_processed_case_ids)
+
+    if success_not_processed_count > 0:
+        print(f"[SUCCESS NOT PROCESSED] Detected {success_not_processed_count} cases logged as success but not in all_results")
+        for case_id in success_not_processed_case_ids:
+            # Get tracking info
+            tracking = case_return_tracking.get(case_id, {})
+            # Get case info
+            case_info = next((c for c in cases if c["case_id"] == case_id), None)
+            mesh_path = case_info.get("mesh_path") if case_info else None
+            has_mesh_path = (mesh_path is not None) and (str(mesh_path).strip() != "")
+
+            # Resolve mesh path
+            mesh_path_resolved = None
+            if mesh_path:
+                resolved_obj, _ = resolve_mesh_path(mesh_path)
+                mesh_path_resolved = str(resolved_obj)
+
+            # Determine sink_reason_code
+            returned_type = tracking.get("returned_type", "UNKNOWN")
+            has_results_key = tracking.get("has_results_key", False)
+            results_len = tracking.get("results_len")
+            returned_keys = tracking.get("returned_keys", [])
+
+            sink_reason_code = "OTHER"
+            note_1line = None
+
+            if returned_type == "NoneType":
+                sink_reason_code = "MISSING_RESULTS_KEY"
+                note_1line = "process_case returned None"
+            elif not has_results_key:
+                sink_reason_code = "MISSING_RESULTS_KEY"
+                note_1line = f"Returned dict missing 'results' key; keys present: {returned_keys}"
+            elif results_len == 0:
+                sink_reason_code = "EMPTY_MEASUREMENTS"
+                note_1line = "Results dict exists but is empty"
+            elif returned_type != "dict":
+                sink_reason_code = "NON_DICT_RETURN"
+                note_1line = f"process_case returned {returned_type}, not dict"
+
+            # Log to success_not_processed.jsonl
+            log_success_not_processed(
+                success_not_processed_file=success_not_processed_file,
+                case_id=case_id,
+                has_mesh_path=has_mesh_path,
+                mesh_path=mesh_path,
+                mesh_path_resolved=mesh_path_resolved,
+                returned_type=returned_type,
+                returned_keys=returned_keys,
+                has_results_key=has_results_key,
+                results_len=results_len,
+                sink_reason_code=sink_reason_code,
+                note_1line=note_1line
+            )
+    else:
+        print(f"[SUCCESS NOT PROCESSED] All {success_logged_count} success cases are in all_results")
 
     # Round66: Sink detection - identify cases logged as success but not counted as processed
     # Sink cases: cases in all_results but NOT in processed_case_ids (missing verts)
@@ -1351,6 +1490,42 @@ def main():
 
         print(f"[PROCESSED SINK] Logged {processed_sink_count} processed-sink records to {processed_sink_file}")
 
+        # Round67: Success-not-processed aggregation (cases logged success but not in all_results)
+        success_not_processed_count_agg = 0
+        success_not_processed_reasons: Dict[str, int] = defaultdict(int)
+        success_not_processed_samples: Dict[str, List[str]] = defaultdict(list)  # reason -> first 3 case_ids
+
+        if success_not_processed_file.exists():
+            with open(success_not_processed_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        success_not_processed_count_agg += 1
+                        reason = record.get("sink_reason_code", "unknown")
+                        success_not_processed_reasons[reason] += 1
+                        # Sample: keep first 3 case_ids per reason
+                        case_id = record.get("case_id", "unknown")
+                        if len(success_not_processed_samples[reason]) < 3:
+                            success_not_processed_samples[reason].append(case_id)
+                    except json.JSONDecodeError:
+                        continue
+        else:
+            # Round67: Ensure file exists even if empty (wiring requirement)
+            success_not_processed_file.touch()
+
+        # Build top-K dict (sort by count descending)
+        success_not_processed_reason_topk: Dict[str, int] = {}
+        if success_not_processed_reasons:
+            sorted_reasons = sorted(success_not_processed_reasons.items(), key=lambda x: x[1], reverse=True)
+            success_not_processed_reason_topk = dict(sorted_reasons[:10])
+
+        success_not_processed_case_ids_sample: Dict[str, List[str]] = dict(success_not_processed_samples)
+
+        print(f"[SUCCESS NOT PROCESSED] Logged {success_not_processed_count_agg} success-not-processed records to {success_not_processed_file}")
+
         # Check has_mesh_path_true count (expected: 5 for proxy cases)
         expected_has_mesh_path_true = 5
         if has_mesh_path_true_count != expected_has_mesh_path_true:
@@ -1568,6 +1743,11 @@ def main():
         facts_summary["processed_sink_count"] = processed_sink_count
         facts_summary["processed_sink_reason_topk"] = processed_sink_reason_topk
         facts_summary["processed_sink_case_ids_sample"] = processed_sink_case_ids_sample
+        # Round67: success-not-processed aggregation (always emit, even if empty)
+        facts_summary["success_logged_count"] = success_logged_count
+        facts_summary["success_not_processed_count"] = success_not_processed_count_agg
+        facts_summary["success_not_processed_reason_topk"] = success_not_processed_reason_topk
+        facts_summary["success_not_processed_case_ids_sample"] = success_not_processed_case_ids_sample
     else:
         facts_summary["has_mesh_path_true"] = 0
         facts_summary["has_mesh_path_null"] = 0
@@ -1585,6 +1765,11 @@ def main():
         facts_summary["processed_sink_count"] = 0
         facts_summary["processed_sink_reason_topk"] = {}
         facts_summary["processed_sink_case_ids_sample"] = {}
+        # Round67: success-not-processed aggregation (always emit empty)
+        facts_summary["success_logged_count"] = 0
+        facts_summary["success_not_processed_count"] = 0
+        facts_summary["success_not_processed_reason_topk"] = {}
+        facts_summary["success_not_processed_case_ids_sample"] = {}
 
     # Round34: NPZ evidence fields (postprocess/visual_provenance가 찾는 키)
     # Round33 호환성: verts_npz_path도 포함
