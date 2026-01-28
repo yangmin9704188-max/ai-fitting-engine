@@ -1,5 +1,18 @@
 # CLAUDE.md
 
+## Multi-agent Operating Rules (Entry)
+
+Canonical rules live in:
+- `.cursorrules` (agent contract)
+- `docs/ops/GUARDRAILS.md` (merge blockers & enforcement)
+
+Claude Code must follow:
+- PR/merge allowed **only** for Cursor + Claude (CI green only).
+- Anti-gravity must **not** create PRs or merge; it works only in isolated fitting workspace.
+- During refactors/parallel work, do **not** edit SSoT/ops docs (SYNC_HUB/CURRENT_STATE/ops INDEX/architecture docs) unless it’s a dedicated docs-only PR.
+- In parallel mode, round notes are **new files only**: `docs/ops/rounds/roundXX_<module>_<agent>.md`.
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

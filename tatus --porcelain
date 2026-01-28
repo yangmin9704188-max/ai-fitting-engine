@@ -1,0 +1,18 @@
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'SYNC_HUB.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'SYNC_HUB_FILE_INDEX.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'core/measurements/core_measurements_v0.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/ops/rounds/round60.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/ops/rounds/round61.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/sync/CURRENT_STATE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/golden_registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/postprocess_round.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/round_registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/summarize_facts_kpi.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'verification/runners/run_geo_v0_s1_facts.py', LF will be replaced by CRLF the next time Git touches it
+CLAUDE.md
+SYNC_HUB.md
+create_round60_manifest.py
+docs/verification/round_registry.json
+reports/validation/round_registry.json
+verification/runners/run_geo_v0_s1_facts.py
