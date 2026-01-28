@@ -24,7 +24,7 @@ Add exec-fail observability wiring to explain "processed!=skipped" discrepancy w
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round65_20260128_105806/KPI_DIFF.md`
 
 ## PR Link
-(To be added after merge)
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/237
 
 ## Notes
 - **Run Statistics**:
