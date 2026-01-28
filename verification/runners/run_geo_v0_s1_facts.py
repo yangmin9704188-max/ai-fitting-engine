@@ -1099,7 +1099,31 @@ def main():
     print(f"[S1 MANIFEST] Loaded {len(cases)} cases")
     print(f"[S1 MANIFEST] meta_unit: {manifest.get('meta_unit')}")
     print(f"[S1 MANIFEST] schema_version: {manifest.get('schema_version')}")
-    
+
+    # Round69: Manifest duplicate observability
+    manifest_case_ids = [c.get("case_id") for c in cases]
+    manifest_total_entries = len(manifest_case_ids)
+    manifest_unique_case_ids = len(set(manifest_case_ids))
+
+    # Count duplicates
+    from collections import Counter
+    case_id_counter = Counter(manifest_case_ids)
+    duplicate_case_ids = {cid: count for cid, count in case_id_counter.items() if count >= 2}
+    manifest_duplicate_case_id_count = len(duplicate_case_ids)
+
+    # Build top-K dict (top 10, sorted by count descending)
+    manifest_duplicate_case_id_topk: Dict[str, int] = {}
+    if duplicate_case_ids:
+        sorted_dups = sorted(duplicate_case_ids.items(), key=lambda x: x[1], reverse=True)
+        manifest_duplicate_case_id_topk = dict(sorted_dups[:10])
+
+    # Sample: first 3 duplicate case_ids
+    manifest_duplicate_case_ids_sample = list(duplicate_case_ids.keys())[:3] if duplicate_case_ids else []
+
+    print(f"[MANIFEST DUPLICATES] Total entries: {manifest_total_entries}, Unique: {manifest_unique_case_ids}, Duplicates: {manifest_duplicate_case_id_count}")
+    if manifest_duplicate_case_id_count > 0:
+        print(f"[MANIFEST DUPLICATES] Sample: {manifest_duplicate_case_ids_sample}")
+
     # Round61: Runner selection/cap observability
     # Count enabled cases (mesh_path not null)
     enabled_cases = [c for c in cases if c.get("mesh_path")]
@@ -1798,6 +1822,12 @@ def main():
         "total_cases": len(cases),
         "processed_cases": len(all_results),
         "skipped_cases": len(skipped_entries),
+        # Round69: Manifest duplicate observability (always emit, even if no duplicates)
+        "manifest_total_entries": manifest_total_entries,
+        "manifest_unique_case_ids": manifest_unique_case_ids,
+        "manifest_duplicate_case_id_count": manifest_duplicate_case_id_count,
+        "manifest_duplicate_case_id_topk": manifest_duplicate_case_id_topk,
+        "manifest_duplicate_case_ids_sample": manifest_duplicate_case_ids_sample,
         "runner_selection_summary": runner_selection_summary,
         "summary": dict(summary),
         # Round34: KPI 필드 (summarize_facts_kpi.py가 기대하는 형태)
