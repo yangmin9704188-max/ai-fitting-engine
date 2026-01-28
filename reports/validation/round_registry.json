@@ -404,5 +404,19 @@
     "prev_run_dir_abs": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round62_20260128_082547",
     "git_commit": "0df17c4b51d53cd0db44eb61d2f8b119810abda0",
     "baseline_tag_alias": "geo-v0-s1-proxy-v0.1"
+  },
+  {
+    "created_at": "2026-01-28T10:39:56.603923",
+    "lane": "geo_v0_s1",
+    "current_run_dir": "verification\\runs\\facts\\geo_v0_s1\\round64_20260128_102145",
+    "current_run_dir_abs": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round64_20260128_102145",
+    "facts_summary_path": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round64_20260128_102145\\facts_summary.json",
+    "kpi_path": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round64_20260128_102145\\KPI.md",
+    "baseline_run_dir": "verification\\runs\\facts\\geo_v0_s1\\round25_20260127_003039",
+    "baseline_run_dir_abs": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round25_20260127_003039",
+    "prev_run_dir": "verification\\runs\\facts\\geo_v0_s1\\round63_20260128_084855",
+    "prev_run_dir_abs": "C:\\Users\\caino\\Desktop\\AI_model\\verification\\runs\\facts\\geo_v0_s1\\round63_20260128_084855",
+    "git_commit": "9c96bbd8a8215a4a42eb5d0fa46daca28d81656e",
+    "baseline_tag_alias": "geo-v0-s1-proxy-v0.1"
   }
 ]
