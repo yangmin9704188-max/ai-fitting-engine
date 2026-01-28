@@ -19,7 +19,7 @@ Expand coverage from 100 to 200 cases by backfilling remaining 100 null mesh_pat
 - **KPI_DIFF**: `verification/runs/facts/geo_v0_s1/round64_20260128_102145/KPI_DIFF.md`
 
 ## PR Link
-(To be added after merge)
+https://github.com/yangmin9704188-max/ai-fitting-engine/pull/236
 
 ## Notes
 - **Run Statistics**:
