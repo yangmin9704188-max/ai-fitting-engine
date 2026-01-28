@@ -1,6 +1,6 @@
 {
   "schema_version": "round_registry@1",
-  "updated_at": "2026-01-28T11:13:13.298838",
+  "updated_at": "2026-01-28T21:51:29.397480",
   "lanes": {
     "curated_v0": {
       "baseline": {
@@ -231,11 +231,39 @@
           "source_npz": "artifacts/visual/verts_proxy.npz",
           "source_path_abs": null,
           "notes": ""
+        },
+        {
+          "round_id": "round69_20260128_210824",
+          "round_num": 69,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round69_20260128_210824",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round69_20260128_210824/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round69_20260128_210824_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round69_20260128_210824/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round69_20260128_210824/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-28T21:25:14.239358",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
+        },
+        {
+          "round_id": "round70_20260128_213445",
+          "round_num": 70,
+          "run_dir": "verification/runs/facts/geo_v0_s1/round70_20260128_213445",
+          "facts_summary": "verification/runs/facts/geo_v0_s1/round70_20260128_213445/facts_summary.json",
+          "report": "reports/validation/lanes/geo_v0_s1/round70_20260128_213445_facts.md",
+          "kpi": "verification/runs/facts/geo_v0_s1/round70_20260128_213445/KPI.md",
+          "kpi_diff": "verification/runs/facts/geo_v0_s1/round70_20260128_213445/KPI_DIFF.md",
+          "coverage_backlog_touched": true,
+          "created_at": "2026-01-28T21:51:29.397480",
+          "source_npz": "artifacts/visual/verts_proxy.npz",
+          "source_path_abs": null,
+          "notes": ""
         }
       ],
       "latest": {
-        "round_id": "round65_20260128_105806",
-        "run_dir": "verification/runs/facts/geo_v0_s1/round65_20260128_105806"
+        "round_id": "round70_20260128_213445",
+        "run_dir": "verification/runs/facts/geo_v0_s1/round70_20260128_213445"
       }
     }
   }
