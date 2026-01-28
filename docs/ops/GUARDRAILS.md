@@ -64,3 +64,48 @@ Import 경계 검사는 `tools/ops/check_import_boundaries.py` 스크립트로 �
 - (필요 시) `docs/architecture/DoD_CHECKLISTS_v1.md` ← 단, Evidence 경로 정합성 수정에 한정
 
 `docs/ops/INDEX.md`는 링크/가이드 목적이며, Round Registry 대량 편집은 금지됩니다. 새 라운드 기록은 `docs/ops/rounds/roundXX.md` 파일 추가로만 합니다.
+
+## Multi-Agent Roles
+
+### PR/Merge Authority
+- **Cursor**: Mainline development, PR creation and merge (CI green only)
+- **Claude Code (claude.ai/code)**: Large-scale scans and refactors, PR creation and merge (CI green only), PRs must remain small
+- **Anti-gravity**: NO PR creation, NO merge; isolated experimental work only in fitting sandbox paths
+
+### Anti-gravity Constraints
+- May only produce experimental outputs and/or patch suggestions
+- All commits and PRs must be done by Cursor or Claude Code
+- MUST NOT edit SSoT/ops docs (see SSoT Touch Lock below)
+
+## SSoT Touch Lock (Parallel/Refactor Mode)
+
+During parallel work or refactoring:
+
+### Forbidden to Edit (unless docs-only PR)
+The following Single Source of Truth documents are locked from edits during parallel/refactor work:
+- `SYNC_HUB.md`
+- `docs/sync/CURRENT_STATE.md`
+- `docs/ops/INDEX.md`
+- `docs/ops/OPS_PLANE.md`
+- `docs/architecture/LAYERS_v1.md`
+- `docs/architecture/DoD_CHECKLISTS_v1.md`
+
+### Exception: Docs-Only PR
+SSoT docs may ONLY be changed in a dedicated docs-only PR that:
+- Is explicitly labeled "docs-only"
+- Contains no code logic changes
+- Focuses exclusively on documentation updates
+
+### Rationale
+Prevents merge conflicts and ensures SSoT stability during parallel agent work.
+
+## Round Notes Discipline (Parallel Mode)
+
+### New Files Only
+When multiple agents work in parallel:
+- Round notes MUST be added as new files: `docs/ops/rounds/roundXX_<module>_<agent>.md`
+- Example: `round64_geometry_antigravity.md`, `round64_validation_cursor.md`
+
+### Forbidden
+- NEVER edit a shared `roundXX.md` file in parallel mode
+- Prevents merge conflicts and ensures clean round history
