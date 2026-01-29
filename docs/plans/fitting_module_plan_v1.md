@@ -141,9 +141,96 @@ camera preset 변경은 오직 버전업으로만 허용하며,
 
 (RevF 유지: d_threshold_mm = max(2.2, 1.1*voxel_size_mm), 권장 2.5mm)
 
-9–11. Score / Determinism / Sensors
+9. Score & Exposure Gate
 
-(RevF 유지)
+score_total = 0.6*score_clipping + 0.25*score_fit_signal + 0.15*score_smoothness
+
+score_total < 70 → 노출 금지 또는 degrade
+
+score/penalty는 attempt별 기록(단, retention 적용)
+
+10. Determinism Rules
+
+경계값 비교는 정수화 후 비교
+
+solver seed/순서 고정
+
+단위 변환 중앙 유틸 강제(매직 넘버 금지)
+
+camera_preset_id는 고정(변경은 버전업만)
+
+11. Logo & Shape Distortion Sensors (품질 검사)
+11.1 Area Stretch (가변 임계치)
+𝐴
+𝑟
+𝑒
+𝑎
+𝑆
+𝑡
+𝑟
+𝑒
+𝑡
+𝑐
+ℎ
+=
+𝐴
+𝑟
+𝑒
+𝑎
+𝑐
+𝑢
+𝑟
+𝑟
+𝑒
+𝑛
+𝑡
+𝐴
+𝑟
+𝑒
+𝑎
+𝑜
+𝑟
+𝑖
+𝑔
+𝑖
+𝑛
+𝑎
+𝑙
+AreaStretch=
+Area
+original
+	​
+
+Area
+current
+	​
+
+	​
+
+
+임계치: stretch_class 기반
+
+stiff: 1.10 / normal: 1.15 / stretch: 1.25
+
+실패: AreaStretch > AreaStretch_max → retry 신호
+
+11.2 Aspect Ratio Defense
+
+방향성 과도 신축 감지(임계치 테이블화)
+
+실패 시 retry 신호
+
+11.3 Spike/Shape Defense (ROI Laplacian residual)
+
+ROI 한정 Laplacian residual p95/max
+
+score_smoothness로 반영
+
+11.4 Logo Center Shift (가변 임계치)
+
+전제: Garment가 logo_anchor 제공
+
+임계치: stiff 10mm / normal 15mm / stretch 20mm(최대 상한)
 
 12. Automatic Regeneration Loop Policy (재생성 루프) — Solver/Inflate 보강(RevG)
 12.2 Constraints (예산 + 메모리 + 수학적 안전장치)
@@ -176,15 +263,35 @@ falloff의 표준편차/반경(σ)은 해당 ROI의 대표 길이(scale)의 10~2
 
 12.4 Early Exit / Fast Fail
 
-(RevF 유지)
+구제 불가 케이스는 빠르게 종료:
+
+max_penetration_mm > 10 또는 Penalty 과대 등
+
+Retry 1 스킵하여 Retry 2 직행 또는 즉시 Hard Fail
 
 12.5 Audit (Retention 적용)
 
-(RevF 유지)
+retry_history[]는 Hot Logs로 취급(30일)
 
 13. Milestones
 
-(RevF 유지)
+F0 Runner + Taxonomy 출력
+
+F1 Body 연동(A)
+
+F2 Garment 연동(A) + garment_fit_hint 계약 확정
+
+F3 Tier-0 SDF Bank 생성(+ voxel_size_mm <= 2.0 규격 준수)
+
+F3.5 Warm Cache 구현 + 텔레메트리
+
+F4 Tier-1 Constraint Solver + penalty/score
+
+F5 Condition image preprocessor(depth/normal) + fixed_camera_preset_v1
+
+F6 Sensors + Regeneration Loop(timeout/max retry/memory clear + falloff inflate)
+
+F7 Retention 정책 적용(Hot Logs TTL 30d + Summary 장기 보관)
 
 14. Versioning
 
