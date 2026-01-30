@@ -135,7 +135,7 @@ R  REPO_FILES.txt -> docs/ops/legacy/root__REPO_FILES.txt
 
 ## 6. LEGACY_INDEX Update
 
-**File**: docs/ops/legacy/legacy_index.md
+**File**: docs/ops/legacy/lLEGACY_INDEX.md
 **Update type**: Append-only
 **Lines added**: 11 (one per moved item)
 
@@ -170,7 +170,7 @@ docs/ops/PROJECT_STRUCTURE.md -> docs/ops/legacy/ops__PROJECT_STRUCTURE.md | rep
 **Scope**: SAFE-MOVE only (refs=0 items)
 **Items moved**: 11 files
 **Naming convention**: Flat legacy with double-underscore prefix (e.g., `contracts__`, `ops__`, `dashboard__`, `root__`)
-**Lineage tracking**: All moves recorded in docs/ops/legacy/legacy_index.md
+**Lineage tracking**: All moves recorded in docs/ops/legacy/LEGACY_INDEX.md
 **Reference risk**: Zero (all items had inbound_refs_count=0 per REFERENCE_INVENTORY_v1)
 **Sanctuary violations**: 0
 **Compliance**: 100% (strict SAFE-MOVE-only, git mv only, no content edits)

@@ -1,0 +1,5 @@
+STATUS: LEGACY (MOVED)
+New location: docs/ops/legacy/전체 프로젝트 누적 성과.txt
+Moved on: 2026-01-30
+Policy: docs/ops/DIRECTORY_CHARTER_v1.md
+Do not edit this stub.
