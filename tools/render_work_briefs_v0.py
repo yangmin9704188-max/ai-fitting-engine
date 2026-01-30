@@ -268,6 +268,61 @@ def render_brief(
     else:
         lines.append("(None)")
     lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # 6) Close-out (append-only progress log)
+    lines.append("## Close-out (append-only progress log)")
+    lines.append("")
+    lines.append(
+        "Progress for this module is recorded by appending one event line to the "
+        "module progress log via the append-progress-event tool."
+    )
+    lines.append("")
+    lab_name = MODULE_TO_LAB.get(module, "")
+    if log_path_used and log_path_used.exists():
+        log_path_display = str(log_path_used)
+    else:
+        log_path_display = "<TBD_PATH>"
+        lines.append("- Warning: module log path is TBD or missing; use actual path in command.")
+    lines.append("")
+    lines.append("Copy/paste command template (replace placeholders):")
+    lines.append("")
+    lines.append(
+        f'py tools/append_progress_event_v0.py --log-path "{log_path_display}" '
+        f'--lab "{lab_name}" --module "{module}" --step-id "<STEP_ID>" '
+        f'--dod-done-delta 1 --dod-total <TOTAL> --evidence "<EVIDENCE_PATH_1>" '
+        f'--note "<NOTE_OPTIONAL>"'
+    )
+    lines.append("")
+    lines.append("Step candidates (UNLOCKED, remaining > 0):")
+    lines.append("")
+    step_candidates = []
+    for s in mod_steps:
+        sid = s["id"]
+        dt = s["dod_total"]
+        dd = s["dod_done"]
+        if (
+            unlock.get(sid) == "UNLOCKED"
+            and isinstance(dt, int)
+            and dd < dt
+        ):
+            step_candidates.append({
+                "step": sid,
+                "total": dt,
+                "current_done": dd,
+                "remaining": dt - dd,
+            })
+    if step_candidates:
+        lines.append("| Step | Total | Current Done | Remaining |")
+        lines.append("|------|-------|---------------|-----------|")
+        for c in step_candidates:
+            lines.append(
+                f"| {c['step']} | {c['total']} | {c['current_done']} | {c['remaining']} |"
+            )
+    else:
+        lines.append("(No UNLOCKED steps with remaining work.)")
+    lines.append("")
 
     return "\n".join(lines)
 
