@@ -8,6 +8,7 @@ venv/
 data/
 !data/README.md
 artifacts/
+exports/brief/
 verification/debug_output/
 verification/reports/
 verification/runs/

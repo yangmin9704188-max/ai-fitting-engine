@@ -359,8 +359,13 @@ def update_new_round_registry(
     baselines: Dict[str, Any],
     coverage_backlog_touched: bool,
     baseline_alias: Optional[str] = None
-) -> tuple[Optional[int], str]:
-    """Update new round registry schema using round_registry.py."""
+) -> tuple[Optional[int], str, Optional[str]]:
+    """Update new round registry schema using round_registry.py.
+    
+    Returns:
+        (round_num, round_id, round_md_relpath)
+        round_md_relpath is project_root-relative path (str) or None if cannot compute.
+    """
     from tools.round_registry import update_registry, extract_round_info
     
     # Extract round info
@@ -381,7 +386,65 @@ def update_new_round_registry(
         coverage_backlog_touched=coverage_backlog_touched
     )
     
-    return round_num, round_id
+    # T2) Compute folder-split canonical round md path and ensure stub
+    round_md_relpath: Optional[str] = None
+    if round_num is not None:
+        milestone_id = "M01_baseline"  # Fixed for now
+        lane_slug = lane.replace("/", "_")
+        round_md_dir = project_root / "docs" / "ops" / "rounds" / lane_slug / milestone_id
+        round_md_filename = f"round_{round_num:02d}.md"
+        round_md_path = round_md_dir / round_md_filename
+        round_md_relpath = f"docs/ops/rounds/{lane_slug}/{milestone_id}/{round_md_filename}"
+        
+        # Idempotent stub generation: create only if file does not exist
+        if not round_md_path.exists():
+            try:
+                round_md_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Try to load template
+                stub_content: Optional[str] = None
+                template_candidates = [
+                    project_root / "docs" / "ops" / "rounds" / "ROUND_TEMPLATE.md",
+                    project_root / "docs" / "ops" / "rounds" / "ROUND_TEMPLATE_v1.md",
+                ]
+                for tpl_path in template_candidates:
+                    if tpl_path.exists():
+                        try:
+                            stub_content = tpl_path.read_text(encoding="utf-8")
+                            break
+                        except Exception:
+                            continue
+                
+                # Fallback minimal stub
+                if not stub_content:
+                    stub_content = f"""# Round {round_num}
+
+## Goal
+[라운드 목표를 간단히 기술]
+
+## Changes
+[주요 변경사항을 나열]
+
+## Artifacts
+- **run_dir**: `{str(current_run_dir.relative_to(project_root)).replace(chr(92), '/')}`
+
+## Progress Events (dashboard)
+
+```jsonl
+# (optional) one event per line
+```
+
+## Notes
+[추가 메모]
+"""
+                
+                round_md_path.write_text(stub_content, encoding="utf-8")
+                print(f"Generated round stub: {round_md_relpath}")
+            except Exception as e:
+                print(f"Warning: Failed to create round md stub: {e}", file=sys.stderr)
+                # round_md_relpath remains set; ingest will warn if file missing
+    
+    return round_num, round_id, round_md_relpath
 
 
 def generate_lineage_manifest(
@@ -1535,8 +1598,8 @@ def main():
     except Exception as e:
         print(f"Warning: Failed to update coverage backlog: {e}", file=sys.stderr)
     
-    # Update round registry (new schema) and get round info
-    round_num, round_id = update_new_round_registry(
+    # Update round registry (new schema) and get round info + round md path
+    round_num, round_id, round_md_rel = update_new_round_registry(
         current_run_dir=current_run_dir,
         facts_summary_path=facts_summary_path,
         lane=lane,
@@ -1664,6 +1727,10 @@ def main():
         snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
     )
     
+    if round_md_rel:
+        subprocess.run([sys.executable, str(project_root / "tools" / "ingest_round_progress_events_v0.py"), "--round-path", str(project_root / round_md_rel), "--hub-root", str(project_root)], check=False)
+    else:
+        print("Warning: round_md_rel not available (round_num not detected from run_dir name). Ingest skipped.", file=sys.stderr)
     subprocess.run([sys.executable, str(project_root / "tools" / "render_dashboard_v0.py"), "--hub-root", str(project_root)], check=False)
 
     print("\nPostprocessing complete!")
