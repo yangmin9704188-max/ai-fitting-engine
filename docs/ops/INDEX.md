@@ -2,6 +2,36 @@
 
 **Purpose**: Central index for operational automation, documentation, and registry systems.
 
+## Start Here (Canonical): SSoT Pack v1 + Dashboard
+
+> All operational decisions must use SSoT Pack v1. Legacy docs (`docs/ops/legacy/*`) are history only.
+
+### SSoT Pack v1 (5 Canonical Documents)
+
+| ID | Document | Path |
+|----|----------|------|
+| S1 | Body Module Plan v1 | [`docs/plans/Body_Module_Plan_v1.md`](../plans/Body_Module_Plan_v1.md) |
+| S2 | Fitting Module Plan v1 | [`docs/plans/fitting_module_plan_v1.md`](../plans/fitting_module_plan_v1.md) |
+| S3 | Garment Product Contract v0.9-revC | [`docs/plans/garment_Product Contract v0.9-revC.md`](../plans/garment_Product%20Contract%20v0.9-revC.md) |
+| S4 | Unlock Conditions u1/u2 | [`docs/plans/unlock_conditions_u1_u2.md`](../plans/unlock_conditions_u1_u2.md) |
+| S5 | Phase Plan (Unlock-driven) | [`docs/plans/phase_plan_unlock_driven.md`](../plans/phase_plan_unlock_driven.md) |
+
+- **SSoT Pack Declaration**: [`docs/ssot/SSOT_PACK_v1.md`](../ssot/SSOT_PACK_v1.md)
+
+### Dashboard
+
+- **Project Dashboard** (generated): [`PROJECT_DASHBOARD.md`](PROJECT_DASHBOARD.md)
+- **Dashboard Plan**: [`dashboard/PLAN_v0.yaml`](dashboard/PLAN_v0.yaml)
+- **Export Contract**: [`dashboard/EXPORT_CONTRACT_v0.md`](dashboard/EXPORT_CONTRACT_v0.md)
+- **Lab Sources**: [`dashboard/LAB_SOURCES_v0.yaml`](dashboard/LAB_SOURCES_v0.yaml)
+
+### History
+
+- Legacy documents: [`legacy/`](legacy/) (immutable archive, not decision sources)
+- Legacy index: [`legacy/LEGACY_INDEX.md`](legacy/LEGACY_INDEX.md)
+
+---
+
 ## Architecture v1 Reference
 
 현재 구조 SSoT는 [docs/architecture/LAYERS_v1.md](../../docs/architecture/LAYERS_v1.md)입니다. Architecture v1은 6 layers (Contract → Geometry → Production → Validation → Confidence → Application) + modules (body / garment / fitting) + artifact-only 통신 원칙을 따릅니다. 본 문서의 "5-Layer Organization Principle"은 레거시 인덱싱/분류 용어이며 v1 레이어 체계(6 layers)와 다릅니다.

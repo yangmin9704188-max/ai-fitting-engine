@@ -4,21 +4,21 @@
 
 
 
-\### 📌 Single Source of Truth (SoT)#
+\### 📌 Single Source of Truth (SSoT Pack v1)
 
-모든 전략적 결정과 엔진 아키텍처는 아래 문서를 단일 진실원으로 삼습니다.
+> **All operational decisions must use SSoT Pack v1.** 이 Pack에 명시되지 않은 문서는 근거가 될 수 없다.
 
+| ID | Document | Path |
+|----|----------|------|
+| S1 | Body Module Plan v1 | `docs/plans/Body_Module_Plan_v1.md` |
+| S2 | Fitting Module Plan v1 | `docs/plans/fitting_module_plan_v1.md` |
+| S3 | Garment Product Contract v0.9-revC | `docs/plans/garment_Product Contract v0.9-revC.md` |
+| S4 | Unlock Conditions u1/u2 | `docs/plans/unlock_conditions_u1_u2.md` |
+| S5 | Phase Plan (Unlock-driven) | `docs/plans/phase_plan_unlock_driven.md` |
 
-
-전략 및 마스터 플랜: docs/ops/MASTER\_PLAN.md (v1.2 Refined)
-
-
-
-현재 프로젝트 상태: SYNC\_HUB.md
-
-
-
-로컬 파일 인덱스: SYNC\_HUB\_FILE\_INDEX.md
+- SSoT Pack 선언: `docs/ssot/SSOT_PACK_v1.md`
+- 운영 헌법: `SYNC_HUB.md`
+- 변경 로그: `docs/sync/CURRENT_STATE.md`
 
 
 
@@ -35,7 +35,7 @@
 
 \### 📂 Directory Structure (Map)
 
-전체 구조는 docs/ops/PROJECT\_STRUCTURE.md를 참조하세요.
+전체 구조는 `docs/ops/INDEX.md`를 참조하세요. Legacy 문서는 `docs/ops/legacy/`에서 열람 가능(이력용).
 
 
 

@@ -1,7 +1,13 @@
 # Cursor Rules - AI Fitting Engine
-# Canon Lock Version: 2026-01-29
+# Canon Lock Version: 2026-01-30
 
 "모든 구조적 판단은 docs/ops/DIRECTORY_CHARTER_v1.md를 따른다. Sanctuary 수정 시 반드시 사용자 승인을 득할 것."
+
+> **All operational decisions must use SSoT Pack v1 (docs/ssot/SSOT_PACK_v1.md):**
+> S1 docs/plans/Body_Module_Plan_v1.md | S2 docs/plans/fitting_module_plan_v1.md |
+> S3 docs/plans/garment_Product Contract v0.9-revC.md | S4 docs/plans/unlock_conditions_u1_u2.md |
+> S5 docs/plans/phase_plan_unlock_driven.md
+> Legacy docs (docs/ops/legacy/*) are history only — not decision sources.
 
 ## 1. Golden Sources (SSoT)
 

@@ -11,7 +11,19 @@
 Dashboard는 **렌더 결과물**이며, 사람이 직접 편집하지 않는다.
 진행률 데이터는 각 Lab의 exports 디렉토리에서 수집하여 집계한다 (수집 방식: §5 Bootstrap vs Automated 참조).
 
-### Canonical Sources (경로 참조만)
+### Canonical Sources (SSoT Pack v1)
+
+All milestone/module semantics come from SSoT Pack v1. This file defines export mechanics only (facts-only).
+
+| ID | Document | Path |
+|----|----------|------|
+| S1 | Body Module Plan v1 | `docs/plans/Body_Module_Plan_v1.md` |
+| S2 | Fitting Module Plan v1 | `docs/plans/fitting_module_plan_v1.md` |
+| S3 | Garment Product Contract v0.9-revC | `docs/plans/garment_Product Contract v0.9-revC.md` |
+| S4 | Unlock Conditions u1/u2 | `docs/plans/unlock_conditions_u1_u2.md` |
+| S5 | Phase Plan (Unlock-driven) | `docs/plans/phase_plan_unlock_driven.md` |
+
+### Cross-Module Interface Contracts
 
 - `contracts/interface_ledger_v0.md` — cross-module artifact interface SSoT
 - `contracts/port_readiness_checklist_v0.md` — port safety checklist
