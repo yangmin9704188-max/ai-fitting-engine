@@ -14,16 +14,23 @@ sources:
   # body 모듈은 중앙 Hub(ai_model) 내부에서 직접 관리.
   # body 이벤트는 hub 로컬 PROGRESS_LOG.jsonl에 기록한다.
   hub:
+    root: "C:/Users/caino/Desktop/AI_model"
     progress_log_path: "C:/Users/caino/Desktop/AI_model/exports/progress/PROGRESS_LOG.jsonl"
-    progress_snapshot_path: "TBD_HUB_PATH/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
+    progress_snapshot_path: "C:/Users/caino/Desktop/AI_model/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
     modules: ["body"]
 
   fitting_lab:
-    progress_log_path: "TBD_FITTING_LAB_PATH/exports/progress/PROGRESS_LOG.jsonl"
-    progress_snapshot_path: "TBD_FITTING_LAB_PATH/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
+    root: "C:/Users/caino/Desktop/fitting_lab"
+    progress_log_path: "C:/Users/caino/Desktop/fitting_lab/exports/progress/PROGRESS_LOG.jsonl"
+    progress_snapshot_path: "C:/Users/caino/Desktop/fitting_lab/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
     modules: ["fitting"]
 
   garment_lab:
-    progress_log_path: "TBD_GARMENT_LAB_PATH/exports/progress/PROGRESS_LOG.jsonl"
-    progress_snapshot_path: "TBD_GARMENT_LAB_PATH/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
+    root: "C:/Users/caino/Desktop/garment_lab"
+    progress_log_path: "C:/Users/caino/Desktop/garment_lab/exports/progress/PROGRESS_LOG.jsonl"
+    progress_snapshot_path: "C:/Users/caino/Desktop/garment_lab/exports/progress/PROGRESS_SNAPSHOT.json"  # optional
     modules: ["garment"]
+
+# EXPORT CONTRACT COMPLIANCE
+# - All labs MUST follow EXPORT_CONTRACT_v0.md canonical exports surface.
+# - Hub may write only to exports/brief/** in lab folders.
