@@ -1,0 +1,96 @@
+Strategy: A (move content to docs/legacy/* and leave stub at old_path)
+Rule: Do not update inbound references in Round 4 (rebind happens in Round 5)
+
+
+1) 목적
+
+참조가 남아있는 파일을 정리하면서도 **기존 참조를 깨지 않기 위한 호환 레이어(Stub)**를 제공한다.
+
+2) 범위(LOCKED)
+
+NEEDS-STUB만 처리
+
+SAFE-MOVE/KEEP는 건드리지 않는다.
+
+Sanctuary 변경은 “사유 → 사용자 OK → 실행” 프로토콜 필수(Directory Charter 준수)
+
+3) 전략(둘 중 하나만 택해 ‘전 레포 통일’)
+
+Round 4에서는 아래 전략 중 하나만 전역 규칙으로 선택한다.
+
+Strategy A (권장): “본문 이동 + 원위치 stub”
+
+old_path: stub 파일 유지
+
+new_path: 실제 본문 파일 위치(legacy)
+
+Strategy B: “본문 유지 + 상단 스탬프 + 새 위치에는 링크 인덱스만”
+
+old_path: 본문 유지(최소 변화)
+
+new_path: 이동하지 않음(또는 legacy 인덱스만)
+
+추천: A가 정리 효과는 크지만, stub 생성이 정확해야 한다.
+B는 안전하지만 legacy 폴더가 ‘정리’ 느낌이 덜하다.
+
+4) 저장 위치(정본)
+
+실행 결과 리포트: docs/ops/legacy/STUB_REDIRECT_REPORT_v1.md
+
+LEGACY_INDEX: docs/legacy/LEGACY_INDEX.md (append-only)
+
+5) Stub 템플릿(LOCKED)
+
+원위치 stub는 아래 템플릿을 그대로 사용한다(20줄 내).
+
+STATUS: LEGACY (SUPERSEDED)
+Moved on: 2026-01-30
+New path: <NEW_PATH>
+Replaced by: <SSOT_DOC_OR_SECTION>
+Note: This stub exists to preserve old references. Do not restore content here.
+
+6) 에이전트 출력물: Changeset Report(필수)
+
+STUB_REDIRECT_REPORT_v1.md에는 아래 섹션을 반드시 포함한다.
+
+6.1 Strategy 선언(필수)
+
+Strategy A 또는 B를 명시(혼용 금지)
+
+처리한 NEEDS-STUB 항목 수 명시
+
+6.2 처리 목록 테이블(필수)
+idx	old_path	new_path	strategy	inbound_refs_count	inbound_refs_samples	stub_created	legacy_index_line_added	status
+1	...	...	A/B	5	docs/...#L?, tools/...	YES/NO	YES/NO	DONE
+
+inbound_refs_samples는 1~3개로 제한(폭발 방지)
+
+6.3 사후 검증(필수, facts-only)
+
+Strategy A 기준:
+
+old_path 존재(YES) + stub 내용이 템플릿을 만족(YES/NO)
+
+new_path 존재(YES)
+
+Strategy B 기준:
+
+old_path 존재(YES) + 상단 LEGACY 스탬프 존재(YES/NO)
+
+6.4 금지사항 준수 체크(필수)
+
+ git rm 없음
+
+ SAFE-MOVE/KEEP 미변경
+
+ Sanctuary 변경은 승인 프로토콜 준수(사유/OK 기록 존재)
+
+7) Round 4 완료 조건(DoD)
+
+ STUB_REDIRECT_REPORT_v1.md 생성
+
+ NEEDS-STUB 항목 처리 완료(목표치 달성)
+
+ LEGACY_INDEX에 계보 라인 추가 완료
+
+ 참조 깨짐 없음(추정 금지: “깨짐 여부”는 다음 라운드(검증)에서 확인)
