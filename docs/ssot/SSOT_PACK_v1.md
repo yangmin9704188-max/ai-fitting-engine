@@ -21,11 +21,11 @@ SSoT Pack v1은 AI Fitting Engine 프로젝트에서 “무엇이 근거 문서�
 
 | ID | Document | Canonical Path | Role |
 |---:|---|---|---|
-| S1 | Body Module Plan v1 | docs/plans/body/Body_Module_Plan_v1.md | body 모듈 목표/산출물/범위 |
-| S2 | Fitting Module Plan v1 | docs/plans/fitting/fitting_module_plan_v1.md | fitting 모듈 목표/산출물/범위 |
-| S3 | Garment Product Contract v0.9-revC | docs/plans/garment/garment_Product_Contract_v0.9-revC.md | garment 입력/계약/산출물 |
-| S4 | Unlock Conditions u1/u2 | docs/plans/unlock/unlock_conditions_u1_u2.md | 모듈 간 언락 조건(DoD 기반) |
-| S5 | Phase Plan (Unlock-driven) | docs/plans/phase/phase_plan_unlock_driven.md | 페이즈 구성(언락 기반 병렬) |
+| S1 | Body Module Plan v1 | docs/plans/Body_Module_Plan_v1.md | body 모듈 목표/산출물/범위 |
+| S2 | Fitting Module Plan v1 | docs/plans/fitting_module_plan_v1.md | fitting 모듈 목표/산출물/범위 |
+| S3 | Garment Product Contract v0.9-revC | docs/plans/garment_Product_Contract_v0.9-revC.md | garment 입력/계약/산출물 |
+| S4 | Unlock Conditions u1/u2 | docs/plans/unlock_conditions_u1_u2.md | 모듈 간 언락 조건(DoD 기반) |
+| S5 | Phase Plan (Unlock-driven) | docs/plans/phase_plan_unlock_driven.md | 페이즈 구성(언락 기반 병렬) |
 
 Notes:
 - 위 경로가 아직 존재하지 않거나 파일명이 다르면, **Round 2~4 정리에서 해당 경로로 귀속**한다.
