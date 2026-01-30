@@ -452,7 +452,8 @@ def render_dashboard(
         row_cells = []
         for m in mod_order:
             c = cells.get(m, [])
-            row_cells.append(" , ".join(c) if c else "—")
+            # Use <br> for multiple steps in a cell for better readability
+            row_cells.append("<br>".join(c) if c else "—")
         lines.append(f"| **{pid}** {pname} | {row_cells[0]} | {row_cells[1]} | {row_cells[2]} |")
     lines.append("")
     lines.append("> Cell format: `<step_id>: <done>/<total>`")
@@ -507,6 +508,114 @@ def render_dashboard(
     lines.append("---")
     lines.append("")
 
+    # ── Available Work (UNLOCKED with remaining > 0) ──
+    lines.append("## Available Work (UNLOCKED, remaining > 0)")
+    lines.append("")
+    available_work = []
+    for sid in sorted(steps.keys()):
+        s = steps[sid]
+        dt = s["dod_total"]
+        dd = s["dod_done"]
+        if unlock.get(sid) == "UNLOCKED" and isinstance(dt, int) and dd < dt:
+            remaining = dt - dd
+            ul = ", ".join(s["unlocks"]) if s["unlocks"] else "—"
+            available_work.append({
+                "step_id": sid,
+                "module": s["module"],
+                "name": s["name"],
+                "done": dd,
+                "total": dt,
+                "remaining": remaining,
+                "unlocks": ul,
+            })
+
+    # Sort: Body (Bxx), Fitting (Fxx), Garment (Gxx), ascending
+    def _sort_key_available(item):
+        sid = item["step_id"]
+        if sid.startswith("B"):
+            return (0, sid)
+        elif sid.startswith("F"):
+            return (1, sid)
+        elif sid.startswith("G"):
+            return (2, sid)
+        else:
+            return (3, sid)
+    available_work.sort(key=_sort_key_available)
+
+    if available_work:
+        lines.append("| Step | Module | Name | Done | Total | Remaining | Unlocks |")
+        lines.append("|------|--------|------|------|-------|-----------|---------|")
+        for item in available_work:
+            lines.append(
+                f"| {item['step_id']} | {item['module']} | {item['name']} | "
+                f"{item['done']} | {item['total']} | {item['remaining']} | {item['unlocks']} |"
+            )
+    else:
+        lines.append("(No available work at this time)")
+    lines.append("")
+    lines.append("> Available = UNLOCKED and done < total")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # ── Next Unlock Targets (BLOCKED with exactly 1 incomplete dependency) ──
+    lines.append("## Next Unlock Targets (BLOCKED with exactly 1 incomplete dependency)")
+    lines.append("")
+    next_unlock = []
+    for sid in sorted(steps.keys()):
+        s = steps[sid]
+        if unlock.get(sid, "").startswith("BLOCKED"):
+            # Compute incomplete dependencies
+            incomplete_deps = []
+            for dep_ref in s["depends_on"]:
+                dep_id = dep_ref.split(":")[-1] if ":" in dep_ref else dep_ref
+                dep_step = steps.get(dep_id)
+                if dep_step:
+                    dt = dep_step["dod_total"]
+                    dd = dep_step["dod_done"]
+                    if not isinstance(dt, int) or dd < dt:
+                        incomplete_deps.append((dep_id, dd, dt))
+
+            if len(incomplete_deps) == 1:
+                dep_id, dep_done, dep_total = incomplete_deps[0]
+                dep_total_str = str(dep_total) if isinstance(dep_total, int) else "N/A"
+                next_unlock.append({
+                    "step_id": sid,
+                    "module": s["module"],
+                    "name": s["name"],
+                    "blocking_dep": dep_id,
+                    "blocking_progress": f"{dep_done}/{dep_total_str}",
+                })
+
+    # Sort: Body (Bxx), Fitting (Fxx), Garment (Gxx), ascending
+    def _sort_key_next(item):
+        sid = item["step_id"]
+        if sid.startswith("B"):
+            return (0, sid)
+        elif sid.startswith("F"):
+            return (1, sid)
+        elif sid.startswith("G"):
+            return (2, sid)
+        else:
+            return (3, sid)
+    next_unlock.sort(key=_sort_key_next)
+
+    if next_unlock:
+        lines.append("| Step | Module | Name | Blocking Dependency | Blocking Done/Total |")
+        lines.append("|------|--------|------|---------------------|---------------------|")
+        for item in next_unlock:
+            lines.append(
+                f"| {item['step_id']} | {item['module']} | {item['name']} | "
+                f"{item['blocking_dep']} | {item['blocking_progress']} |"
+            )
+    else:
+        lines.append("(No steps with exactly 1 incomplete dependency)")
+    lines.append("")
+    lines.append("> Next unlock = BLOCKED with exactly 1 incomplete dependency")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
     # ── Warnings ──
     all_warnings = plan_warnings + sources_warnings + event_warnings
     if all_warnings:
@@ -523,8 +632,8 @@ def render_dashboard(
     lines.append("")
     display_events = events[:max_events]
     if display_events:
-        lines.append("| # | Timestamp | Lab | Module | Step | Delta | Evidence Count | Note |")
-        lines.append("|---|-----------|-----|--------|------|-------|----------------|------|")
+        lines.append("| # | Timestamp | Lab | Module | Step | Delta | Evidence Count | Evidence Sample | Note |")
+        lines.append("|---|-----------|-----|--------|------|-------|----------------|-----------------|------|")
         for idx, evt in enumerate(display_events, 1):
             ts = evt.get("ts", "—")
             lab = evt.get("lab", "—")
@@ -533,12 +642,14 @@ def render_dashboard(
             delta = evt.get("dod_done_delta", "—")
             ep = evt.get("evidence_paths", [])
             ep_count = len(ep) if isinstance(ep, list) else "—"
+            # Evidence sample: show first path if available
+            ep_sample = ep[0] if isinstance(ep, list) and len(ep) > 0 else "—"
             note = evt.get("note", "")
-            lines.append(f"| {idx} | {ts} | {lab} | {mod} | {sid} | {delta} | {ep_count} | {note} |")
+            lines.append(f"| {idx} | {ts} | {lab} | {mod} | {sid} | {delta} | {ep_count} | {ep_sample} | {note} |")
     else:
-        lines.append("| # | Timestamp | Lab | Module | Step | Delta | Evidence Count | Note |")
-        lines.append("|---|-----------|-----|--------|------|-------|----------------|------|")
-        lines.append("| — | (no events collected) | | | | | | |")
+        lines.append("| # | Timestamp | Lab | Module | Step | Delta | Evidence Count | Evidence Sample | Note |")
+        lines.append("|---|-----------|-----|--------|------|-------|----------------|-----------------|------|")
+        lines.append("| — | (no events collected) | | | | | | | |")
     lines.append("")
     lines.append(f"> Maximum {max_events} most recent events displayed. Full history in each lab's PROGRESS_LOG.jsonl.")
     lines.append("")
