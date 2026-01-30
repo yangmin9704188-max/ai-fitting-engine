@@ -1664,6 +1664,8 @@ def main():
         snapshot_path=snapshot_path_obj if snapshot_path_obj.exists() else None
     )
     
+    subprocess.run([sys.executable, str(project_root / "tools" / "render_dashboard_v0.py"), "--hub-root", str(project_root)], check=False)
+
     print("\nPostprocessing complete!")
 
 
