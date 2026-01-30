@@ -46,3 +46,13 @@ All fitting outputs (collision detection, drape simulation, fitting results) are
 - [Architecture LAYERS_v1](../../docs/architecture/LAYERS_v1.md)
 - [GUARDRAILS](../../docs/ops/GUARDRAILS.md)
 - [Modules README](../README.md)
+
+Canonical: contracts/interface_ledger_v0.md
+
+Contract: contracts/interface_ledger_v0.md / fitting_interface_v0.md 위치
+
+Output filenames: fitting_summary.json, fitting_facts_summary.json
+
+Version keys: 4키 always, unknown=UNSPECIFIED
+
+Round policy: folder-split RID

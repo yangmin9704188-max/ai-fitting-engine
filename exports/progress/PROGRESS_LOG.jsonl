@@ -1,0 +1,3 @@
+{"ts":"2026-01-29T18:45:57.808415+09:00","lab":"hub","module":"body","step_id":"B01","dod_done_delta":2,"dod_total":3,"evidence_paths":["docs/contract/standard_keys.md","docs/contract/UNIT_STANDARD.md"],"note":"standard keys + unit standard documented"}
+{"ts":"2026-01-29T18:46:11.140769+09:00","lab":"hub","module":"body","step_id":"B01","dod_done_delta":1,"dod_total":3,"evidence_paths":["contract/sizekorea_v2.json"],"note":"contract JSON"}
+{"ts":"2026-01-29T18:46:20.111017+09:00","lab":"hub","module":"body","step_id":"B02","dod_done_delta":1,"dod_total":3,"evidence_paths":["specs/common/geometry_manifest.schema.json"],"rid":"geo_v0_s1__M01_baseline__r01","note":"geometry schema defined"}

@@ -1,3 +1,8 @@
+> ⚠️ STATUS: LEGACY NAMING
+> New rounds use folder-split format: docs/ops/rounds/<lane_slug>/<milestone_id>/round_<NN>.md
+> This file preserved for history.
+---
+
 # Round 68
 
 ## Goal
