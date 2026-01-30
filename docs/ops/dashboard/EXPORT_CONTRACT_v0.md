@@ -30,11 +30,45 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 2. Fixed Paths (고정 경로)
+## 2. Lab Exports Surface (v0, Canonical)
+
+본 프로젝트는 3개 작업 폴더(hub, fitting_lab, garment_lab)가 **동일한 exports 표면**을 가진다.
+대시보드/브리프 자동화는 이 exports 표면만을 읽고/쓴다. (레거시 문서/경로 추론 금지)
+
+### 2.1 Canonical Paths (모든 폴더 공통)
+
+#### A. Progress Log (append-only)
+- Path: `exports/progress/PROGRESS_LOG.jsonl`
+- Mode: **append-only** (기존 라인 수정 금지)
+- Content: 1 line = 1 JSON object (compact single-line)
+- Missing policy: 없으면 생성 가능. 실패 시에도 crash 금지(경고만).
+
+#### B. Work Brief (generated-only)
+- Path: `exports/brief/<MODULE>_WORK_BRIEF.md`
+  - `<MODULE>` ∈ {`BODY`, `FITTING`, `GARMENT`}
+- Mode: **generated-only** (사람/에이전트 수동 편집 금지)
+- Producer: Hub 자동화(브리프 렌더러)가 갱신한다.
+- Missing policy: 폴더 없으면 생성 가능. 실패 시에도 crash 금지(경고만).
+
+### 2.2 Cross-folder Write Boundary (중요)
+
+Hub(AI_model)가 **외부 폴더(fitting_lab, garment_lab)**에 쓸 수 있는 유일한 경로는:
+- `exports/brief/**` 아래로 제한한다.
+
+Progress Log(`exports/progress/PROGRESS_LOG.jsonl`)는 각 폴더에서 자신의 이벤트를 append하는 것이 원칙이며,
+Hub는 기본적으로 읽기만 수행한다. (예외가 필요하면 별도 계약 버전업)
+
+### 2.3 Facts-only
+본 exports 표면은 PASS/FAIL을 포함하지 않는다.
+상태는 UNLOCKED/BLOCKED, remaining DoD count, evidence paths 등 facts-only로만 표현한다.
+
+---
+
+## 3. Fixed Paths (고정 경로)
 
 모든 Lab은 아래 경로 구조를 준수해야 한다.
 
-### 2.1 Required (필수)
+### 3.1 Required (필수)
 
 ```
 <lab_root>/exports/progress/PROGRESS_LOG.jsonl
@@ -45,7 +79,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 - **인코딩**: UTF-8
 - **줄바꿈**: LF (`\n`)
 
-### 2.2 Optional (선택)
+### 3.2 Optional (선택)
 
 ```
 <lab_root>/exports/progress/PROGRESS_SNAPSHOT.json
@@ -55,7 +89,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 - Lab이 자체적으로 생성/갱신 가능
 - 렌더러 구현 시, PROGRESS_LOG.jsonl만으로 동작 가능해야 함 (snapshot 부재 허용)
 
-### 2.3 Release Evidence (선택, 포트 시)
+### 3.3 Release Evidence (선택, 포트 시)
 
 ```
 <lab_root>/exports/releases/<lane>_<YYYYMMDD>_<HHMMSS>/
@@ -68,9 +102,9 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 3. PROGRESS_LOG.jsonl Event Schema
+## 4. PROGRESS_LOG.jsonl Event Schema
 
-### 3.1 Field Definitions
+### 4.1 Field Definitions
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -84,14 +118,14 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 | `rid` | string | No | Round ID. interface_ledger_v0.md §4.3 형식 권장 |
 | `note` | string | No | 자유 형식 메모 (사람 가독용) |
 
-### 3.2 Field Constraints
+### 4.2 Field Constraints
 
 - `dod_done_delta` >= 1 (0 이벤트는 기록하지 않음)
 - `dod_total`은 PLAN_v0.yaml의 해당 step.dod.total과 동일해야 함
 - `evidence_paths`는 최소 1개 경로 포함 (Evidence-first 원칙)
 - `ts`는 시간순 append만 허용 (과거 시점 삽입 금지)
 
-### 3.3 Examples
+### 4.3 Examples
 
 **Example 1**: fitting_lab에서 F01 step의 DoD item 1개 완료
 
@@ -107,11 +141,11 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 4. PROGRESS_SNAPSHOT.json Structure (Optional)
+## 5. PROGRESS_SNAPSHOT.json Structure (Optional)
 
 렌더러 성능 최적화를 위한 선택적 집계 파일.
 
-### 4.1 Schema
+### 5.1 Schema
 
 ```json
 {
@@ -132,7 +166,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 }
 ```
 
-### 4.2 Rules
+### 5.2 Rules
 
 - `dod_done`은 해당 step의 PROGRESS_LOG.jsonl 이벤트에서 `dod_done_delta`를 누적 합산한 값
 - `dod_done` > `dod_total`이 되면 안 됨 (렌더러에서 경고 표시)
@@ -140,7 +174,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 5. Bootstrap vs Required DoD
+## 6. Bootstrap vs Required DoD
 
 ### Mode 1: Bootstrap (현재, 수동 호환)
 
@@ -158,7 +192,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 6. Non-Goals (금지 사항)
+## 7. Non-Goals (금지 사항)
 
 - Dashboard는 **렌더 결과물**이다. 사람이 직접 편집하지 않는다.
 - PROGRESS_LOG.jsonl에 PASS/FAIL 판정을 넣지 않는다 (facts-only).
@@ -168,7 +202,7 @@ All milestone/module semantics come from SSoT Pack v1. This file defines export 
 
 ---
 
-## 7. Helper Tool (optional): append_progress_event_v0
+## 8. Helper Tool (optional): append_progress_event_v0
 
 Canonical path: `tools/append_progress_event_v0.py`
 
@@ -199,7 +233,7 @@ py tools/append_progress_event_v0.py \
 
 ---
 
-## 8. Appendix: File Tree Example
+## 9. Appendix: File Tree Example
 
 ```
 fitting_lab/
